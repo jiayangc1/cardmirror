@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>prosemirror-debate (dev)</title>
+    <link rel="stylesheet" href="/src/editor/style.css" />
+  </head>
+  <body>
+    <main id="app">
+      <header>
+        <h1>prosemirror-debate</h1>
+        <p>v0 dev playground.</p>
+        <p class="hint">
+          Drop a .docx onto the dropzone (or open this page after running
+          <code>npm test</code> to see the schema render).
+        </p>
+        <div class="controls">
+          <input type="file" id="dropzone" accept=".docx" />
+          <button id="export-btn" type="button" disabled>Export to .docx</button>
+        </div>
+      </header>
+      <section id="editor"></section>
+    </main>
+    <script type="module" src="/src/editor/index.ts"></script>
+  </body>
+</html>

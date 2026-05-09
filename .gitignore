@@ -24,3 +24,7 @@ build/
 # Local extracted-template scratch (we extract Debate.dotm to /tmp/, but
 # guard against accidental in-repo extraction)
 /_extracted/
+
+# Vite build output
+dist/
+.vite/

@@ -1,0 +1,183 @@
+/* Minimal default styles for the editor surface. These match Verbatim's
+   canonical style definitions visually (boxes, centering, etc.) so that
+   the editing surface looks like a Verbatim document. Per ARCHITECTURE.md
+   §5, this is the *default* display config — users can override per
+   personal preference (large text, accessibility presets, etc.).
+*/
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Calibri', 'Helvetica Neue', sans-serif;
+  margin: 0;
+  background: #f3f3f3;
+  color: #222;
+}
+
+#app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+header {
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+header h1 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.2rem;
+}
+
+header p {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.hint {
+  font-size: 0.85rem;
+}
+
+code {
+  background: #ececec;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', 'Menlo', monospace;
+}
+
+.controls {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+#editor {
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  min-height: 400px;
+  padding: 2rem;
+  font-family: 'Calibri', sans-serif;
+  font-size: 11pt;
+  line-height: 1.4;
+}
+
+/* ---------------------------------------------- Schema-typed nodes */
+
+/* Pocket = Heading 1 with paragraph borders all four sides (the box). */
+.pmd-pocket {
+  font-size: 26pt;
+  font-weight: bold;
+  text-align: center;
+  border: 3px solid #333;
+  padding: 0.5rem 1rem;
+  margin: 1.5rem 0 0.75rem 0;
+  page-break-before: always;
+}
+
+/* Hat = Heading 2, centered, double underline. */
+.pmd-hat {
+  font-size: 22pt;
+  font-weight: bold;
+  text-align: center;
+  text-decoration: underline double;
+  margin: 1.25rem 0 0.5rem 0;
+}
+
+/* Block = Heading 3, centered, single underline. */
+.pmd-block {
+  font-size: 16pt;
+  font-weight: bold;
+  text-align: center;
+  text-decoration: underline;
+  margin: 1rem 0 0.5rem 0;
+}
+
+/* Tag = Heading 4, bold, larger. */
+.pmd-tag {
+  font-size: 13pt;
+  font-weight: bold;
+  margin: 0.75rem 0 0.25rem 0;
+}
+
+/* Analytic = same outline level as Tag, dark blue. */
+.pmd-analytic {
+  font-size: 13pt;
+  font-weight: bold;
+  color: #1F3864;
+  margin: 0.75rem 0 0.25rem 0;
+}
+
+/* Card body, cite, generic paragraph. */
+.pmd-cite-para,
+.pmd-card-body,
+p {
+  margin: 0.4rem 0;
+}
+
+/* Card container — outline so card boundaries are visible. */
+.pmd-card {
+  border-left: 2px solid transparent;
+  padding-left: 0.5rem;
+}
+
+.pmd-card:hover {
+  border-left-color: #c0c0c0;
+}
+
+/* Undertag = green italic. */
+.pmd-undertag {
+  font-style: italic;
+  color: #385623;
+  font-family: 'Times New Roman', serif;
+  font-size: 12pt;
+}
+
+/* Scratchpad — slightly different background for visibility. */
+.pmd-scratchpad {
+  background: #fffaf0;
+  border-left: 3px solid #f0c060;
+  padding: 0.25rem 0.75rem;
+  margin: 0.5rem 0;
+}
+
+/* ---------------------------------------------- Marks */
+
+.pmd-cite { font-weight: bold; font-size: 13pt; }
+
+.pmd-underline { text-decoration: underline; }
+
+.pmd-emphasis {
+  text-decoration: underline;
+  border: 1px solid #333;
+  padding: 0 2px;
+}
+
+.pmd-undertag-mark { font-style: italic; color: #385623; }
+.pmd-analytic-mark { color: #1F3864; }
+
+mark {
+  background: #ffff66; /* default; data-color overrides via attribute selector */
+}
+mark[data-color="green"] { background: #88ff88; }
+mark[data-color="cyan"] { background: #88ffff; }
+mark[data-color="magenta"] { background: #ff88ff; }
+mark[data-color="blue"] { background: #88aaff; }
+mark[data-color="red"] { background: #ff8888; }
+
+/* ProseMirror selection visibility */
+.ProseMirror:focus { outline: none; }
+
+/* Read-mode hide-class hint (toggle this on the editor root) */
+.pmd-read-mode .pmd-card-body:not(.has-highlighted-text),
+.pmd-read-mode .pmd-undertag,
+.pmd-read-mode .pmd-scratchpad {
+  display: none;
+}
