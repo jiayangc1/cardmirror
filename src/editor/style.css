@@ -121,6 +121,14 @@ code {
 
 /* ---------------------------------------------- Schema-typed nodes */
 
+/* When the nav-panel scrolls a heading into view via scrollIntoView,
+   browsers anchor at the very top of the viewport — under our fixed
+   ribbon. scroll-margin-top reserves that much vertical space above
+   the heading when it's the scroll target. */
+#editor [data-id] {
+  scroll-margin-top: calc(var(--ribbon-height) + 0.5rem);
+}
+
 /* Pocket = Heading 1 with paragraph borders all four sides (the box). */
 .pmd-pocket {
   font-size: 26pt;
