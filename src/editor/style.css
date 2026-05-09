@@ -167,16 +167,16 @@ body {
   background: #ebebeb;
 }
 
-#zoom-slider {
-  width: 110px;
-  cursor: pointer;
-}
-
 #zoom-pct {
   min-width: 3rem;
-  text-align: right;
+  text-align: center;
   font-variant-numeric: tabular-nums;
   color: #555;
+}
+
+.zoom-controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* The editor content is what gets zoomed (not the chrome). CSS `zoom`

@@ -33,7 +33,7 @@ const wordCountBtn = document.getElementById('word-count-btn') as HTMLButtonElem
 const wordCountText = document.getElementById('word-count-text')!;
 const zoomOutBtn = document.getElementById('zoom-out-btn') as HTMLButtonElement;
 const zoomInBtn = document.getElementById('zoom-in-btn') as HTMLButtonElement;
-const zoomSlider = document.getElementById('zoom-slider') as HTMLInputElement;
+const zoomResetBtn = document.getElementById('zoom-reset-btn') as HTMLButtonElement;
 const zoomPct = document.getElementById('zoom-pct')!;
 
 // Module-level state. Declared before the settings subscriber registers
@@ -50,7 +50,7 @@ wordCountBtn.addEventListener('click', () => { if (view) openWordCount(view); })
 // Zoom controls.
 zoomOutBtn.addEventListener('click', () => setZoom(settings.get('zoomPct') - 10));
 zoomInBtn.addEventListener('click', () => setZoom(settings.get('zoomPct') + 10));
-zoomSlider.addEventListener('input', () => setZoom(parseInt(zoomSlider.value, 10)));
+zoomResetBtn.addEventListener('click', () => setZoom(100));
 
 function setZoom(pct: number): void {
   const clamped = Math.max(50, Math.min(200, Math.round(pct / 10) * 10));
@@ -59,8 +59,8 @@ function setZoom(pct: number): void {
 
 function applyZoom(pct: number): void {
   document.documentElement.style.setProperty('--editor-zoom', String(pct / 100));
-  zoomSlider.value = String(pct);
   zoomPct.textContent = `${pct}%`;
+  zoomResetBtn.disabled = pct === 100;
 }
 
 // Apply read-mode visual state and editing lockdown whenever the
@@ -85,8 +85,10 @@ function refreshWordCount(): void {
     : countReadAloudWords(view.state.doc);
 
   const readers = settings.get('readers').slice(0, 2);
-  const label = hasSelection ? 'Selection' : 'Read-aloud';
-  const parts = [`${label}: ${formatNumber(words)} words`];
+  const head = hasSelection
+    ? `Selection: ${formatNumber(words)}`
+    : formatNumber(words);
+  const parts = [head];
   for (const r of readers) {
     parts.push(`${r.name}: ${formatReadTime(words, r.wpm)}`);
   }
