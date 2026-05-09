@@ -23,6 +23,7 @@ body {
 :root {
   --nav-width: 300px;
   --ribbon-height: 4rem;
+  --status-bar-height: 1.8rem;
 }
 
 #ribbon {
@@ -97,9 +98,92 @@ body {
 #app {
   margin-top: var(--ribbon-height);
   margin-left: var(--nav-width);
-  min-height: calc(100vh - var(--ribbon-height));
+  margin-bottom: var(--status-bar-height);
+  min-height: calc(100vh - var(--ribbon-height) - var(--status-bar-height));
   display: flex;
   flex-direction: column;
+}
+
+/* ---------------------------------------------- Status bar */
+
+#status-bar {
+  position: fixed;
+  bottom: 0;
+  left: var(--nav-width);
+  right: 0;
+  height: var(--status-bar-height);
+  background: #f3f3f3;
+  border-top: 1px solid #d0d0d0;
+  display: flex;
+  align-items: center;
+  padding: 0 0.75rem;
+  z-index: 15;
+  font-size: 0.8rem;
+  gap: 1rem;
+  color: #555;
+}
+
+.status-segment {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.status-spacer {
+  flex: 1 1 auto;
+}
+
+#word-count-text {
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.zoom-controls button {
+  font-family: inherit;
+  background: #fff;
+  border: 1px solid #c8c8c8;
+  border-radius: 3px;
+  cursor: pointer;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  font-size: 0.95rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zoom-controls button:hover {
+  background: #ebebeb;
+}
+
+#zoom-slider {
+  width: 110px;
+  cursor: pointer;
+}
+
+#zoom-pct {
+  min-width: 3rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #555;
+}
+
+/* The editor content is what gets zoomed (not the chrome). CSS `zoom`
+   reflows text rather than just scaling pixels, so wrapping behaves
+   like Word's view-zoom. Set via JS based on the persisted setting. */
+#editor {
+  zoom: var(--editor-zoom, 1);
 }
 
 code {
@@ -570,6 +654,11 @@ body.pmd-nav-resize-active {
   padding: 0;
 }
 
+/* Word-count button in the ribbon. */
+#word-count-btn {
+  /* inherits the icon-button look from #ribbon button; nothing extra */
+}
+
 /* Active state for the read-mode button (matches the level-N buttons). */
 #read-mode-btn.pmd-active {
   background: #2563eb;
@@ -741,5 +830,123 @@ body.pmd-nav-resize-active {
   width: 1.1rem;
   height: 1.1rem;
   cursor: pointer;
+}
+
+/* Readers editor (settings) */
+.pmd-readers-editor {
+  margin-top: 0.5rem;
+}
+
+.pmd-readers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.pmd-reader-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pmd-reader-rank {
+  flex: 0 0 1.7rem;
+  font-size: 0.7rem;
+  color: #888;
+  font-weight: 600;
+}
+
+.pmd-reader-name {
+  flex: 1 1 auto;
+  font-family: inherit;
+  font-size: 0.85rem;
+  border: 1px solid #c8c8c8;
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+  min-width: 0;
+}
+
+.pmd-reader-wpm {
+  flex: 0 0 4.5rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  border: 1px solid #c8c8c8;
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+}
+
+.pmd-reader-wpm-label {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.pmd-reader-row button {
+  flex: 0 0 auto;
+  background: #fff;
+  border: 1px solid #c8c8c8;
+  border-radius: 3px;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.pmd-reader-row button:hover:not(:disabled) {
+  background: #ebebeb;
+}
+
+.pmd-reader-row button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pmd-readers-add {
+  background: #fff;
+  border: 1px solid #c8c8c8;
+  border-radius: 3px;
+  padding: 0.2rem 0.6rem;
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.pmd-readers-add:hover {
+  background: #ebebeb;
+}
+
+/* Word Count modal */
+.pmd-wc-scope {
+  margin: 0 0 0.75rem 0;
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.pmd-wc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.pmd-wc-table th,
+.pmd-wc-table td {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid #ececec;
+}
+
+.pmd-wc-table th {
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #666;
+}
+
+.pmd-wc-numeric {
+  font-variant-numeric: tabular-nums;
+  text-align: right !important;
 }
 

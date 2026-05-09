@@ -12,7 +12,7 @@
  */
 
 import type { EditorView } from 'prosemirror-view';
-import type { Node as PMNode } from 'prosemirror-model';
+import { type Node as PMNode, DOMSerializer } from 'prosemirror-model';
 import { NodeSelection, TextSelection } from 'prosemirror-state';
 import { settings } from './settings.js';
 
@@ -77,11 +77,6 @@ export class NavigationPanel {
     this.root.className = 'pmd-nav-panel';
 
     const header = document.createElement('header');
-
-    const title = document.createElement('span');
-    title.className = 'pmd-nav-title';
-    title.textContent = 'Outline';
-    header.appendChild(title);
 
     const levelGroup = document.createElement('div');
     levelGroup.className = 'pmd-nav-level-group';
@@ -345,6 +340,16 @@ export class NavigationPanel {
         label: 'Select heading and contents',
         action: () => this.selectHeadingAndContents(entry),
       },
+      {
+        kind: 'item',
+        label: 'Copy heading and contents',
+        action: () => { void this.copyHeadingAndContents(entry); },
+      },
+      {
+        kind: 'item',
+        label: 'Delete heading and contents',
+        action: () => this.deleteHeadingAndContents(entry),
+      },
       { kind: 'separator' },
       ...[1, 2, 3, 4].map((lvl): ContextMenuItem => ({
         kind: 'item',
@@ -390,69 +395,108 @@ export class NavigationPanel {
   }
 
   /**
-   * Make a ProseMirror selection covering the heading and everything
-   * "below" it in the outline:
+   * Compute the doc range covering a heading and everything "below" it
+   * in the outline. Returns null if it can't be resolved.
    *
-   * - Tag (always inside a card) → NodeSelection on the parent card.
-   * - Analytic inside an analytic_unit → NodeSelection on the unit.
-   * - Analytic inside a card (cite-position) → NodeSelection on the card.
-   * - Pocket / Hat / Block (top-level paragraphs) → TextSelection from
-   *   the heading to just before the next heading at the same or
-   *   shallower level (or end of doc).
+   * - Tag (always inside a card) → the parent card.
+   * - Analytic inside an analytic_unit → the unit.
+   * - Analytic inside a card (cite-position) → the card.
+   * - Pocket / Hat / Block → from the heading to just before the next
+   *   equal-or-shallower heading (or end of doc).
    */
-  private selectHeadingAndContents(entry: HeadingEntry): void {
-    if (!this.view) return;
+  private computeHeadingRange(
+    entry: HeadingEntry,
+  ): { from: number; to: number; useNodeSelection: boolean } | null {
+    if (!this.view) return null;
     const doc = this.view.state.doc;
-
     const $pos = doc.resolve(entry.pos);
     const node = doc.nodeAt(entry.pos);
-    if (!node) return;
-
-    let from: number;
-    let to: number;
-    let useNodeSelection = false;
+    if (!node) return null;
 
     const parentName = $pos.parent.type.name;
     if (entry.type === 'tag') {
-      // Tag's parent is a card. Select the entire card.
-      from = $pos.before();
+      const from = $pos.before();
       const card = doc.nodeAt(from);
-      if (!card) return;
-      to = from + card.nodeSize;
-      useNodeSelection = true;
-    } else if (entry.type === 'analytic' && (parentName === 'analytic_unit' || parentName === 'card')) {
-      // Wrap whatever container the analytic lives in.
-      from = $pos.before();
+      if (!card) return null;
+      return { from, to: from + card.nodeSize, useNodeSelection: true };
+    }
+    if (entry.type === 'analytic' && (parentName === 'analytic_unit' || parentName === 'card')) {
+      const from = $pos.before();
       const wrapper = doc.nodeAt(from);
-      if (!wrapper) return;
-      to = from + wrapper.nodeSize;
-      useNodeSelection = true;
-    } else {
-      // Pocket / Hat / Block: span from this heading to just before the
-      // next equal-or-shallower heading (or end of doc).
-      from = entry.pos;
-      to = doc.content.size;
-      const targetLevel = entry.level;
-      doc.nodesBetween(entry.pos + node.nodeSize, doc.content.size, (n, pos) => {
-        if (to !== doc.content.size) return false;
-        const t = n.type.name;
-        if (t in TYPE_TO_LEVEL && (TYPE_TO_LEVEL[t]!) <= targetLevel) {
-          to = pos;
-          return false;
-        }
-        return true;
-      });
+      if (!wrapper) return null;
+      return { from, to: from + wrapper.nodeSize, useNodeSelection: true };
     }
+    // Pocket / Hat / Block: span from heading → next equal-or-shallower.
+    const from = entry.pos;
+    let to = doc.content.size;
+    const targetLevel = entry.level;
+    doc.nodesBetween(entry.pos + node.nodeSize, doc.content.size, (n, pos) => {
+      if (to !== doc.content.size) return false;
+      const t = n.type.name;
+      if (t in TYPE_TO_LEVEL && (TYPE_TO_LEVEL[t]!) <= targetLevel) {
+        to = pos;
+        return false;
+      }
+      return true;
+    });
+    return { from, to, useNodeSelection: false };
+  }
 
+  private selectHeadingAndContents(entry: HeadingEntry): void {
+    if (!this.view) return;
+    const range = this.computeHeadingRange(entry);
+    if (!range) return;
+    const doc = this.view.state.doc;
     const tr = this.view.state.tr;
-    if (useNodeSelection) {
-      tr.setSelection(NodeSelection.create(doc, from));
-    } else {
-      tr.setSelection(TextSelection.create(doc, from, to));
-    }
+    tr.setSelection(
+      range.useNodeSelection
+        ? NodeSelection.create(doc, range.from)
+        : TextSelection.create(doc, range.from, range.to),
+    );
     tr.scrollIntoView();
     this.view.dispatch(tr);
     this.view.focus();
+  }
+
+  /** Delete the heading and its outline subtree. Undo via Cmd+Z. */
+  private deleteHeadingAndContents(entry: HeadingEntry): void {
+    if (!this.view) return;
+    const range = this.computeHeadingRange(entry);
+    if (!range) return;
+    const tr = this.view.state.tr.delete(range.from, range.to);
+    this.view.dispatch(tr);
+  }
+
+  /**
+   * Copy the heading + subtree to the clipboard as both HTML and plain
+   * text. Doesn't move focus or change the selection.
+   */
+  private async copyHeadingAndContents(entry: HeadingEntry): Promise<void> {
+    if (!this.view) return;
+    const range = this.computeHeadingRange(entry);
+    if (!range) return;
+    const slice = this.view.state.doc.slice(range.from, range.to);
+
+    const serializer = DOMSerializer.fromSchema(this.view.state.schema);
+    const tmp = document.createElement('div');
+    tmp.appendChild(serializer.serializeFragment(slice.content));
+    const html = tmp.innerHTML;
+    const text = slice.content.textBetween(0, slice.content.size, '\n', '\n');
+
+    try {
+      if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': new Blob([html], { type: 'text/html' }),
+            'text/plain': new Blob([text], { type: 'text/plain' }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+    } catch (err) {
+      console.error('copy heading failed:', err);
+    }
   }
 
   /**

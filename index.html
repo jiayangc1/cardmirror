@@ -17,6 +17,7 @@
       </div>
       <div class="ribbon-section ribbon-center">
         <button id="read-mode-btn" type="button" title="Read mode" aria-label="Read mode">👁</button>
+        <button id="word-count-btn" type="button" title="Word Count Selection" aria-label="Word count">Σ</button>
       </div>
       <div class="ribbon-section ribbon-right">
         <button id="settings-btn" type="button" title="Settings" aria-label="Settings">⚙</button>
@@ -26,6 +27,18 @@
     <main id="app">
       <section id="editor"></section>
     </main>
+    <div id="status-bar">
+      <div id="word-count-display" class="status-segment" title="Read-aloud word count and read time">
+        <span id="word-count-text">—</span>
+      </div>
+      <div class="status-spacer"></div>
+      <div class="zoom-controls" title="Zoom">
+        <button id="zoom-out-btn" type="button" aria-label="Zoom out">−</button>
+        <input id="zoom-slider" type="range" min="50" max="200" step="10" value="100" />
+        <button id="zoom-in-btn" type="button" aria-label="Zoom in">+</button>
+        <span id="zoom-pct">100%</span>
+      </div>
+    </div>
     <script type="module" src="/src/editor/index.ts"></script>
   </body>
 </html>

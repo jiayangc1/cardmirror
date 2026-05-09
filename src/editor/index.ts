@@ -19,6 +19,8 @@ import { NavigationPanel } from './nav-panel.js';
 import { openSettings } from './settings-ui.js';
 import { settings } from './settings.js';
 import { readModePlugin } from './read-mode-plugin.js';
+import { openWordCount } from './word-count-ui.js';
+import { countReadAloudWords, formatReadTime, formatNumber } from './word-count.js';
 
 const editorEl = document.getElementById('editor')!;
 const navEl = document.getElementById('nav-panel')!;
@@ -27,6 +29,12 @@ const openBtn = document.getElementById('open-btn') as HTMLButtonElement;
 const exportBtn = document.getElementById('export-btn') as HTMLButtonElement;
 const settingsBtn = document.getElementById('settings-btn') as HTMLButtonElement;
 const readModeBtn = document.getElementById('read-mode-btn') as HTMLButtonElement;
+const wordCountBtn = document.getElementById('word-count-btn') as HTMLButtonElement;
+const wordCountText = document.getElementById('word-count-text')!;
+const zoomOutBtn = document.getElementById('zoom-out-btn') as HTMLButtonElement;
+const zoomInBtn = document.getElementById('zoom-in-btn') as HTMLButtonElement;
+const zoomSlider = document.getElementById('zoom-slider') as HTMLInputElement;
+const zoomPct = document.getElementById('zoom-pct')!;
 
 // Module-level state. Declared before the settings subscriber registers
 // so that `applyReadMode` can read `view` without a temporal-dead-zone
@@ -37,11 +45,53 @@ let currentDoc: PMNode = makeStarterDoc();
 openBtn.addEventListener('click', () => dropzone.click());
 settingsBtn.addEventListener('click', () => openSettings());
 readModeBtn.addEventListener('click', () => settings.set('readMode', !settings.get('readMode')));
+wordCountBtn.addEventListener('click', () => { if (view) openWordCount(view); });
+
+// Zoom controls.
+zoomOutBtn.addEventListener('click', () => setZoom(settings.get('zoomPct') - 10));
+zoomInBtn.addEventListener('click', () => setZoom(settings.get('zoomPct') + 10));
+zoomSlider.addEventListener('input', () => setZoom(parseInt(zoomSlider.value, 10)));
+
+function setZoom(pct: number): void {
+  const clamped = Math.max(50, Math.min(200, Math.round(pct / 10) * 10));
+  settings.set('zoomPct', clamped);
+}
+
+function applyZoom(pct: number): void {
+  document.documentElement.style.setProperty('--editor-zoom', String(pct / 100));
+  zoomSlider.value = String(pct);
+  zoomPct.textContent = `${pct}%`;
+}
 
 // Apply read-mode visual state and editing lockdown whenever the
 // setting changes (and once now to handle the persisted value).
-settings.subscribe((s) => applyReadMode(s.readMode));
+settings.subscribe((s) => {
+  applyReadMode(s.readMode);
+  applyZoom(s.zoomPct);
+  refreshWordCount();
+});
 applyReadMode(settings.get('readMode'));
+applyZoom(settings.get('zoomPct'));
+
+function refreshWordCount(): void {
+  if (!view) {
+    wordCountText.textContent = '—';
+    return;
+  }
+  const sel = view.state.selection;
+  const hasSelection = !sel.empty;
+  const words = hasSelection
+    ? countReadAloudWords(view.state.doc, sel.from, sel.to)
+    : countReadAloudWords(view.state.doc);
+
+  const readers = settings.get('readers').slice(0, 2);
+  const label = hasSelection ? 'Selection' : 'Read-aloud';
+  const parts = [`${label}: ${formatNumber(words)} words`];
+  for (const r of readers) {
+    parts.push(`${r.name}: ${formatReadTime(words, r.wpm)}`);
+  }
+  wordCountText.textContent = parts.join(' · ');
+}
 
 function applyReadMode(on: boolean): void {
   editorEl.classList.toggle('pmd-read-mode', on);
@@ -125,11 +175,14 @@ function mountView(doc: PMNode): void {
         currentDoc = next.doc;
         navPanel.update(next.doc);
       }
+      // Selection or doc change → refresh the word-count strip.
+      refreshWordCount();
     },
   });
   currentDoc = doc;
   navPanel.attach(view);
   exportBtn.disabled = false;
+  refreshWordCount();
 }
 
 dropzone.addEventListener('change', async () => {

@@ -10,6 +10,12 @@
 
 const STORAGE_KEY = 'pmd-settings';
 
+/** Reader profile for read-time estimates: name + words-per-minute. */
+export interface ReaderConfig {
+  name: string;
+  wpm: number;
+}
+
 /** Schema for all editor settings. Add new fields here with sensible defaults. */
 export interface Settings {
   /** Width of the navigation pane in pixels. */
@@ -26,6 +32,14 @@ export interface Settings {
    *  the ones around hidden text). Some users prefer the cleanest look
    *  in read mode regardless of what's emphasized. */
   hideEmphasisBordersInReadMode: boolean;
+  /** Editor zoom level as a percentage (50–200, step 10). */
+  zoomPct: number;
+  /**
+   * Readers used for read-time estimates. The full list shows up in the
+   * Word Count Selection function (Ctrl+F11). The first two readers are
+   * also displayed in the bottom status bar live.
+   */
+  readers: ReaderConfig[];
 }
 
 const DEFAULTS: Settings = {
@@ -34,6 +48,11 @@ const DEFAULTS: Settings = {
   showCitePreview: true,
   readMode: false,
   hideEmphasisBordersInReadMode: false,
+  zoomPct: 100,
+  readers: [
+    { name: 'Reader 1', wpm: 200 },
+    { name: 'Reader 2', wpm: 250 },
+  ],
 };
 
 /**
@@ -45,7 +64,7 @@ export interface SettingMeta {
   label: string;
   description?: string;
   /** Settings UI hint: how should this be rendered? */
-  kind: 'toggle' | 'number' | 'level';
+  kind: 'toggle' | 'number' | 'level' | 'readers';
 }
 
 export const SETTING_METADATA: SettingMeta[] = [
@@ -62,6 +81,13 @@ export const SETTING_METADATA: SettingMeta[] = [
     description:
       'By default, emphasis borders are removed only when the emphasized text is hidden (so empty boxes don’t appear next to highlighted content). Turn this on to strip every emphasis border in read mode, including around highlighted text.',
     kind: 'toggle',
+  },
+  {
+    key: 'readers',
+    label: 'Readers for read-time estimates',
+    description:
+      'Each reader has a name and a words-per-minute rate. The first two are displayed live in the bottom bar; all show up in the Word Count Selection dialog. Add as many as you need.',
+    kind: 'readers',
   },
 ];
 
@@ -146,7 +172,22 @@ function sanitize(s: Settings): Settings {
     showCitePreview: !!s.showCitePreview,
     readMode: !!s.readMode,
     hideEmphasisBordersInReadMode: !!s.hideEmphasisBordersInReadMode,
+    zoomPct: clamp(Math.round(s.zoomPct / 10) * 10, 50, 200),
+    readers: sanitizeReaders(s.readers),
   };
+}
+
+function sanitizeReaders(raw: unknown): ReaderConfig[] {
+  if (!Array.isArray(raw)) return [...DEFAULTS.readers];
+  const out: ReaderConfig[] = [];
+  for (const r of raw) {
+    if (!r || typeof r !== 'object') continue;
+    const name = String((r as ReaderConfig).name ?? '').trim();
+    const wpm = Number((r as ReaderConfig).wpm);
+    if (!name || !Number.isFinite(wpm) || wpm <= 0) continue;
+    out.push({ name, wpm: Math.round(wpm) });
+  }
+  return out.length > 0 ? out : [...DEFAULTS.readers];
 }
 
 function clamp(n: number, lo: number, hi: number): number {
