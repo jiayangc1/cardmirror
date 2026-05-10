@@ -408,6 +408,8 @@ code {
   font-family: 'Calibri', 'Helvetica Neue', sans-serif;
   font-size: 0.85rem;
   z-index: 10;
+  /* The doc map is a navigation surface, not selectable text. */
+  user-select: none;
   /* Flex column: header is fixed-height, list scrolls independently
      inside the panel. The panel itself does not scroll — keeps the
      scrollbar OFF the right edge so it can't cover the resize handle. */

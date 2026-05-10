@@ -279,6 +279,9 @@ export class NavigationPanel {
       }
 
       li.addEventListener('click', () => this.jumpTo(entry));
+      li.addEventListener('dblclick', () => {
+        if (hasChildren) this.toggleCollapsed(entry);
+      });
       li.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         this.openContextMenu(e.clientX, e.clientY, entry);
