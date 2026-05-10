@@ -691,6 +691,10 @@ body.pmd-nav-resize-active {
 .pmd-read-mode .pmd-rm-hide { display: none; }
 .pmd-read-mode .pmd-rm-keep { display: inline; }
 
+/* Images are never read-aloud content — hide them in read mode. */
+.pmd-read-mode img[data-pmd-image],
+.pmd-read-mode .pmd-image-placeholder { display: none; }
+
 /* Ensure exactly one space between consecutive visible chunks. Browser
    whitespace collapsing (white-space: normal default) reduces multiple
    consecutive spaces to one, so this is safe even when the kept text
