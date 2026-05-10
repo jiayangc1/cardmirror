@@ -171,8 +171,10 @@ export const nodes: { [name: string]: NodeSpec } = {
         return ['img', attrs];
       }
 
-      // Placeholder for unsupported formats. Style replicates the
-      // approximate footprint so layout looks roughly right.
+      // Placeholder for unsupported formats. Visual styling lives in
+      // CSS (.pmd-image-placeholder); only per-instance dimensions are
+      // inline so they don't clobber other rules — particularly the
+      // `display: none` read-mode override.
       const sizeStyle = widthPx > 0 && heightPx > 0
         ? `width: ${widthPx}px; height: ${heightPx}px;`
         : 'min-width: 80px; min-height: 80px;';
@@ -189,7 +191,7 @@ export const nodes: { [name: string]: NodeSpec } = {
           'data-alt': alt,
           class: 'pmd-image-placeholder',
           title: alt ? `${label} — ${alt}` : label,
-          style: `display: inline-block; ${sizeStyle} background: #f0f0f0; border: 1px dashed #999; vertical-align: middle; text-align: center; color: #666; font-size: 0.8em; line-height: 1.2; padding: 0.25em; box-sizing: border-box; overflow: hidden;`,
+          style: sizeStyle,
         },
         label,
       ];

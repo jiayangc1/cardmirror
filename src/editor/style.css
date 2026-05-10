@@ -390,6 +390,23 @@ code {
   padding: 0 2px;
 }
 
+/* Placeholder span shown in place of unsupported image formats
+   (EMF / WMF / TIFF). Visual styling lives here so it can be
+   overridden — in particular by the read-mode `display: none` rule. */
+.pmd-image-placeholder {
+  display: inline-block;
+  background: #f0f0f0;
+  border: 1px dashed #999;
+  vertical-align: middle;
+  text-align: center;
+  color: #666;
+  font-size: 0.8em;
+  line-height: 1.2;
+  padding: 0.25em;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
 /* When a body paragraph is shrunk by the font-size-class plugin (the
    inline `font-size: Xpt` on the <p>), pin the named-style mark
    wrappers to their declared sizes via the --pmd-size-* variables.
