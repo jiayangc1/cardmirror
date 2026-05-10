@@ -46,6 +46,12 @@ class EditorDragSurface implements DragSurface {
   private highlightBox: HTMLElement | null = null;
   private dragOriginatedHere = false;
   private editorPointerMoveAttached = false;
+  /** Last known pointer position (cached from a global mousemove
+   *  listener). Used to do an immediate hit-test when the pickup
+   *  modifier activates — without this, the user would have to move
+   *  the mouse before seeing the highlight. */
+  private lastClientX = -1;
+  private lastClientY = -1;
 
   // Subscriptions / cleanups.
   private unsubscribeDrag: (() => void) | null = null;
@@ -54,6 +60,7 @@ class EditorDragSurface implements DragSurface {
   // Bound handlers.
   private boundOnKey = (e: KeyboardEvent) => this.onKey(e);
   private boundOnBlur = () => this.onBlur();
+  private boundOnGlobalMove = (e: MouseEvent) => this.onGlobalMove(e);
   private boundOnHostMove = (e: PointerEvent) => this.onHostPointerMove(e);
   private boundOnHostDown = (e: PointerEvent) => this.onHostPointerDown(e);
   private boundOnDocMove = (e: PointerEvent) => this.onDocPointerMoveDuringDrag(e);
@@ -80,9 +87,15 @@ class EditorDragSurface implements DragSurface {
 
     document.addEventListener('keydown', this.boundOnKey);
     document.addEventListener('keyup', this.boundOnKey);
+    document.addEventListener('mousemove', this.boundOnGlobalMove);
     window.addEventListener('blur', this.boundOnBlur);
     hostEl.addEventListener('pointermove', this.boundOnHostMove);
     hostEl.addEventListener('pointerdown', this.boundOnHostDown);
+  }
+
+  private onGlobalMove(e: MouseEvent): void {
+    this.lastClientX = e.clientX;
+    this.lastClientY = e.clientY;
   }
 
   detach(): void {
@@ -96,6 +109,7 @@ class EditorDragSurface implements DragSurface {
     }
     document.removeEventListener('keydown', this.boundOnKey);
     document.removeEventListener('keyup', this.boundOnKey);
+    document.removeEventListener('mousemove', this.boundOnGlobalMove);
     window.removeEventListener('blur', this.boundOnBlur);
     if (this.host) {
       this.host.removeEventListener('pointermove', this.boundOnHostMove);
@@ -207,7 +221,12 @@ class EditorDragSurface implements DragSurface {
     const nowHeld = this.isPickupModifierEvent(e);
     if (nowHeld === this.pickupModifierHeld) return;
     this.pickupModifierHeld = nowHeld;
-    if (!nowHeld) {
+    if (nowHeld) {
+      // Activated. Run an immediate hit-test from the cached pointer
+      // position so the user sees the highlight without needing to
+      // wiggle the mouse.
+      this.refreshHoverFromCachedPointer();
+    } else {
       this.removeHighlight();
       this.hovered = null;
       // Modifier released mid-drag → cancel the drag.
@@ -216,6 +235,26 @@ class EditorDragSurface implements DragSurface {
       }
     }
     this.applyPickupClass();
+  }
+
+  private refreshHoverFromCachedPointer(): void {
+    if (this.lastClientX < 0 || this.lastClientY < 0) return;
+    if (dragController.isActive()) return;
+    if (!this.host) return;
+    // Only do anything if the cached position is over the editor.
+    const rect = this.host.getBoundingClientRect();
+    if (
+      this.lastClientX < rect.left ||
+      this.lastClientX > rect.right ||
+      this.lastClientY < rect.top ||
+      this.lastClientY > rect.bottom
+    ) {
+      return;
+    }
+    const container = this.findContainerAt(this.lastClientX, this.lastClientY);
+    if (!container) return;
+    this.hovered = container;
+    this.showHighlight(container.from, container.to);
   }
 
   private isPickupModifierEvent(e: KeyboardEvent): boolean {

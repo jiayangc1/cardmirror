@@ -205,6 +205,18 @@ export class NavigationPanel {
         this.renderDropIndicators(session.items[0]!.level);
       } else if (event === 'end') {
         this.removeDropIndicators();
+      } else if (event === 'move') {
+        // Run auto-expand / auto-restore / auto-scroll on every
+        // controller move event, so editor-sourced drags get the same
+        // hover-driven nav-pane behavior as nav-sourced drags. The
+        // nav-source path also triggers this (its setPointer fires
+        // 'move'), but the duplicate work is idempotent.
+        if (!dragController.isActive()) return;
+        const { x, y } = dragController.getPointer();
+        const hovered = this.entryUnderPointer(x, y);
+        this.maybeAutoExpand(hovered);
+        this.maybeRestoreAutoExpanded(hovered);
+        this.maybeAutoScroll(y);
       }
     });
   }
