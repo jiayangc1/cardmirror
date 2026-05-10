@@ -26,6 +26,7 @@ import {
 import { readModePlugin, PMD_READ_MODE_TOGGLE } from './read-mode-plugin.js';
 import { absorbPlugin } from './absorb-plugin.js';
 import { fontSizeClassPlugin } from './font-size-class-plugin.js';
+import { editorDragSurface } from './drag-editor-surface.js';
 import {
   backspaceAtTagStart,
   deleteAtTagEnd,
@@ -228,7 +229,10 @@ function makeStarterDoc(): PMNode {
 }
 
 function mountView(doc: PMNode): void {
-  if (view) view.destroy();
+  if (view) {
+    editorDragSurface.detach();
+    view.destroy();
+  }
   const state = EditorState.create({
     doc,
     schema,
@@ -270,6 +274,10 @@ function mountView(doc: PMNode): void {
   });
   currentDoc = doc;
   navPanel.attach(view);
+  // Editor drop surface — renders drop indicators in the editor when
+  // a nav-pane drag is active, and exposes a hit-test the nav drag
+  // handler queries during pointermove. (Phase 3a.)
+  editorDragSurface.attach(view, editorEl);
   exportBtn.disabled = false;
   // Initial paint: do the heavy update synchronously so the user sees
   // the right thing immediately on doc load.

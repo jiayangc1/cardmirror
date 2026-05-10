@@ -1,0 +1,142 @@
+/**
+ * Shared outline / heading utilities.
+ *
+ * Used by the navigation panel for rendering the outline tree, and by
+ * the drag-and-drop subsystem (nav surface and editor surface) for
+ * computing source ranges and drop slots.
+ */
+
+import type { Node as PMNode } from 'prosemirror-model';
+
+export interface HeadingEntry {
+  /** Schema node type name. */
+  type: string;
+  /** Heading text content (can be empty). */
+  text: string;
+  /** Document position of the heading-anchored node — for tag and
+   *  in-card analytic this is the head's pos, not the wrapping
+   *  card's pos. Use computeHeadingRange to get the wrapping range. */
+  pos: number;
+  /** Outline level (1 = Pocket, 2 = Hat, 3 = Block, 4 = Tag/Analytic). */
+  level: number;
+  /** Stable schema id (for keying / drag tracking / scroll target). */
+  id: string | null;
+  /** Cite-formatted text from the same card (only for tag entries). */
+  cite: string | null;
+}
+
+export const TYPE_TO_LEVEL: Record<string, number> = {
+  pocket: 1,
+  hat: 2,
+  block: 3,
+  tag: 4,
+  analytic: 4,
+};
+
+export const TYPE_LABEL: Record<string, string> = {
+  pocket: 'Pocket',
+  hat: 'Hat',
+  block: 'Block',
+  tag: 'Tag',
+  analytic: 'Analytic',
+};
+
+/**
+ * Walk the doc and produce a flat list of heading entries in document
+ * order. Heading-anchored nodes (pocket/hat/block/tag/analytic) get
+ * an entry; other content does not.
+ */
+export function collectHeadings(doc: PMNode): HeadingEntry[] {
+  const out: HeadingEntry[] = [];
+  doc.descendants((node, pos) => {
+    const type = node.type.name;
+    if (type in TYPE_TO_LEVEL) {
+      const level = TYPE_TO_LEVEL[type]!;
+      let cite: string | null = null;
+      if (type === 'tag') {
+        const $pos = doc.resolve(pos);
+        const card = $pos.parent;
+        if (card.type.name === 'card') {
+          cite = collectCiteText(card);
+        }
+      }
+      out.push({
+        type,
+        text: node.textContent,
+        pos,
+        level,
+        id: typeof node.attrs['id'] === 'string' && node.attrs['id'] ? node.attrs['id'] : null,
+        cite: cite && cite.trim() !== '' ? cite.trim() : null,
+      });
+    }
+    return true;
+  });
+  return out;
+}
+
+/**
+ * Compute the doc range that should move as a unit when dragging this
+ * entry — and the kind of selection that targets that range.
+ *
+ *  - Tag (always inside a card)        → the parent card.
+ *  - Analytic inside an analytic_unit  → the unit.
+ *  - Analytic inside a card            → the card (cite-position alt).
+ *  - Pocket / Hat / Block              → from the heading to just
+ *                                        before the next equal-or-
+ *                                        shallower heading (or end of
+ *                                        doc).
+ *
+ * Returns null if anything resolves unexpectedly.
+ */
+export function computeHeadingRange(
+  doc: PMNode,
+  entry: HeadingEntry,
+): { from: number; to: number; useNodeSelection: boolean } | null {
+  const $pos = doc.resolve(entry.pos);
+  const node = doc.nodeAt(entry.pos);
+  if (!node) return null;
+
+  const parentName = $pos.parent.type.name;
+  if (entry.type === 'tag') {
+    const from = $pos.before();
+    const card = doc.nodeAt(from);
+    if (!card) return null;
+    return { from, to: from + card.nodeSize, useNodeSelection: true };
+  }
+  if (entry.type === 'analytic' && (parentName === 'analytic_unit' || parentName === 'card')) {
+    const from = $pos.before();
+    const wrapper = doc.nodeAt(from);
+    if (!wrapper) return null;
+    return { from, to: from + wrapper.nodeSize, useNodeSelection: true };
+  }
+  // Pocket / Hat / Block: span heading → next equal-or-shallower.
+  const from = entry.pos;
+  let to = doc.content.size;
+  const targetLevel = entry.level;
+  doc.nodesBetween(entry.pos + node.nodeSize, doc.content.size, (n, pos) => {
+    if (to !== doc.content.size) return false;
+    const t = n.type.name;
+    if (t in TYPE_TO_LEVEL && TYPE_TO_LEVEL[t]! <= targetLevel) {
+      to = pos;
+      return false;
+    }
+    return true;
+  });
+  return { from, to, useNodeSelection: false };
+}
+
+/** Concatenate the text of all runs in a node that carry the cite_mark. */
+function collectCiteText(node: PMNode): string {
+  const parts: string[] = [];
+  node.descendants((descendant) => {
+    if (!descendant.isText) return;
+    if (descendant.marks.some((m) => m.type.name === 'cite_mark')) {
+      parts.push(descendant.text ?? '');
+    }
+  });
+  return fixAmpersandSpacing(parts.join(''));
+}
+
+function fixAmpersandSpacing(s: string): string {
+  return s.replace(/(^|\s)&(\S)/g, '$1& $2');
+}

@@ -16,37 +16,13 @@ import { type Node as PMNode, DOMSerializer } from 'prosemirror-model';
 import { NodeSelection, TextSelection } from 'prosemirror-state';
 import { settings } from './settings.js';
 import { dragController, type DragItem } from './drag-controller.js';
-
-interface HeadingEntry {
-  /** Schema node type name. */
-  type: string;
-  /** Heading text content (can be empty). */
-  text: string;
-  /** Document position to jump to when clicked. */
-  pos: number;
-  /** Outline level (1 = Pocket, 2 = Hat, 3 = Block, 4 = Tag/Analytic). */
-  level: number;
-  /** Stable schema id (for keying / future drag/etc). */
-  id: string | null;
-  /** Cite-formatted text from the same card (only for tag entries). */
-  cite: string | null;
-}
-
-const TYPE_TO_LEVEL: Record<string, number> = {
-  pocket: 1,
-  hat: 2,
-  block: 3,
-  tag: 4,
-  analytic: 4,
-};
-
-const TYPE_LABEL: Record<string, string> = {
-  pocket: 'Pocket',
-  hat: 'Hat',
-  block: 'Block',
-  tag: 'Tag',
-  analytic: 'Analytic',
-};
+import { editorDragSurface } from './drag-editor-surface.js';
+import {
+  collectHeadings,
+  computeHeadingRange,
+  TYPE_LABEL,
+  type HeadingEntry,
+} from './headings.js';
 
 const NAV_WIDTH_MIN = 150;
 const NAV_WIDTH_MAX = 800;
@@ -599,9 +575,10 @@ export class NavigationPanel {
     dragController.begin({ view: this.view, items });
 
     // Drop targets are filtered by the dragged level. With multi-
-    // select all items have the same type (and thus the same level),
+    // select all items have the same level (selection is level-locked),
     // so any of them works.
     this.renderDropIndicators(items[0]!.level);
+    editorDragSurface.renderIndicators(items[0]!.level);
     this.createPickupPill(items);
 
     // Mark all dragged source <li>s.
@@ -633,6 +610,7 @@ export class NavigationPanel {
     this.autoExpanded.clear();
 
     this.removeDropIndicators();
+    editorDragSurface.removeIndicators();
     this.removePickupPill();
     // Clear dragging class from every <li> that had it (multi-drag
     // can mark several at once).
@@ -720,13 +698,10 @@ export class NavigationPanel {
     const session = dragController.getSession();
     if (!session) return;
 
-    let best: { el: HTMLElement; dy: number; insertPos: number } | null = null;
-
+    // 1. Hit-test nav-pane indicators.
+    let navBest: { el: HTMLElement; dy: number; insertPos: number } | null = null;
     for (const indicator of this.dropIndicators) {
       const insertPos = parseInt(indicator.dataset['insertPos'] ?? '-1', 10);
-      // Suppress drop-on-self: a strict-interior position inside any
-      // source range. Boundary positions (= item.from / item.to) are
-      // valid drop slots — they're meaningful for multi-item drag.
       const onSelf = session.items.some(
         (it) => insertPos > it.from && insertPos < it.to,
       );
@@ -734,29 +709,49 @@ export class NavigationPanel {
         indicator.classList.remove('pmd-nav-drop-indicator-active');
         continue;
       }
-
       const rect = indicator.getBoundingClientRect();
-      // Roughly: same horizontal column, vertically nearest center.
       const inX = clientX >= rect.left - 8 && clientX <= rect.right + 8;
       if (!inX) continue;
       const center = (rect.top + rect.bottom) / 2;
       const dy = Math.abs(clientY - center);
-      if (dy > 24) continue; // tolerance window
-      if (!best || dy < best.dy) {
-        best = { el: indicator, dy, insertPos };
-      }
+      if (dy > 24) continue;
+      if (!navBest || dy < navBest.dy) navBest = { el: indicator, dy, insertPos };
     }
 
+    // 2. Hit-test the editor surface.
+    const editorHit = editorDragSurface.hitTest(clientX, clientY);
+
+    // 3. Pick the better hit overall. If both surfaces hit, the closer
+    //    one (smaller dy) wins; this naturally resolves the case
+    //    where the pointer is over the divider between surfaces.
+    let winningSurface: 'nav' | 'editor' | null = null;
+    if (navBest && editorHit) {
+      winningSurface = navBest.dy <= editorHit.dy ? 'nav' : 'editor';
+    } else if (navBest) {
+      winningSurface = 'nav';
+    } else if (editorHit) {
+      winningSurface = 'editor';
+    }
+
+    // 4. Apply highlights.
     for (const indicator of this.dropIndicators) {
       indicator.classList.toggle(
         'pmd-nav-drop-indicator-active',
-        best ? indicator === best.el : false,
+        winningSurface === 'nav' && navBest !== null && indicator === navBest.el,
       );
     }
-
-    dragController.setHoverTarget(
-      best ? { view: this.view, insertPos: best.insertPos } : null,
+    editorDragSurface.highlight(
+      winningSurface === 'editor' && editorHit ? editorHit.el : null,
     );
+
+    // 5. Set the controller's hover target.
+    if (winningSurface === 'nav' && navBest) {
+      dragController.setHoverTarget({ view: this.view, insertPos: navBest.insertPos });
+    } else if (winningSurface === 'editor' && editorHit) {
+      dragController.setHoverTarget({ view: this.view, insertPos: editorHit.insertPos });
+    } else {
+      dragController.setHoverTarget(null);
+    }
   }
 
   private maybeAutoExpand(hoveredEntry: HeadingEntry | null): void {
@@ -1018,38 +1013,7 @@ export class NavigationPanel {
     entry: HeadingEntry,
   ): { from: number; to: number; useNodeSelection: boolean } | null {
     if (!this.view) return null;
-    const doc = this.view.state.doc;
-    const $pos = doc.resolve(entry.pos);
-    const node = doc.nodeAt(entry.pos);
-    if (!node) return null;
-
-    const parentName = $pos.parent.type.name;
-    if (entry.type === 'tag') {
-      const from = $pos.before();
-      const card = doc.nodeAt(from);
-      if (!card) return null;
-      return { from, to: from + card.nodeSize, useNodeSelection: true };
-    }
-    if (entry.type === 'analytic' && (parentName === 'analytic_unit' || parentName === 'card')) {
-      const from = $pos.before();
-      const wrapper = doc.nodeAt(from);
-      if (!wrapper) return null;
-      return { from, to: from + wrapper.nodeSize, useNodeSelection: true };
-    }
-    // Pocket / Hat / Block: span from heading → next equal-or-shallower.
-    const from = entry.pos;
-    let to = doc.content.size;
-    const targetLevel = entry.level;
-    doc.nodesBetween(entry.pos + node.nodeSize, doc.content.size, (n, pos) => {
-      if (to !== doc.content.size) return false;
-      const t = n.type.name;
-      if (t in TYPE_TO_LEVEL && (TYPE_TO_LEVEL[t]!) <= targetLevel) {
-        to = pos;
-        return false;
-      }
-      return true;
-    });
-    return { from, to, useNodeSelection: false };
+    return computeHeadingRange(this.view.state.doc, entry);
   }
 
   private selectHeadingAndContents(entry: HeadingEntry): void {
@@ -1192,60 +1156,3 @@ function cssEscape(s: string): string {
   return s.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`);
 }
 
-function collectHeadings(doc: PMNode): HeadingEntry[] {
-  const out: HeadingEntry[] = [];
-  doc.descendants((node, pos) => {
-    const type = node.type.name;
-    if (type in TYPE_TO_LEVEL) {
-      const level = TYPE_TO_LEVEL[type]!;
-      let cite: string | null = null;
-      if (type === 'tag') {
-        // The tag's parent is a card. Walk the card's descendants for
-        // text that carries the cite_mark mark (Style13ptBold) — that's
-        // the bolded author/date in the citation.
-        const $pos = doc.resolve(pos);
-        const card = $pos.parent;
-        if (card.type.name === 'card') {
-          cite = collectCiteText(card);
-        }
-      }
-      out.push({
-        type,
-        text: node.textContent,
-        pos,
-        level,
-        id: typeof node.attrs['id'] === 'string' ? node.attrs['id'] : null,
-        cite: cite && cite.trim() !== '' ? cite.trim() : null,
-      });
-    }
-    return true;
-  });
-  return out;
-}
-
-/** Concatenate the text of all runs in a node that carry the cite_mark. */
-function collectCiteText(node: PMNode): string {
-  const parts: string[] = [];
-  node.descendants((descendant) => {
-    if (!descendant.isText) return;
-    if (descendant.marks.some((m) => m.type.name === 'cite_mark')) {
-      parts.push(descendant.text ?? '');
-    }
-  });
-  return fixAmpersandSpacing(parts.join(''));
-}
-
-/**
- * "Author1 & Author2" cites occasionally come through as "Author1 &Author2"
- * when the cite_mark in the source doc spans the ampersand and the second
- * author's name without including the trailing space. Restore a space so
- * the preview reads naturally.
- *
- * The rule: a free-standing ampersand (whitespace before, non-whitespace
- * after) gets a space inserted after it. This leaves embedded ampersands
- * in organization names alone — `AT&T`, `R&D`, etc. — because they're
- * preceded by a non-whitespace character.
- */
-function fixAmpersandSpacing(s: string): string {
-  return s.replace(/(^|\s)&(\S)/g, '$1& $2');
-}

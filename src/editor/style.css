@@ -619,6 +619,30 @@ body.pmd-nav-resize-active {
   box-shadow: 0 0 0 1px rgba(40, 103, 216, 0.25);
 }
 
+/* Drop indicator in the editor surface — shown only while a nav-pane
+   drag is active. Same blue line treatment as the nav indicator,
+   spanning the editor's content width. */
+.pmd-editor-drop-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.pmd-editor-drop-indicator-active::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: -1px;
+  height: 2px;
+  background: #2867d8;
+  border-radius: 1px;
+  box-shadow: 0 0 0 1px rgba(40, 103, 216, 0.25);
+}
+
 /* Pickup pill: floats at the cursor while dragging. */
 .pmd-nav-pickup-pill {
   position: fixed;
