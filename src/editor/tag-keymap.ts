@@ -425,3 +425,63 @@ export const enterAtTagEnd: Command = (state, dispatch) => {
   dispatch(tr.scrollIntoView());
   return true;
 };
+
+const HEADING_TYPES = new Set(['pocket', 'hat', 'block']);
+
+/**
+ * Enter inside a Pocket / Hat / Block. Two cases:
+ *   - At end of heading: insert a Normal paragraph immediately after,
+ *     cursor moves into it. (Default ProseMirror would create a Pocket
+ *     because Pocket is the first textblock in the doc's content
+ *     alternation.)
+ *   - Anywhere else (start or middle): split — the pre-cursor content
+ *     becomes a new heading of the same type inserted before, the
+ *     post-cursor content remains in the original heading. Cursor
+ *     stays at the start of the post-cursor side.
+ *
+ * The same-type-split rule means a Hat splits into two Hats, a Block
+ * into two Blocks, a Pocket into two Pockets — never the wrong type.
+ */
+export const enterInHeading: Command = (state, dispatch) => {
+  if (!state.selection.empty) return false;
+  const { $from } = state.selection;
+  if (!HEADING_TYPES.has($from.parent.type.name)) return false;
+
+  const heading = $from.parent;
+  const cursorOffset = $from.parentOffset;
+  const headingDepth = $from.depth;
+
+  if (cursorOffset === heading.content.size) {
+    if (!dispatch) return true;
+    const para = schema.nodes['paragraph']!.createAndFill();
+    if (!para) return false;
+    const insertPos = $from.after(headingDepth);
+    let tr = state.tr.insert(insertPos, para);
+    tr = tr.setSelection(TextSelection.create(tr.doc, insertPos + 1));
+    dispatch(tr.scrollIntoView());
+    return true;
+  }
+
+  // At start or middle: split into two same-type headings.
+  if (!dispatch) return true;
+  const preContent = heading.content.cut(0, cursorOffset);
+  const postContent = heading.content.cut(cursorOffset);
+  const newHeading = heading.type.createChecked(
+    { id: newHeadingId() },
+    preContent,
+  );
+
+  let tr = state.tr;
+  // 1. Replace original heading's content with post-cursor.
+  tr = tr.replaceWith($from.start(headingDepth), $from.end(headingDepth), postContent);
+  // 2. Insert new heading before the original.
+  const insertPos = tr.mapping.map($from.before(headingDepth));
+  tr = tr.insert(insertPos, newHeading);
+  // 3. Cursor at start of the (post-cursor) original heading content.
+  //    assoc=-1 keeps the position at the boundary rather than past
+  //    the inserted new heading.
+  const cursorPos = tr.mapping.map($from.start(headingDepth), -1);
+  tr = tr.setSelection(TextSelection.create(tr.doc, cursorPos));
+  dispatch(tr.scrollIntoView());
+  return true;
+};

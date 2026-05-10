@@ -31,6 +31,7 @@ import {
   deleteAtTagEnd,
   enterMidTag,
   enterAtTagEnd,
+  enterInHeading,
 } from './tag-keymap.js';
 import { openWordCount } from './word-count-ui.js';
 import { countReadAloudWords, formatReadTime, formatNumber } from './word-count.js';
@@ -242,7 +243,8 @@ function mountView(doc: PMNode): void {
         Delete: deleteAtTagEnd,
         Enter: (state, dispatch, view) =>
           enterAtTagEnd(state, dispatch, view) ||
-          enterMidTag(state, dispatch, view),
+          enterMidTag(state, dispatch, view) ||
+          enterInHeading(state, dispatch, view),
       }),
       keymap(baseKeymap),
       readModePlugin,

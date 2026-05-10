@@ -12,6 +12,7 @@ import {
   deleteAtTagEnd,
   enterMidTag,
   enterAtTagEnd,
+  enterInHeading,
 } from '../../src/editor/tag-keymap.js';
 
 // ---- Doc-building helpers ----
@@ -446,6 +447,127 @@ describe('enterAtTagEnd', () => {
     expect(card.child(1).textContent).toBe(''); // new empty body, ABOVE undertag
     expect(card.child(2).type.name).toBe('undertag');
     expect(card.child(3).type.name).toBe('card_body');
+  });
+});
+
+// ----- Enter in Pocket / Hat / Block -----
+
+describe('enterInHeading', () => {
+  function hat(text: string) {
+    return schema.nodes['hat']!.create({ id: newHeadingId() }, schema.text(text));
+  }
+  function pocket(text: string) {
+    return schema.nodes['pocket']!.create({ id: newHeadingId() }, schema.text(text));
+  }
+
+  function findHeadingStart(d: ReturnType<typeof makeDoc>, typeName: string, n = 0): number {
+    let count = 0;
+    let pos = -1;
+    d.descendants((node, p) => {
+      if (node.type.name === typeName) {
+        if (count === n) pos = p + 1;
+        count++;
+      }
+      return true;
+    });
+    if (pos < 0) throw new Error(`${typeName} #${n} not found`);
+    return pos;
+  }
+
+  function findHeadingEnd(d: ReturnType<typeof makeDoc>, typeName: string, n = 0): number {
+    let count = 0;
+    let pos = -1;
+    d.descendants((node, p) => {
+      if (node.type.name === typeName) {
+        if (count === n) pos = p + 1 + node.content.size;
+        count++;
+      }
+      return true;
+    });
+    if (pos < 0) throw new Error(`${typeName} #${n} not found`);
+    return pos;
+  }
+
+  it('Enter at end of Hat creates a Normal paragraph after', () => {
+    const doc = makeDoc([block('Section'), hat('A hat')]);
+    const state = stateWithCursor(doc, findHeadingEnd(doc, 'hat'));
+    const next = apply(state, enterInHeading);
+    expect(next).not.toBe(null);
+    expect(next!.doc.childCount).toBe(3);
+    expect(next!.doc.child(2).type.name).toBe('paragraph');
+    expect(next!.doc.child(2).textContent).toBe('');
+    // Cursor should be inside the new paragraph.
+    expect(next!.selection.$from.parent.type.name).toBe('paragraph');
+  });
+
+  it('Enter at end of Block creates a Normal paragraph after', () => {
+    const doc = makeDoc([block('A block')]);
+    const state = stateWithCursor(doc, findHeadingEnd(doc, 'block'));
+    const next = apply(state, enterInHeading);
+    expect(next).not.toBe(null);
+    expect(next!.doc.childCount).toBe(2);
+    expect(next!.doc.child(1).type.name).toBe('paragraph');
+  });
+
+  it('Enter at end of Pocket creates a Normal paragraph after', () => {
+    const doc = makeDoc([pocket('A pocket')]);
+    const state = stateWithCursor(doc, findHeadingEnd(doc, 'pocket'));
+    const next = apply(state, enterInHeading);
+    expect(next).not.toBe(null);
+    expect(next!.doc.childCount).toBe(2);
+    expect(next!.doc.child(1).type.name).toBe('paragraph');
+  });
+
+  it('Enter at start of Hat creates an empty Hat above (same type)', () => {
+    const doc = makeDoc([hat('A hat')]);
+    const state = stateWithCursor(doc, findHeadingStart(doc, 'hat'));
+    const next = apply(state, enterInHeading);
+    expect(next).not.toBe(null);
+    expect(next!.doc.childCount).toBe(2);
+    expect(next!.doc.child(0).type.name).toBe('hat');
+    expect(next!.doc.child(0).textContent).toBe('');
+    expect(next!.doc.child(1).type.name).toBe('hat');
+    expect(next!.doc.child(1).textContent).toBe('A hat');
+  });
+
+  it('Enter at start of Block creates an empty Block above (same type)', () => {
+    const doc = makeDoc([block('A block')]);
+    const state = stateWithCursor(doc, findHeadingStart(doc, 'block'));
+    const next = apply(state, enterInHeading);
+    expect(next).not.toBe(null);
+    expect(next!.doc.childCount).toBe(2);
+    expect(next!.doc.child(0).type.name).toBe('block');
+    expect(next!.doc.child(0).textContent).toBe('');
+    expect(next!.doc.child(1).type.name).toBe('block');
+  });
+
+  it('Enter mid-Hat splits into two Hats', () => {
+    const doc = makeDoc([hat('AB')]);
+    const state = stateWithCursor(doc, findHeadingStart(doc, 'hat') + 1);
+    const next = apply(state, enterInHeading);
+    expect(next).not.toBe(null);
+    expect(next!.doc.childCount).toBe(2);
+    expect(next!.doc.child(0).type.name).toBe('hat');
+    expect(next!.doc.child(0).textContent).toBe('A');
+    expect(next!.doc.child(1).type.name).toBe('hat');
+    expect(next!.doc.child(1).textContent).toBe('B');
+  });
+
+  it('Enter mid-Hat places cursor at start of post-cursor heading', () => {
+    const doc = makeDoc([hat('AB')]);
+    const state = stateWithCursor(doc, findHeadingStart(doc, 'hat') + 1);
+    const next = apply(state, enterInHeading);
+    expect(next).not.toBe(null);
+    const sel = next!.selection;
+    expect(sel.$from.parent.type.name).toBe('hat');
+    expect(sel.$from.parent.textContent).toBe('B');
+    expect(sel.$from.parentOffset).toBe(0);
+  });
+
+  it('does not apply when cursor is not in a heading', () => {
+    const doc = makeDoc([cardTagOnly('Tag')]);
+    const state = stateWithCursor(doc, findTagStart(doc));
+    expect(apply(state, enterInHeading)).toBe(null);
   });
 });
 
