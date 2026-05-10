@@ -19,7 +19,7 @@ describe('schema', () => {
   });
 
   it('exposes all direct-formatting marks', () => {
-    for (const name of ['bold', 'italic', 'link', 'highlight', 'font_color', 'font_size', 'shading']) {
+    for (const name of ['bold', 'italic', 'link', 'highlight', 'font_color', 'font_size', 'font_family', 'shading']) {
       expect(schema.marks[name], `mark "${name}" should be defined`).toBeDefined();
     }
   });
@@ -223,6 +223,13 @@ describe('marks', () => {
     ]);
     const json = text.toJSON();
     expect(json).toBeDefined();
+  });
+
+  it('font_family stores a font name', () => {
+    const text = schema.text('Arial text', [
+      schema.marks['font_family']!.create({ name: 'Arial' }),
+    ]);
+    expect(text.marks[0]!.attrs['name']).toBe('Arial');
   });
 
   it('font_size uses half-points like OOXML', () => {

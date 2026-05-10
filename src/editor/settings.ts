@@ -58,6 +58,33 @@ const DEFAULT_DISPLAY_SIZES: DisplaySizes = {
   undertag: 12,
 };
 
+/**
+ * Per-style typography flags. Mirrors the boolean side of Verbatim's
+ * Styles tab — whether each named style is bold, italic, underlined,
+ * boxed, plus the box thickness. Each flag becomes a class toggle on
+ * `#editor` (e.g. `pmd-emphasis-bold`); CSS rules predicated on the
+ * class enable the typography. Default values match Verbatim's
+ * defaults, except `emphasisBox` (defaulting to true here to match the
+ * existing always-on box rendering).
+ */
+export interface DisplayTypography {
+  citeUnderlined: boolean;
+  underlineBold: boolean;
+  emphasisBold: boolean;
+  emphasisItalic: boolean;
+  emphasisBox: boolean;
+  emphasisBoxSize: number; // pt
+}
+
+const DEFAULT_DISPLAY_TYPOGRAPHY: DisplayTypography = {
+  citeUnderlined: false,
+  underlineBold: false,
+  emphasisBold: true,
+  emphasisItalic: false,
+  emphasisBox: true,
+  emphasisBoxSize: 1,
+};
+
 /** Schema for all editor settings. Add new fields here with sensible defaults. */
 export interface Settings {
   /** Width of the navigation pane in pixels. */
@@ -87,6 +114,21 @@ export interface Settings {
    * Each field becomes a CSS custom property on `#editor`.
    */
   displaySizes: DisplaySizes;
+  /**
+   * Per-style typography flags (bold/italic/underlined/box). See
+   * DisplayTypography. Each becomes a class toggle on `#editor`.
+   */
+  displayTypography: DisplayTypography;
+  /**
+   * Body font family. Mirrors Verbatim's NormalFont. Applied as a CSS
+   * custom property on `#editor`; rendered with sans-serif fallback.
+   */
+  bodyFont: string;
+  /**
+   * Global line-height multiplier (unitless). Mirrors Verbatim's
+   * Spacing setting (Wide=1.4ish, Narrow=1.15ish). Range 1.0–2.0.
+   */
+  lineHeight: number;
 }
 
 const DEFAULTS: Settings = {
@@ -101,6 +143,9 @@ const DEFAULTS: Settings = {
     { name: 'Reader 2', wpm: 250 },
   ],
   displaySizes: { ...DEFAULT_DISPLAY_SIZES },
+  displayTypography: { ...DEFAULT_DISPLAY_TYPOGRAPHY },
+  bodyFont: 'Calibri',
+  lineHeight: 1.4,
 };
 
 /**
@@ -112,7 +157,15 @@ export interface SettingMeta {
   label: string;
   description?: string;
   /** Settings UI hint: how should this be rendered? */
-  kind: 'toggle' | 'number' | 'level' | 'readers' | 'displaySizes';
+  kind:
+    | 'toggle'
+    | 'number'
+    | 'level'
+    | 'readers'
+    | 'displaySizes'
+    | 'displayTypography'
+    | 'bodyFont'
+    | 'lineHeight';
 }
 
 export const SETTING_METADATA: SettingMeta[] = [
@@ -143,6 +196,27 @@ export const SETTING_METADATA: SettingMeta[] = [
     description:
       "Render size for each named style. Doesn't change the underlying doc — only how it looks here. Verbatim's defaults: Pocket 26, Hat 22, Block 16, Tag 13, Cite 13, Underline 11, Emphasis 11.",
     kind: 'displaySizes',
+  },
+  {
+    key: 'displayTypography',
+    label: 'Style typography',
+    description:
+      'Bold / italic / underline / box decorations for the named styles, plus the box thickness for Emphasis. Mirrors Verbatim\'s Styles tab toggles.',
+    kind: 'displayTypography',
+  },
+  {
+    key: 'bodyFont',
+    label: 'Body font',
+    description:
+      "Font family for body text. Pick the font your team's docs use — Calibri matches Verbatim's default.",
+    kind: 'bodyFont',
+  },
+  {
+    key: 'lineHeight',
+    label: 'Line height',
+    description:
+      'Vertical spacing between lines, as a multiplier of font size. Verbatim ships Wide (~1.4) and Narrow (~1.15); pick anything in between for finer control.',
+    kind: 'lineHeight',
   },
 ];
 
@@ -230,7 +304,41 @@ function sanitize(s: Settings): Settings {
     zoomPct: clamp(Math.round(s.zoomPct / 10) * 10, 50, 200),
     readers: sanitizeReaders(s.readers),
     displaySizes: sanitizeDisplaySizes(s.displaySizes),
+    displayTypography: sanitizeDisplayTypography(s.displayTypography),
+    bodyFont: sanitizeBodyFont(s.bodyFont),
+    lineHeight: clamp(
+      Number.isFinite(s.lineHeight) ? Math.round(s.lineHeight * 20) / 20 : 1.4,
+      1.0,
+      2.0,
+    ),
   };
+}
+
+function sanitizeBodyFont(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULTS.bodyFont;
+  // Strip any quotes or commas — bodyFont must be a single font-family
+  // name. A previous iteration accepted free-form input, so a stale
+  // persisted value might contain `"Calibri", sans-serif` or similar.
+  const cleaned = raw.replace(/["',]/g, '').trim();
+  return cleaned || DEFAULTS.bodyFont;
+}
+
+function sanitizeDisplayTypography(raw: unknown): DisplayTypography {
+  const out = { ...DEFAULT_DISPLAY_TYPOGRAPHY };
+  if (!raw || typeof raw !== 'object') return out;
+  const r = raw as Partial<Record<keyof DisplayTypography, unknown>>;
+  out.citeUnderlined = !!r.citeUnderlined;
+  out.underlineBold = !!r.underlineBold;
+  out.emphasisBold = r.emphasisBold === undefined
+    ? DEFAULT_DISPLAY_TYPOGRAPHY.emphasisBold : !!r.emphasisBold;
+  out.emphasisItalic = !!r.emphasisItalic;
+  out.emphasisBox = r.emphasisBox === undefined
+    ? DEFAULT_DISPLAY_TYPOGRAPHY.emphasisBox : !!r.emphasisBox;
+  const bs = Number(r.emphasisBoxSize);
+  if (Number.isFinite(bs) && bs > 0 && bs <= 12) {
+    out.emphasisBoxSize = Math.round(bs * 4) / 4; // quarter-pt precision
+  }
+  return out;
 }
 
 function sanitizeDisplaySizes(raw: unknown): DisplaySizes {

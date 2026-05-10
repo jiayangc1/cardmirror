@@ -207,13 +207,20 @@ code {
   --pmd-size-emphasis: 11pt;
   --pmd-size-undertag: 12pt;
 
+  /* Emphasis box thickness (settings.displayTypography.emphasisBoxSize),
+     body font family (settings.bodyFont), and global line-height
+     multiplier (settings.lineHeight). All updated at runtime. */
+  --pmd-emphasis-box-size: 1pt;
+  --pmd-body-font: "Calibri";
+  --pmd-line-height: 1.4;
+
   background: #fff;
   flex: 1 1 auto;
   min-height: 400px;
   padding: 0.75rem 1.25rem;
-  font-family: 'Calibri', sans-serif;
+  font-family: var(--pmd-body-font), 'Helvetica Neue', sans-serif;
   font-size: var(--pmd-size-normal);
-  line-height: 1.4;
+  line-height: var(--pmd-line-height);
 }
 
 /* ---------------------------------------------- Schema-typed nodes */
@@ -340,11 +347,10 @@ code {
   text-decoration: underline;
 }
 
-/* Emphasis: underline + character border ("the box"). */
+/* Emphasis: underline by default; bold/italic/box decorations are
+   gated by typography-flag classes on #editor (see below). */
 .pmd-emphasis {
   text-decoration: underline;
-  border: 1px solid #333;
-  padding: 0 2px;
 }
 
 /* UndertagChar (inline form): green italic. */
@@ -357,6 +363,31 @@ code {
 .pmd-analytic-mark {
   font-weight: bold;
   color: #1F3864;
+}
+
+/* Per-style typography flags (settings.displayTypography). Each flag
+   adds a class to #editor; the predicated rules below activate the
+   corresponding decoration. */
+
+#editor.pmd-cite-underlined .pmd-cite {
+  text-decoration: underline;
+}
+
+#editor.pmd-underline-bold .pmd-underline {
+  font-weight: bold;
+}
+
+#editor.pmd-emphasis-bold .pmd-emphasis {
+  font-weight: bold;
+}
+
+#editor.pmd-emphasis-italic .pmd-emphasis {
+  font-style: italic;
+}
+
+#editor.pmd-emphasis-box .pmd-emphasis {
+  border: var(--pmd-emphasis-box-size) solid #333;
+  padding: 0 2px;
 }
 
 /* When a body paragraph is shrunk by the font-size-class plugin (the
@@ -684,14 +715,17 @@ body.pmd-nav-resize-active {
    scattered through the body. Spans that wrap highlighted text keep
    their box.
    Requires `:has()` (Chrome 105+, Firefox 121+, Safari 15.4+). */
-.pmd-read-mode .pmd-emphasis:not(:has(.pmd-rm-keep)) {
+/* The #editor prefix bumps specificity above the emphasis-box rule
+   `#editor.pmd-emphasis-box .pmd-emphasis`, so this override actually
+   wins when both apply. */
+#editor.pmd-read-mode .pmd-emphasis:not(:has(.pmd-rm-keep)) {
   border: none;
   padding: 0;
 }
 
 /* Optional setting: strip ALL emphasis borders in read mode. Activated
    when the editor root carries `pmd-rm-no-emphasis-borders`. */
-.pmd-read-mode.pmd-rm-no-emphasis-borders .pmd-emphasis {
+#editor.pmd-read-mode.pmd-rm-no-emphasis-borders .pmd-emphasis {
   border: none;
   padding: 0;
 }
@@ -875,6 +909,77 @@ body.pmd-nav-resize-active {
 }
 
 /* Readers editor (settings) */
+.pmd-typography-editor {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.pmd-typography-flag-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.pmd-typography-size-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+.pmd-typography-size-input {
+  flex: 0 0 4rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  border: 1px solid #c8c8c8;
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+  text-align: right;
+}
+
+.pmd-typography-unit {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.pmd-body-font-editor,
+.pmd-line-height-editor {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pmd-body-font-select {
+  flex: 1 1 auto;
+  font-family: inherit;
+  font-size: 0.85rem;
+  border: 1px solid #c8c8c8;
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+  background: #fff;
+}
+
+.pmd-line-height-input {
+  flex: 0 0 5rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  border: 1px solid #c8c8c8;
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+  text-align: right;
+}
+
+.pmd-line-height-unit {
+  font-size: 0.75rem;
+  color: #666;
+}
+
 .pmd-display-sizes-editor {
   margin-top: 0.5rem;
   display: grid;

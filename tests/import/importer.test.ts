@@ -271,6 +271,26 @@ describe('importer — marks from rPr', () => {
     expect(sh!.attrs['color']).toBe('D2D2D2');
   });
 
+  it('extracts font_family from <w:rFonts> (prefers w:ascii)', () => {
+    const marks = importInline('<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>');
+    const ff = marks.find((m) => m.type.name === 'font_family');
+    expect(ff).toBeDefined();
+    expect(ff!.attrs['name']).toBe('Arial');
+  });
+
+  it('font_family falls back to w:hAnsi when w:ascii is missing', () => {
+    const marks = importInline('<w:rFonts w:hAnsi="Times New Roman"/>');
+    const ff = marks.find((m) => m.type.name === 'font_family');
+    expect(ff).toBeDefined();
+    expect(ff!.attrs['name']).toBe('Times New Roman');
+  });
+
+  it('font_family is dropped when no font name is present', () => {
+    const marks = importInline('<w:rFonts/>');
+    const ff = marks.find((m) => m.type.name === 'font_family');
+    expect(ff).toBeUndefined();
+  });
+
   it('does not double-count underline when both rStyle="StyleUnderline" and <w:u/> are present', () => {
     const marks = importInline('<w:rStyle w:val="StyleUnderline"/><w:u w:val="single"/>');
     const count = marks.filter((m) => m.type.name === 'underline_mark').length;

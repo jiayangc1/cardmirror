@@ -14,7 +14,39 @@ import {
   type SettingMeta,
   type ReaderConfig,
   type DisplaySizes,
+  type DisplayTypography,
 } from './settings.js';
+import { isFontAvailable } from './font-detect.js';
+
+/**
+ * Available body fonts. A mix of Microsoft Office defaults (likely
+ * installed on Windows / Mac with Office), open-source Linux-friendly
+ * alternatives (Liberation, DejaVu, Noto), and CSS generic categories
+ * (always available). Fonts not installed on the user's system fall
+ * back to the next item in the CSS font-family chain.
+ */
+const COMMON_FONTS = [
+  // Microsoft Office defaults
+  'Calibri',
+  'Cambria',
+  'Times New Roman',
+  'Arial',
+  'Georgia',
+  'Verdana',
+  // Apple defaults
+  'Helvetica',
+  // Open-source Linux/cross-platform
+  'Liberation Serif',
+  'Liberation Sans',
+  'DejaVu Serif',
+  'DejaVu Sans',
+  'Noto Serif',
+  'Noto Sans',
+  // CSS generic categories (always available, browser picks system default)
+  'serif',
+  'sans-serif',
+  'monospace',
+];
 
 /** Human-readable label for each display-size key. */
 const DISPLAY_SIZE_LABELS: Record<keyof DisplaySizes, string> = {
@@ -138,11 +170,188 @@ class SettingsModal {
       row.appendChild(text);
       row.appendChild(buildDisplaySizesEditor());
       return row;
+    } else if (meta.kind === 'displayTypography') {
+      row.appendChild(text);
+      row.appendChild(buildTypographyEditor());
+      return row;
+    } else if (meta.kind === 'bodyFont') {
+      row.appendChild(text);
+      row.appendChild(buildBodyFontEditor());
+      return row;
+    } else if (meta.kind === 'lineHeight') {
+      row.appendChild(text);
+      row.appendChild(buildLineHeightEditor());
+      return row;
     }
 
     row.appendChild(label);
     return row;
   }
+}
+
+function buildTypographyEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-typography-editor';
+
+  function flagRow(
+    key: keyof DisplayTypography,
+    labelText: string,
+  ): HTMLElement {
+    const row = document.createElement('label');
+    row.className = 'pmd-typography-flag-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!settings.get('displayTypography')[key];
+    cb.addEventListener('change', () => {
+      settings.set('displayTypography', {
+        ...settings.get('displayTypography'),
+        [key]: cb.checked,
+      });
+    });
+    row.appendChild(cb);
+    const lbl = document.createElement('span');
+    lbl.textContent = labelText;
+    row.appendChild(lbl);
+    return row;
+  }
+
+  wrap.appendChild(flagRow('citeUnderlined', 'Cite: underlined'));
+  wrap.appendChild(flagRow('underlineBold', 'Underline: bold'));
+  wrap.appendChild(flagRow('emphasisBold', 'Emphasis: bold'));
+  wrap.appendChild(flagRow('emphasisItalic', 'Emphasis: italic'));
+  wrap.appendChild(flagRow('emphasisBox', 'Emphasis: boxed'));
+
+  const sizeRow = document.createElement('label');
+  sizeRow.className = 'pmd-typography-size-row';
+  const sizeLbl = document.createElement('span');
+  sizeLbl.textContent = 'Emphasis box thickness:';
+  sizeRow.appendChild(sizeLbl);
+  const sizeInput = document.createElement('input');
+  sizeInput.type = 'number';
+  sizeInput.className = 'pmd-typography-size-input';
+  sizeInput.min = '0.25';
+  sizeInput.max = '12';
+  sizeInput.step = '0.25';
+  sizeInput.value = String(settings.get('displayTypography').emphasisBoxSize);
+  sizeInput.addEventListener('change', () => {
+    const v = parseFloat(sizeInput.value);
+    if (!Number.isFinite(v) || v <= 0) {
+      sizeInput.value = String(settings.get('displayTypography').emphasisBoxSize);
+      return;
+    }
+    settings.set('displayTypography', {
+      ...settings.get('displayTypography'),
+      emphasisBoxSize: v,
+    });
+  });
+  sizeRow.appendChild(sizeInput);
+  const unit = document.createElement('span');
+  unit.className = 'pmd-typography-unit';
+  unit.textContent = 'pt';
+  sizeRow.appendChild(unit);
+  wrap.appendChild(sizeRow);
+
+  // Re-render input values if settings change elsewhere.
+  const unsubscribe = settings.subscribe(() => {
+    const t = settings.get('displayTypography');
+    sizeInput.value = String(t.emphasisBoxSize);
+    // Sync checkboxes
+    const checkboxes = wrap.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+    const flagKeys: (keyof DisplayTypography)[] = [
+      'citeUnderlined', 'underlineBold', 'emphasisBold', 'emphasisItalic', 'emphasisBox',
+    ];
+    flagKeys.forEach((k, i) => {
+      const cb = checkboxes[i];
+      if (cb) cb.checked = !!t[k];
+    });
+  });
+  wrap.addEventListener('DOMNodeRemoved', () => unsubscribe());
+
+  return wrap;
+}
+
+function buildBodyFontEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-body-font-editor';
+
+  const select = document.createElement('select');
+  select.className = 'pmd-body-font-select';
+
+  function populate(): void {
+    select.innerHTML = '';
+    const current = settings.get('bodyFont');
+    // Filter to fonts that are actually installed (or that we can't
+    // detect — generics always pass). Always include the user's
+    // current selection even if it's not detected, so a saved-but-
+    // unavailable font is still visible & re-selectable.
+    const available = COMMON_FONTS.filter(isFontAvailable);
+    const options = available.includes(current)
+      ? available
+      : [current, ...available];
+    for (const font of options) {
+      const opt = document.createElement('option');
+      opt.value = font;
+      opt.textContent = font;
+      // Render each option in the font itself so the user can preview
+      // before committing. Generic CSS keywords (serif, sans-serif,
+      // monospace) must NOT be quoted; named fonts must be.
+      const isGeneric = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui'].includes(font);
+      opt.style.fontFamily = isGeneric ? font : `"${font}", sans-serif`;
+      if (font === current) opt.selected = true;
+      select.appendChild(opt);
+    }
+  }
+
+  populate();
+
+  select.addEventListener('change', () => {
+    settings.set('bodyFont', select.value);
+  });
+
+  wrap.appendChild(select);
+
+  const unsubscribe = settings.subscribe(() => {
+    if (select.value !== settings.get('bodyFont')) populate();
+  });
+  wrap.addEventListener('DOMNodeRemoved', () => unsubscribe());
+
+  return wrap;
+}
+
+function buildLineHeightEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-line-height-editor';
+
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.className = 'pmd-line-height-input';
+  input.min = '1.0';
+  input.max = '2.0';
+  input.step = '0.05';
+  input.value = String(settings.get('lineHeight'));
+  input.addEventListener('change', () => {
+    const v = parseFloat(input.value);
+    if (!Number.isFinite(v)) {
+      input.value = String(settings.get('lineHeight'));
+      return;
+    }
+    settings.set('lineHeight', v);
+  });
+  wrap.appendChild(input);
+
+  const unit = document.createElement('span');
+  unit.className = 'pmd-line-height-unit';
+  unit.textContent = '× font size';
+  wrap.appendChild(unit);
+
+  const unsubscribe = settings.subscribe(() => {
+    if (document.activeElement !== input) {
+      input.value = String(settings.get('lineHeight'));
+    }
+  });
+  wrap.addEventListener('DOMNodeRemoved', () => unsubscribe());
+
+  return wrap;
 }
 
 function buildDisplaySizesEditor(): HTMLElement {

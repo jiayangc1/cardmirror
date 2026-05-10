@@ -203,6 +203,40 @@ export const marks: { [name: string]: MarkSpec } = {
     },
   },
 
+  /**
+   * Per-run font family override. Round-trips to OOXML `<w:rFonts>`
+   * (importer reads w:ascii / w:hAnsi / w:cs; exporter emits all three
+   * to the same value). Intentionally NOT rendered in the editor — the
+   * mark is data-only, with a span wrapper carrying a `data-font-family`
+   * attribute. The body font (settings.bodyFont) governs how the editor
+   * renders. Round-trip preserves the user's per-run font overrides
+   * verbatim regardless.
+   */
+  font_family: {
+    inclusive: true,
+    attrs: {
+      name: {
+        default: '',
+        validate: (v: unknown) => typeof v === 'string',
+      },
+    },
+    parseDOM: [
+      {
+        tag: 'span[data-font-family]',
+        getAttrs: (dom: HTMLElement) => ({
+          name: dom.getAttribute('data-font-family') ?? '',
+        }),
+      },
+    ],
+    toDOM: (mark) => [
+      'span',
+      {
+        'data-font-family': String(mark.attrs['name'] ?? ''),
+      },
+      0,
+    ],
+  },
+
   shading: {
     inclusive: true,
     attrs: {

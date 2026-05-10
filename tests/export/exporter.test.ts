@@ -218,6 +218,16 @@ describe('exporter — marks → rPr', () => {
     expect(xml).toContain('<w:shd w:val="clear" w:color="auto" w:fill="D2D2D2"/>');
   });
 
+  it('emits font_family as <w:rFonts> across ascii / hAnsi / cs', () => {
+    const xml = emitInline([schema.marks['font_family']!.create({ name: 'Arial' })]);
+    expect(xml).toContain('<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>');
+  });
+
+  it('emits font_family with multi-word fonts (e.g. "Times New Roman")', () => {
+    const xml = emitInline([schema.marks['font_family']!.create({ name: 'Times New Roman' })]);
+    expect(xml).toContain('<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>');
+  });
+
   it('combines multiple marks correctly', () => {
     const xml = emitInline([
       schema.marks['underline_mark']!.create(),

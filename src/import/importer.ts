@@ -272,7 +272,18 @@ function parseRPr(rPr: XmlNode): ParsedRPr {
         }
         break;
       }
-      // Other rPr props (rFonts, lang, vertAlign, etc.) — drop.
+      case 'w:rFonts': {
+        // Per-run font override. Prefer w:ascii (the primary attribute
+        // for English text); fall back to hAnsi or cs if ascii isn't
+        // set. We store one font name; the exporter emits it across
+        // all three attributes on round-trip.
+        const name = a['w:ascii'] || a['w:hAnsi'] || a['w:cs'] || '';
+        if (name) {
+          marks.push(schema.marks['font_family']!.create({ name }));
+        }
+        break;
+      }
+      // Other rPr props (lang, vertAlign, etc.) — drop.
     }
   }
 

@@ -17,7 +17,12 @@ import { schema, newHeadingId } from '../schema/index.js';
 import { fromDocx, toDocx } from '../index.js';
 import { NavigationPanel } from './nav-panel.js';
 import { openSettings } from './settings-ui.js';
-import { settings, DISPLAY_SIZE_KEYS, type DisplaySizes } from './settings.js';
+import {
+  settings,
+  DISPLAY_SIZE_KEYS,
+  type DisplaySizes,
+  type DisplayTypography,
+} from './settings.js';
 import { readModePlugin } from './read-mode-plugin.js';
 import { absorbPlugin } from './absorb-plugin.js';
 import { fontSizeClassPlugin } from './font-size-class-plugin.js';
@@ -76,17 +81,58 @@ function applyDisplaySizes(sizes: DisplaySizes): void {
   }
 }
 
+/**
+ * Push typography flags onto `#editor` as classes (predicated CSS) and
+ * as a CSS custom property for the box thickness. Each boolean either
+ * adds or removes a class; CSS rules selector-gated on those classes
+ * apply the corresponding decoration.
+ */
+function applyDisplayTypography(t: DisplayTypography): void {
+  editorEl.classList.toggle('pmd-cite-underlined', t.citeUnderlined);
+  editorEl.classList.toggle('pmd-underline-bold', t.underlineBold);
+  editorEl.classList.toggle('pmd-emphasis-bold', t.emphasisBold);
+  editorEl.classList.toggle('pmd-emphasis-italic', t.emphasisItalic);
+  editorEl.classList.toggle('pmd-emphasis-box', t.emphasisBox);
+  editorEl.style.setProperty('--pmd-emphasis-box-size', `${t.emphasisBoxSize}pt`);
+}
+
+/** CSS generic font categories — always available, picked by the
+ *  browser per system. Don't quote these; quotes would turn them into
+ *  literal font names that don't exist. */
+const GENERIC_FONT_KEYWORDS = new Set([
+  'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui',
+]);
+
+function applyBodyFont(font: string): void {
+  // Set font-family as an inline style directly. Quoted form for named
+  // fonts (handles spaces and avoids ambiguity with CSS keywords);
+  // unquoted form for generic categories. Inline style on #editor wins
+  // over the stylesheet rule and inherits to all descendants.
+  const head = GENERIC_FONT_KEYWORDS.has(font) ? font : `"${font}"`;
+  editorEl.style.fontFamily = `${head}, 'Helvetica Neue', sans-serif`;
+}
+
+function applyLineHeight(multiplier: number): void {
+  editorEl.style.setProperty('--pmd-line-height', String(multiplier));
+}
+
 // Apply read-mode visual state and editing lockdown whenever the
 // setting changes (and once now to handle the persisted value).
 settings.subscribe((s) => {
   applyReadMode(s.readMode);
   applyZoom(s.zoomPct);
   applyDisplaySizes(s.displaySizes);
+  applyDisplayTypography(s.displayTypography);
+  applyBodyFont(s.bodyFont);
+  applyLineHeight(s.lineHeight);
   refreshWordCount();
 });
 applyReadMode(settings.get('readMode'));
 applyZoom(settings.get('zoomPct'));
 applyDisplaySizes(settings.get('displaySizes'));
+applyDisplayTypography(settings.get('displayTypography'));
+applyBodyFont(settings.get('bodyFont'));
+applyLineHeight(settings.get('lineHeight'));
 
 function refreshWordCount(): void {
   if (!view) {

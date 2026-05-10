@@ -155,6 +155,21 @@ class DocxExporter {
       if (styleId) props.push(emptyEl('w:rStyle', { 'w:val': styleId }));
     }
 
+    const fontFamilyMark = marks.find((m) => m.type.name === 'font_family');
+    if (fontFamilyMark) {
+      const name = String(fontFamilyMark.attrs['name'] ?? '');
+      if (name) {
+        // Set ascii / hAnsi / cs to the same value. East Asian and
+        // other script-specific attributes are uncommon in debate docs;
+        // we omit them and let Word fall back to its defaults.
+        props.push(emptyEl('w:rFonts', {
+          'w:ascii': name,
+          'w:hAnsi': name,
+          'w:cs': name,
+        }));
+      }
+    }
+
     if (marks.some((m) => m.type.name === 'bold')) {
       props.push('<w:b/>');
     }
