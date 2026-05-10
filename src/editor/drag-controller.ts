@@ -53,12 +53,31 @@ export interface DropTarget {
 type DragEvent = 'begin' | 'move' | 'end';
 type Listener = (event: DragEvent) => void;
 
+/**
+ * A drop-target surface (nav pane, editor surface, eventually
+ * other-document panes). Surfaces register at attach time; the
+ * controller queries each on every pointermove during a drag and
+ * picks the closest hit.
+ */
+export interface DragSurface {
+  /** Test whether the pointer is over a drop slot owned by this
+   *  surface. Return null when not. */
+  hitTest(clientX: number, clientY: number):
+    | { el: HTMLElement; insertPos: number; dy: number }
+    | null;
+  /** Highlight the given indicator element (or none). The controller
+   *  passes the winner across all surfaces; losing surfaces receive
+   *  `null` and should clear their highlight. */
+  highlight(el: HTMLElement | null): void;
+}
+
 class DragControllerImpl {
   private session: DragSession | null = null;
   private hoverTarget: DropTarget | null = null;
   private pointerX = 0;
   private pointerY = 0;
   private listeners: Set<Listener> = new Set();
+  private surfaces: Set<DragSurface> = new Set();
 
   isActive(): boolean {
     return this.session !== null;
@@ -137,6 +156,37 @@ class DragControllerImpl {
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+
+  registerSurface(surface: DragSurface): () => void {
+    this.surfaces.add(surface);
+    return () => this.surfaces.delete(surface);
+  }
+
+  /**
+   * Query every registered surface for a hit, pick the closest, and
+   * apply the result: highlight the winner's indicator, clear losing
+   * surfaces, set the controller's hover target. Used by drag-source
+   * pointermove handlers to keep all surfaces consistent.
+   */
+  dispatchHit(clientX: number, clientY: number): void {
+    if (!this.session) return;
+    let winner:
+      | { surface: DragSurface; el: HTMLElement; insertPos: number; dy: number }
+      | null = null;
+    for (const surface of this.surfaces) {
+      const hit = surface.hitTest(clientX, clientY);
+      if (!hit) continue;
+      if (!winner || hit.dy < winner.dy) winner = { ...hit, surface };
+    }
+    for (const surface of this.surfaces) {
+      surface.highlight(winner && winner.surface === surface ? winner.el : null);
+    }
+    if (winner) {
+      this.setHoverTarget({ view: this.session.view, insertPos: winner.insertPos });
+    } else {
+      this.setHoverTarget(null);
+    }
   }
 
   private notify(event: DragEvent): void {

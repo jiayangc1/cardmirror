@@ -15,8 +15,7 @@ import type { EditorView } from 'prosemirror-view';
 import { type Node as PMNode, DOMSerializer } from 'prosemirror-model';
 import { NodeSelection, TextSelection } from 'prosemirror-state';
 import { settings } from './settings.js';
-import { dragController, type DragItem } from './drag-controller.js';
-import { editorDragSurface } from './drag-editor-surface.js';
+import { dragController, type DragItem, type DragSurface } from './drag-controller.js';
 import {
   collectHeadings,
   computeHeadingRange,
@@ -44,6 +43,8 @@ export class NavigationPanel {
   private collapsed: Set<string> = new Set();
   private levelButtons: HTMLButtonElement[] = [];
   private unsubscribeSettings: (() => void) | null = null;
+  private unsubscribeDrag: (() => void) | null = null;
+  private unregisterSurface: (() => void) | null = null;
 
   // ---- Selection state (multi-select) ----
   private selectedIds: Set<string> = new Set();
@@ -189,6 +190,61 @@ export class NavigationPanel {
     // anyway.
     this.applyMaxLevelToCollapseState();
     this.render(this.currentDoc);
+
+    // Register as a drop-target surface and subscribe to drag events
+    // so we render indicators regardless of which surface initiated
+    // the drag (nav-pane drag → both surfaces show indicators;
+    // editor pickup-mode drag → both surfaces show indicators too).
+    if (this.unregisterSurface) this.unregisterSurface();
+    if (this.unsubscribeDrag) this.unsubscribeDrag();
+    this.unregisterSurface = dragController.registerSurface(this.dragSurfaceImpl);
+    this.unsubscribeDrag = dragController.subscribe((event) => {
+      if (event === 'begin') {
+        const session = dragController.getSession();
+        if (!session) return;
+        this.renderDropIndicators(session.items[0]!.level);
+      } else if (event === 'end') {
+        this.removeDropIndicators();
+      }
+    });
+  }
+
+  /** Surface implementation handed to the drag controller. */
+  private dragSurfaceImpl: DragSurface = {
+    hitTest: (clientX, clientY) => this.hitTestDropIndicators(clientX, clientY),
+    highlight: (el) => this.highlightDropIndicator(el),
+  };
+
+  private hitTestDropIndicators(
+    clientX: number,
+    clientY: number,
+  ): { el: HTMLElement; insertPos: number; dy: number } | null {
+    const session = dragController.getSession();
+    if (!session) return null;
+    let best: { el: HTMLElement; insertPos: number; dy: number } | null = null;
+    for (const indicator of this.dropIndicators) {
+      const insertPos = parseInt(indicator.dataset['insertPos'] ?? '-1', 10);
+      const onSelf = session.items.some(
+        (it) => insertPos > it.from && insertPos < it.to,
+      );
+      if (onSelf) continue;
+      const rect = indicator.getBoundingClientRect();
+      if (clientX < rect.left - 8 || clientX > rect.right + 8) continue;
+      const center = (rect.top + rect.bottom) / 2;
+      const dy = Math.abs(clientY - center);
+      if (dy > 24) continue;
+      if (!best || dy < best.dy) best = { el: indicator, insertPos, dy };
+    }
+    return best;
+  }
+
+  private highlightDropIndicator(el: HTMLElement | null): void {
+    for (const indicator of this.dropIndicators) {
+      indicator.classList.toggle(
+        'pmd-nav-drop-indicator-active',
+        indicator === el,
+      );
+    }
   }
 
   /** Re-render given a new doc. Cheap to call on every transaction. */
@@ -493,7 +549,7 @@ export class NavigationPanel {
 
     dragController.setPointer(e.clientX, e.clientY);
     this.updatePickupPill(e.clientX, e.clientY);
-    this.updateDropTarget(e.clientX, e.clientY);
+    dragController.dispatchHit(e.clientX, e.clientY);
 
     const hovered = this.entryUnderPointer(e.clientX, e.clientY);
     this.maybeAutoExpand(hovered);
@@ -572,14 +628,12 @@ export class NavigationPanel {
     }
     if (items.length === 0) return;
 
-    dragController.begin({ view: this.view, items });
-
-    // Drop targets are filtered by the dragged level. With multi-
-    // select all items have the same level (selection is level-locked),
-    // so any of them works.
-    this.renderDropIndicators(items[0]!.level);
-    editorDragSurface.renderIndicators(items[0]!.level);
+    // Pickup pill is created BEFORE begin so the visual lands as soon
+    // as the drag fires. Drop indicators on both surfaces are
+    // rendered by their respective subscriptions reacting to the
+    // controller's 'begin' event.
     this.createPickupPill(items);
+    dragController.begin({ view: this.view, items });
 
     // Mark all dragged source <li>s.
     const idsBeingDragged = new Set(
@@ -609,8 +663,8 @@ export class NavigationPanel {
     }
     this.autoExpanded.clear();
 
-    this.removeDropIndicators();
-    editorDragSurface.removeIndicators();
+    // Drop indicators are cleaned up by the surface subscriptions
+    // reacting to the 'end' event; we just clean up our pickup pill.
     this.removePickupPill();
     // Clear dragging class from every <li> that had it (multi-drag
     // can mark several at once).
@@ -691,67 +745,6 @@ export class NavigationPanel {
   private removeDropIndicators(): void {
     for (const el of this.dropIndicators) el.remove();
     this.dropIndicators = [];
-  }
-
-  private updateDropTarget(clientX: number, clientY: number): void {
-    if (!this.view) return;
-    const session = dragController.getSession();
-    if (!session) return;
-
-    // 1. Hit-test nav-pane indicators.
-    let navBest: { el: HTMLElement; dy: number; insertPos: number } | null = null;
-    for (const indicator of this.dropIndicators) {
-      const insertPos = parseInt(indicator.dataset['insertPos'] ?? '-1', 10);
-      const onSelf = session.items.some(
-        (it) => insertPos > it.from && insertPos < it.to,
-      );
-      if (onSelf) {
-        indicator.classList.remove('pmd-nav-drop-indicator-active');
-        continue;
-      }
-      const rect = indicator.getBoundingClientRect();
-      const inX = clientX >= rect.left - 8 && clientX <= rect.right + 8;
-      if (!inX) continue;
-      const center = (rect.top + rect.bottom) / 2;
-      const dy = Math.abs(clientY - center);
-      if (dy > 24) continue;
-      if (!navBest || dy < navBest.dy) navBest = { el: indicator, dy, insertPos };
-    }
-
-    // 2. Hit-test the editor surface.
-    const editorHit = editorDragSurface.hitTest(clientX, clientY);
-
-    // 3. Pick the better hit overall. If both surfaces hit, the closer
-    //    one (smaller dy) wins; this naturally resolves the case
-    //    where the pointer is over the divider between surfaces.
-    let winningSurface: 'nav' | 'editor' | null = null;
-    if (navBest && editorHit) {
-      winningSurface = navBest.dy <= editorHit.dy ? 'nav' : 'editor';
-    } else if (navBest) {
-      winningSurface = 'nav';
-    } else if (editorHit) {
-      winningSurface = 'editor';
-    }
-
-    // 4. Apply highlights.
-    for (const indicator of this.dropIndicators) {
-      indicator.classList.toggle(
-        'pmd-nav-drop-indicator-active',
-        winningSurface === 'nav' && navBest !== null && indicator === navBest.el,
-      );
-    }
-    editorDragSurface.highlight(
-      winningSurface === 'editor' && editorHit ? editorHit.el : null,
-    );
-
-    // 5. Set the controller's hover target.
-    if (winningSurface === 'nav' && navBest) {
-      dragController.setHoverTarget({ view: this.view, insertPos: navBest.insertPos });
-    } else if (winningSurface === 'editor' && editorHit) {
-      dragController.setHoverTarget({ view: this.view, insertPos: editorHit.insertPos });
-    } else {
-      dragController.setHoverTarget(null);
-    }
   }
 
   private maybeAutoExpand(hoveredEntry: HeadingEntry | null): void {

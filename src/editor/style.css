@@ -619,9 +619,38 @@ body.pmd-nav-resize-active {
   box-shadow: 0 0 0 1px rgba(40, 103, 216, 0.25);
 }
 
-/* Drop indicator in the editor surface — shown only while a nav-pane
-   drag is active. Same blue line treatment as the nav indicator,
-   spanning the editor's content width. */
+/* Pickup-mode (Ctrl+Alt+Shift / Cmd+Option+Shift held). Cursor
+   becomes grab; once a drag is active the cursor stays grab/grabbing
+   regardless of element. The descendant override is needed to defeat
+   ProseMirror's own contenteditable text cursor. */
+#editor.pmd-editor-pickup-mode,
+#editor.pmd-editor-pickup-mode * {
+  cursor: grab !important;
+}
+
+#editor.pmd-editor-dragging-mode,
+#editor.pmd-editor-dragging-mode * {
+  cursor: grabbing !important;
+}
+
+/* Hover highlight while in pickup mode — a dashed-outline overlay
+   sized to the smallest enclosing recognized container under the
+   pointer. */
+.pmd-editor-pickup-highlight {
+  position: absolute;
+  left: 0;
+  right: 0;
+  outline: 2px dashed #2867d8;
+  outline-offset: -2px;
+  background: rgba(40, 103, 216, 0.06);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 90;
+}
+
+/* Drop indicator in the editor surface — shown while ANY drag is
+   active. Same blue line treatment as the nav indicator, spanning
+   the editor's content width. */
 .pmd-editor-drop-indicator {
   position: absolute;
   left: 0;
