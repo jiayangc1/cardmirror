@@ -373,26 +373,30 @@ export class NavigationPanel {
     dragController.setPointer(e.clientX, e.clientY);
     this.updatePickupPill(e.clientX, e.clientY);
     this.updateDropTarget(e.clientX, e.clientY);
-    this.maybeAutoExpand(e.clientX, e.clientY);
+
+    const hovered = this.entryUnderPointer(e.clientX, e.clientY);
+    this.maybeAutoExpand(hovered);
+    this.maybeRestoreAutoExpanded(hovered);
     this.maybeAutoScroll(e.clientY);
   }
 
   private onDragUp(e: PointerEvent): void {
     void e;
+    let committed = false;
     if (dragController.isActive()) {
-      dragController.commit(); // commit no-ops if no hover target
+      committed = dragController.commit(); // commit no-ops if no hover target
     } else if (this.dragStartEntry) {
       // No drag occurred; treat as click → jump to entry.
       this.jumpTo(this.dragStartEntry);
     }
-    this.cleanupDrag();
+    this.cleanupDrag(committed);
   }
 
   private onDragKey(e: KeyboardEvent): void {
     if (e.key === 'Escape' && dragController.isActive()) {
       e.preventDefault();
       dragController.cancel();
-      this.cleanupDrag();
+      this.cleanupDrag(false);
     }
   }
 
@@ -422,18 +426,22 @@ export class NavigationPanel {
     }
   }
 
-  private cleanupDrag(): void {
-    // Restore any auto-expanded entries — if the drop landed inside
-    // one, it's already implicitly "expanded" because the user clearly
-    // wanted to drop there, but we re-collapse anyway since the user
-    // didn't explicitly toggle. This is a deliberate simple-default;
-    // can refine later if it proves annoying.
-    if (this.autoExpanded.size > 0) {
+  private cleanupDrag(committed: boolean): void {
+    let needsRerender = false;
+
+    // On cancel: restore any remaining auto-expanded entries (the
+    // primary restore happens during drag-off in maybeRestoreAuto-
+    // Expanded; this is a safety net plus the cancel-revert path).
+    // On commit: leave them as-is. If an auto-expanded entry is still
+    // in the set at commit time, the user dropped inside its subtree
+    // and so they should stay expanded.
+    if (!committed && this.autoExpanded.size > 0) {
       for (const id of this.autoExpanded) {
         this.collapsed.add(id);
       }
-      this.autoExpanded.clear();
+      needsRerender = true;
     }
+    this.autoExpanded.clear();
 
     this.removeDropIndicators();
     this.removePickupPill();
@@ -451,15 +459,30 @@ export class NavigationPanel {
     this.dragStartLi = null;
     this.dragStartEntry = null;
 
-    // After a drop the underlying doc has changed; force-refresh from
-    // the view's current state instead of waiting for the debounced
-    // heavy-update tick. Prevents a jarring 200ms lag between drop and
-    // the nav-panel reflecting the new ordering.
-    const doc = this.view ? this.view.state.doc : this.currentDoc;
-    if (doc) {
-      this.currentDoc = doc;
-      this.render(doc);
+    // After a successful drop the underlying doc has changed —
+    // force-refresh now instead of waiting for the debounced heavy-
+    // update tick (which would leave the nav out of sync for ~200ms).
+    const newDoc = this.view ? this.view.state.doc : this.currentDoc;
+    if (newDoc && newDoc !== this.currentDoc) {
+      this.currentDoc = newDoc;
+      needsRerender = true;
     }
+
+    // Important: only re-render if something actually changed. A
+    // plain click (no drag, no doc change) shouldn't tear down and
+    // rebuild the <li> elements — that destroys the browser's
+    // dblclick detection between the two clicks of a double-click.
+    if (needsRerender && this.currentDoc) {
+      this.render(this.currentDoc);
+    }
+  }
+
+  private entryUnderPointer(x: number, y: number): HeadingEntry | null {
+    const target = document.elementFromPoint(x, y);
+    if (!target) return null;
+    const li = (target as Element).closest?.('.pmd-nav-item') as HTMLLIElement | null;
+    if (!li) return null;
+    return this.liEntries.get(li) ?? null;
   }
 
   private renderDropIndicators(draggedLevel: number): void {
@@ -544,49 +567,90 @@ export class NavigationPanel {
     );
   }
 
-  private maybeAutoExpand(clientX: number, clientY: number): void {
+  private maybeAutoExpand(hoveredEntry: HeadingEntry | null): void {
     const session = dragController.getSession();
     if (!session || session.items.length === 0) return;
     const draggedLevel = session.items[0]!.level;
 
-    const target = document.elementFromPoint(clientX, clientY);
-    const li = target?.closest('.pmd-nav-item') as HTMLLIElement | null;
-    if (!li) {
-      this.cancelAutoExpand();
-      return;
-    }
-    const entry = this.liEntries.get(li);
-    if (!entry || !entry.id) {
+    if (!hoveredEntry || !hoveredEntry.id) {
       this.cancelAutoExpand();
       return;
     }
     // Only auto-expand collapsed entries that are SHALLOWER than the
     // dragged level — the user is drilling into a parent to find a
     // drop target inside.
-    if (entry.level >= draggedLevel) {
+    if (hoveredEntry.level >= draggedLevel) {
       this.cancelAutoExpand();
       return;
     }
-    if (!this.collapsed.has(entry.id)) {
+    if (!this.collapsed.has(hoveredEntry.id)) {
       this.cancelAutoExpand();
       return;
     }
 
-    if (this.autoExpandTarget === entry.id) return; // already pending
+    if (this.autoExpandTarget === hoveredEntry.id) return; // already pending
 
     this.cancelAutoExpand();
-    this.autoExpandTarget = entry.id;
+    this.autoExpandTarget = hoveredEntry.id;
     this.autoExpandTimer = setTimeout(() => {
       this.autoExpandTimer = null;
-      if (this.autoExpandTarget !== entry.id) return;
-      if (!this.collapsed.has(entry.id!)) return;
-      this.collapsed.delete(entry.id!);
-      this.autoExpanded.add(entry.id!);
+      if (this.autoExpandTarget !== hoveredEntry.id) return;
+      if (!this.collapsed.has(hoveredEntry.id!)) return;
+      this.collapsed.delete(hoveredEntry.id!);
+      this.autoExpanded.add(hoveredEntry.id!);
       if (this.currentDoc) {
         this.render(this.currentDoc);
         this.renderDropIndicators(draggedLevel);
       }
     }, 400);
+  }
+
+  /**
+   * Re-collapse any auto-expanded entries the pointer has left. An
+   * auto-expanded entry is "left" when the pointer's current entry is
+   * (a) some other entry that's outside the auto-expanded entry's
+   * outline subtree, or (b) outside the nav pane entirely (we treat
+   * that conservatively — keep expanded so the user can come back).
+   */
+  private maybeRestoreAutoExpanded(currentEntry: HeadingEntry | null): void {
+    if (this.autoExpanded.size === 0) return;
+    if (!this.currentDoc) return;
+    if (!currentEntry) return; // pointer not over an entry — leave state alone
+
+    const allEntries = collectHeadings(this.currentDoc);
+    const idsToRestore: string[] = [];
+
+    for (const expandedId of this.autoExpanded) {
+      const expandedIdx = allEntries.findIndex((e) => e.id === expandedId);
+      if (expandedIdx < 0) {
+        // Entry no longer exists (doc edited).
+        idsToRestore.push(expandedId);
+        continue;
+      }
+      const expandedEntry = allEntries[expandedIdx]!;
+      if (currentEntry.id === expandedId) continue; // pointer on the parent itself
+      // Walk forward from the expanded entry; if we find currentEntry
+      // before hitting a same-or-shallower-level entry, it's inside.
+      let inside = false;
+      for (let i = expandedIdx + 1; i < allEntries.length; i++) {
+        const e = allEntries[i]!;
+        if (e.level <= expandedEntry.level) break;
+        if (e.id === currentEntry.id) {
+          inside = true;
+          break;
+        }
+      }
+      if (!inside) idsToRestore.push(expandedId);
+    }
+
+    if (idsToRestore.length === 0) return;
+    for (const id of idsToRestore) {
+      this.autoExpanded.delete(id);
+      this.collapsed.add(id);
+    }
+    this.render(this.currentDoc);
+    const session = dragController.getSession();
+    if (session) this.renderDropIndicators(session.items[0]!.level);
   }
 
   private cancelAutoExpand(): void {
