@@ -191,6 +191,11 @@ describe('exporter — marks → rPr', () => {
     expect(xml).toContain('<w:b/>');
   });
 
+  it('emits <w:strike/> for strikethrough', () => {
+    const xml = emitInline([schema.marks['strikethrough']!.create()]);
+    expect(xml).toContain('<w:strike/>');
+  });
+
   it('emits <w:i/><w:iCs/> for italic', () => {
     const xml = emitInline([schema.marks['italic']!.create()]);
     expect(xml).toContain('<w:i/>');
@@ -211,6 +216,13 @@ describe('exporter — marks → rPr', () => {
     const xml = emitInline([schema.marks['font_size']!.create({ halfPoints: 26 })]);
     expect(xml).toContain('<w:sz w:val="26"/>');
     expect(xml).toContain('<w:szCs w:val="26"/>');
+  });
+
+  it('emits pilcrow_marker as a 6-pt size (matches Verbatim\'s encoding)', () => {
+    const xml = emitInline([schema.marks['pilcrow_marker']!.create()], '¶');
+    expect(xml).toContain('<w:sz w:val="12"/>');
+    expect(xml).toContain('<w:szCs w:val="12"/>');
+    expect(xml).toContain('¶');
   });
 
   it('emits shading (the protected-highlight #D2D2D2 sentinel)', () => {

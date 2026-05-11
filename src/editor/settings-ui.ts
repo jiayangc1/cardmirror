@@ -18,6 +18,7 @@ import {
   type DisplayTypography,
   type DisplayColors,
   type FormattingPanelMode,
+  type HeadingMode,
 } from './settings.js';
 import { isFontAvailable } from './font-detect.js';
 
@@ -191,6 +192,8 @@ class SettingsModal {
       return row;
     } else if (meta.kind === 'formattingPanelMode') {
       label.appendChild(buildFormattingPanelModeEditor());
+    } else if (meta.kind === 'headingMode') {
+      label.appendChild(buildHeadingModeEditor());
     }
 
     row.appendChild(label);
@@ -628,6 +631,27 @@ function buildFormattingPanelModeEditor(): HTMLElement {
   }
   select.addEventListener('change', () => {
     settings.set('formattingPanelMode', select.value as FormattingPanelMode);
+  });
+  return select;
+}
+
+function buildHeadingModeEditor(): HTMLElement {
+  const select = document.createElement('select');
+  select.className = 'pmd-heading-mode-select';
+  const options: { value: HeadingMode; label: string }[] = [
+    { value: 'strict', label: 'Strict (no-op on structural spans)' },
+    { value: 'respect', label: 'Respect headings (default)' },
+    { value: 'demolish', label: "Don't respect headings (demolish)" },
+  ];
+  for (const o of options) {
+    const opt = document.createElement('option');
+    opt.value = o.value;
+    opt.textContent = o.label;
+    if (o.value === settings.get('headingMode')) opt.selected = true;
+    select.appendChild(opt);
+  }
+  select.addEventListener('change', () => {
+    settings.set('headingMode', select.value as HeadingMode);
   });
   return select;
 }

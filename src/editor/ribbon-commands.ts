@@ -38,6 +38,12 @@ import { Selection, TextSelection, type Command, type EditorState, type Transact
 import { toggleMark } from 'prosemirror-commands';
 import { schema } from '../schema/index.js';
 import { newHeadingId } from '../schema/ids.js';
+import {
+  condenseBranchC,
+  condenseMerge,
+  uncondense,
+  toggleCase,
+} from './condense.js';
 
 type HeadingTypeName = 'pocket' | 'hat' | 'block';
 
@@ -1172,6 +1178,11 @@ export type RibbonCommandId =
   | 'applyEmphasis'
   | 'applyHighlight'
   | 'applyShading'
+  | 'condenseDefault'
+  | 'condenseNoIntegrity'
+  | 'condenseNoIntegrityWithPilcrows'
+  | 'uncondense'
+  | 'toggleCase'
   | 'copyPreviousCite';
 
 export const STRUCTURAL_RIBBON_COMMAND_IDS: StructuralRibbonCommandId[] = [
@@ -1192,6 +1203,11 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'applyEmphasis',
   'applyHighlight',
   'applyShading',
+  'condenseDefault',
+  'condenseNoIntegrity',
+  'condenseNoIntegrityWithPilcrows',
+  'uncondense',
+  'toggleCase',
   'copyPreviousCite',
 ];
 
@@ -1209,6 +1225,11 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   applyEmphasis: 'Apply Emphasis style',
   applyHighlight: 'Toggle Highlight',
   applyShading: 'Toggle Background Color',
+  condenseDefault: 'Condense',
+  condenseNoIntegrity: 'Condense without paragraph integrity',
+  condenseNoIntegrityWithPilcrows: 'Condense without paragraph integrity (with pilcrows)',
+  uncondense: 'Uncondense',
+  toggleCase: 'Toggle case',
   copyPreviousCite: 'Copy previous cite',
 };
 
@@ -1234,6 +1255,11 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   applyEmphasis: 'F10',
   applyHighlight: 'F11',
   applyShading: 'Mod-F11',
+  condenseDefault: 'F3',
+  condenseNoIntegrity: 'Alt-F3',
+  condenseNoIntegrityWithPilcrows: 'Mod-Alt-F3',
+  uncondense: 'Mod-Alt-Shift-F3',
+  toggleCase: 'Shift-F3',
   copyPreviousCite: 'Alt-F8',
 };
 
@@ -1247,11 +1273,22 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
 export interface RibbonContext {
   highlightColor: () => string;
   shadingColor: () => string;
+  /** Whether F3 (default condense) preserves paragraph integrity. */
+  paragraphIntegrity: () => boolean;
+  /** Whether F3 inserts 6-pt ¶ markers when merging (consulted only when
+   *  paragraphIntegrity is false). */
+  usePilcrows: () => boolean;
+  /** How selection-based condense treats structural elements. See
+   *  `condense.ts` and `settings.ts` for the rule table. */
+  headingMode: () => 'strict' | 'respect' | 'demolish';
 }
 
 const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   highlightColor: () => 'yellow',
   shadingColor: () => 'D2D2D2',
+  paragraphIntegrity: () => true,
+  usePilcrows: () => false,
+  headingMode: () => 'respect',
 };
 
 function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
@@ -1269,6 +1306,27 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
     case 'applyEmphasis': return applyEmphasis();
     case 'applyHighlight': return applyHighlight(ctx.highlightColor);
     case 'applyShading': return applyShading(ctx.shadingColor);
+    case 'condenseDefault':
+      // F3 reads paragraphIntegrity + usePilcrows at invocation time.
+      return (state, dispatch) => {
+        if (ctx.paragraphIntegrity()) {
+          return condenseBranchC()(state, dispatch);
+        }
+        return condenseMerge({
+          withPilcrows: ctx.usePilcrows(),
+          headingMode: ctx.headingMode(),
+        })(state, dispatch);
+      };
+    case 'condenseNoIntegrity':
+      // Alt-F3: force no integrity + no pilcrows regardless of settings.
+      return (state, dispatch) =>
+        condenseMerge({ withPilcrows: false, headingMode: ctx.headingMode() })(state, dispatch);
+    case 'condenseNoIntegrityWithPilcrows':
+      // Mod-Alt-F3: force no integrity + pilcrows regardless of settings.
+      return (state, dispatch) =>
+        condenseMerge({ withPilcrows: true, headingMode: ctx.headingMode() })(state, dispatch);
+    case 'uncondense': return uncondense();
+    case 'toggleCase': return toggleCase();
     case 'copyPreviousCite': return copyPreviousCite();
   }
 }
@@ -1326,6 +1384,37 @@ export function getRibbonCommand(
   ctx: RibbonContext = DEFAULT_RIBBON_CONTEXT,
 ): Command {
   return commandFor(id, ctx);
+}
+
+/**
+ * Build a ProseMirror-keymap-style key string from a KeyboardEvent —
+ * `"F3"`, `"Alt-F3"`, `"Mod-Alt-F3"`, etc. Modifier order matches
+ * the convention used in `DEFAULT_RIBBON_KEYS`.
+ */
+export function ribbonKeyStringFor(e: KeyboardEvent): string {
+  const parts: string[] = [];
+  if (e.ctrlKey || e.metaKey) parts.push('Mod');
+  if (e.altKey) parts.push('Alt');
+  if (e.shiftKey) parts.push('Shift');
+  parts.push(e.key);
+  return parts.join('-');
+}
+
+/**
+ * Look up a ribbon command ID by its current key binding. Returns
+ * null if no command is bound to this key. Used by the global
+ * F-key capture handler in `index.ts` to dispatch ribbon commands
+ * when the editor isn't the focused element.
+ */
+export function ribbonCommandForKey(
+  keyString: string,
+  overrides: Partial<Record<RibbonCommandId, string | string[]>> = {},
+): RibbonCommandId | null {
+  for (const id of RIBBON_COMMAND_IDS) {
+    const spec = overrides[id] ?? DEFAULT_RIBBON_KEYS[id];
+    if (keysArray(spec).includes(keyString)) return id;
+  }
+  return null;
 }
 
 /**

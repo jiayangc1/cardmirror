@@ -195,7 +195,50 @@ export interface Settings {
    * of writing a black explicitly.
    */
   lastFontColor: string | null;
+  /**
+   * Condense settings — drive the behavior of the default condense
+   * hotkey (F3) and modify selection-based condense semantics. See
+   * ARCHITECTURE.md §15 condense for the full rule table.
+   *
+   * `paragraphIntegrity`:
+   *   - true  → F3 keeps paragraphs separate (Branch C); only intra-
+   *             paragraph whitespace is cleaned.
+   *   - false → F3 merges collapsible paragraph runs (Branch A or B
+   *             depending on `usePilcrows`).
+   *   Toggled from the ribbon (paragraph-integrity button) and the
+   *   settings panel.
+   *
+   * `usePilcrows`:
+   *   - false → merging joins paragraphs with spaces (Branch A).
+   *   - true  → merging inserts a 6-pt ¶ at each original boundary
+   *             (Branch B), so paragraph splits are recoverable via
+   *             Uncondense. Only consulted when `paragraphIntegrity`
+   *             is false (no boundaries to mark otherwise).
+   *
+   * `headingMode`:
+   *   - 'strict'   → selection-based condense **no-ops** if the
+   *                  selection touches any structural element
+   *                  (heading / cite_paragraph / undertag). Safest
+   *                  mode — won't accidentally cross a structural
+   *                  boundary. Body-only selections behave like
+   *                  'respect'.
+   *   - 'respect'  → selection keeps headings + cite_paragraphs +
+   *                  undertags as their own paragraphs; only
+   *                  consecutive runs of card_body / doc-level
+   *                  paragraph merge.
+   *   - 'demolish' → selection demolishes everything in its range;
+   *                  the collapsed textblock's type = type of the
+   *                  first touched paragraph; cards / analytic_units
+   *                  whose head was touched dissolve and orphan body
+   *                  slots absorb into the receiving container.
+   */
+  paragraphIntegrity: boolean;
+  usePilcrows: boolean;
+  headingMode: HeadingMode;
 }
+
+export type HeadingMode = 'strict' | 'respect' | 'demolish';
+const HEADING_MODES: HeadingMode[] = ['strict', 'respect', 'demolish'];
 
 export type FormattingPanelMode = 'labels' | 'shortcuts' | 'both' | 'hidden';
 const FORMATTING_PANEL_MODES: FormattingPanelMode[] = ['labels', 'shortcuts', 'both', 'hidden'];
@@ -221,6 +264,9 @@ const DEFAULTS: Settings = {
   lastHighlightColor: 'yellow',
   lastShadingColor: 'C0C0C0',
   lastFontColor: null,
+  paragraphIntegrity: true,
+  usePilcrows: false,
+  headingMode: 'respect',
 };
 
 /**
@@ -242,7 +288,8 @@ export interface SettingMeta {
     | 'displayColors'
     | 'bodyFont'
     | 'lineHeight'
-    | 'formattingPanelMode';
+    | 'formattingPanelMode'
+    | 'headingMode';
 }
 
 export const SETTING_METADATA: SettingMeta[] = [
@@ -308,6 +355,27 @@ export const SETTING_METADATA: SettingMeta[] = [
     description:
       'When on, formatting-panel buttons preview the visual treatment of the style they apply (Pocket boxed, Hat double-underlined, Tag bold, Analytic colored). Applies to both Labels and Shortcuts modes.',
     kind: 'toggle',
+  },
+  {
+    key: 'paragraphIntegrity',
+    label: 'F3 condense: preserve paragraph integrity',
+    description:
+      'When on (default), F3 only cleans intra-paragraph whitespace — paragraphs stay separate. When off, F3 merges consecutive collapsible paragraphs (card_body and doc-level paragraphs) into one. Also toggleable from the ribbon\'s ¶ button.',
+    kind: 'toggle',
+  },
+  {
+    key: 'usePilcrows',
+    label: 'F3 condense: use pilcrow markers',
+    description:
+      'Only consulted when paragraph integrity is off. When on, F3 inserts a 6-pt ¶ at each original paragraph boundary in the merged result, so the split can be reversed via Ctrl+Alt+Shift+F3 (Uncondense). Off by default.',
+    kind: 'toggle',
+  },
+  {
+    key: 'headingMode',
+    label: 'Condense: heading handling',
+    description:
+      'How selection-based condense (Alt-F3 / Mod-Alt-F3 / F3 when integrity is off) treats structural elements (headings, cite paragraphs, undertags) inside the selection. "Strict" no-ops when the selection touches structural elements — safest. "Respect" (default) keeps structural elements as their own paragraphs and merges only the body runs between them. "Demolish" treats the selection as sovereign — everything merges into one textblock; cards / analytic_units whose head was touched dissolve and their body slots absorb into the receiving container.',
+    kind: 'headingMode',
   },
   // Note: `lineHeight` is wired through (defaults to 1.4, applied to
   // #editor via --pmd-line-height) but isn't exposed in the settings
@@ -427,6 +495,17 @@ function sanitize(s: Settings): Settings {
         : isHex6(s.lastFontColor)
         ? String(s.lastFontColor).toUpperCase()
         : DEFAULTS.lastFontColor,
+    paragraphIntegrity:
+      s.paragraphIntegrity === undefined
+        ? DEFAULTS.paragraphIntegrity
+        : !!s.paragraphIntegrity,
+    usePilcrows:
+      s.usePilcrows === undefined
+        ? DEFAULTS.usePilcrows
+        : !!s.usePilcrows,
+    headingMode: HEADING_MODES.includes(s.headingMode as HeadingMode)
+      ? (s.headingMode as HeadingMode)
+      : DEFAULTS.headingMode,
   };
 }
 

@@ -88,11 +88,22 @@ function computeDecorationsInRange(doc: PMNode, from: number, to: number): Decor
   const decos: Decoration[] = [];
   doc.nodesBetween(from, to, (node, pos) => {
     if (!BODY_PARA_TYPES.has(node.type.name)) return;
-    const minHp = computeMinHalfPoints(node);
-    if (minHp >= DEFAULT_HALF_POINTS) return;
+    const stats = computeFontSizeStats(node);
+    if (stats.min >= DEFAULT_HALF_POINTS) return;
+    // Don't shrink the paragraph element if there's any bare text
+    // (text with no `font_size` mark). The shrink works by lowering
+    // the paragraph's font-size; named-style mark wrappers
+    // (.pmd-underline et al.) re-pin themselves via the
+    // `.pmd-fs-shrunk .pmd-*` rules, but truly bare text inherits
+    // the small size and gets visibly squished. This used to be
+    // "rare" in body paragraphs, but a condense merge can bring
+    // bare text in (e.g., from a doc-level paragraph spliced into
+    // a card_body with shrunken content). Skipping when mixed
+    // keeps the bare text at body size.
+    if (stats.hasBare) return;
 
-    const fontSizePt = minHp / 2;
-    const lineHeight = lineHeightFor(minHp);
+    const fontSizePt = stats.min / 2;
+    const lineHeight = lineHeightFor(stats.min);
     decos.push(
       Decoration.node(pos, pos + node.nodeSize, {
         class: 'pmd-fs-shrunk',
@@ -106,19 +117,38 @@ function computeDecorationsInRange(doc: PMNode, from: number, to: number): Decor
 /**
  * Smallest `font_size` half-points value across all text nodes in
  * `para`, capped at the default 22 (11pt). Text without a `font_size`
- * mark counts as the default.
+ * mark counts as the default. Retained as a public helper for tests
+ * and any external consumers; the plugin itself uses
+ * `computeFontSizeStats` for the bare-text check.
  */
 export function computeMinHalfPoints(para: PMNode): number {
+  return computeFontSizeStats(para).min;
+}
+
+interface FontSizeStats {
+  min: number;
+  max: number;
+  /** True if any text node has no `font_size` mark (i.e., its size
+   *  comes from CSS / paragraph defaults rather than direct formatting). */
+  hasBare: boolean;
+}
+
+function computeFontSizeStats(para: PMNode): FontSizeStats {
   let min = DEFAULT_HALF_POINTS;
+  let max = DEFAULT_HALF_POINTS;
+  let hasBare = false;
   para.descendants((child) => {
     if (!child.isText || !child.text) return;
     const fontSizeMark = child.marks.find((m) => m.type.name === 'font_size');
-    const hp = fontSizeMark
-      ? Number(fontSizeMark.attrs['halfPoints'] ?? DEFAULT_HALF_POINTS)
-      : DEFAULT_HALF_POINTS;
+    if (!fontSizeMark) {
+      hasBare = true;
+      return;
+    }
+    const hp = Number(fontSizeMark.attrs['halfPoints'] ?? DEFAULT_HALF_POINTS);
     if (hp < min) min = hp;
+    if (hp > max) max = hp;
   });
-  return min;
+  return { min, max, hasBare };
 }
 
 /**

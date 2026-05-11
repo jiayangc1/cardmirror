@@ -279,11 +279,52 @@ describe('importer — marks from rPr', () => {
     expect(fs!.attrs['halfPoints']).toBe(26);
   });
 
+  it('extracts strikethrough from <w:strike/>', () => {
+    const marks = importInline('<w:strike/>');
+    expect(marks.some((m) => m.type.name === 'strikethrough')).toBe(true);
+  });
+
+  it('also recognizes <w:dstrike/> as strikethrough (double → single on round-trip)', () => {
+    const marks = importInline('<w:dstrike/>');
+    expect(marks.some((m) => m.type.name === 'strikethrough')).toBe(true);
+  });
+
+  it('does not extract strikethrough when <w:strike w:val="0"/>', () => {
+    const marks = importInline('<w:strike w:val="0"/>');
+    expect(marks.some((m) => m.type.name === 'strikethrough')).toBe(false);
+  });
+
   it('extracts shading (the #D2D2D2 protected-highlight sentinel)', () => {
     const marks = importInline('<w:shd w:val="clear" w:color="auto" w:fill="D2D2D2"/>');
     const sh = marks.find((m) => m.type.name === 'shading');
     expect(sh).toBeDefined();
     expect(sh!.attrs['color']).toBe('D2D2D2');
+  });
+
+  it('recognizes 6-pt ¶ as Verbatim pilcrow (pilcrow_marker, not font_size)', () => {
+    // A run that's just a ¶ glyph at 6pt: Verbatim's pilcrow encoding.
+    // The importer should swap the font_size:12 mark for the non-
+    // inclusive pilcrow_marker.
+    const xml = bodyXml(
+      '<w:p><w:r><w:rPr><w:sz w:val="12"/></w:rPr><w:t>¶</w:t></w:r></w:p>',
+    );
+    const doc = importDoc(xml);
+    const text = doc.firstChild!.firstChild!;
+    expect(text.text).toBe('¶');
+    expect(text.marks.some((m) => m.type.name === 'pilcrow_marker')).toBe(true);
+    expect(text.marks.some((m) => m.type.name === 'font_size')).toBe(false);
+  });
+
+  it('does NOT touch 6-pt runs that are not just a single ¶', () => {
+    // 6pt text that includes ¶ as part of regular content should keep
+    // the font_size mark; we only swap when the whole run is the ¶.
+    const xml = bodyXml(
+      '<w:p><w:r><w:rPr><w:sz w:val="12"/></w:rPr><w:t>tiny ¶ tiny</w:t></w:r></w:p>',
+    );
+    const doc = importDoc(xml);
+    const text = doc.firstChild!.firstChild!;
+    expect(text.marks.some((m) => m.type.name === 'font_size')).toBe(true);
+    expect(text.marks.some((m) => m.type.name === 'pilcrow_marker')).toBe(false);
   });
 
   it('extracts font_family from <w:rFonts> (prefers w:ascii)', () => {

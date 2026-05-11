@@ -46,6 +46,8 @@ import {
   getRibbonCommand,
   formatKeyForDisplay,
   primaryKeyFor,
+  ribbonKeyStringFor,
+  ribbonCommandForKey,
   RIBBON_COMMAND_LABELS,
   type StructuralRibbonCommandId,
   type RibbonContext,
@@ -74,12 +76,15 @@ const zoomPct = document.getElementById('zoom-pct')!;
 let view: EditorView | null = null;
 let currentDoc: PMNode = makeStarterDoc();
 
-// Live context for the ribbon's color-aware commands. F11 / Mod-F11
-// read these getters at keypress time so the active highlight /
-// shading color reflects whatever the user most recently picked.
+// Live context for ribbon commands that read settings at keypress
+// time — active highlight / shading color for F11 / Mod-F11; condense
+// behavior flags for F3 / Alt-F3 / Mod-Alt-F3.
 const ribbonContext: RibbonContext = {
   highlightColor: () => settings.get('lastHighlightColor'),
   shadingColor: () => settings.get('lastShadingColor'),
+  paragraphIntegrity: () => settings.get('paragraphIntegrity'),
+  usePilcrows: () => settings.get('usePilcrows'),
+  headingMode: () => settings.get('headingMode'),
 };
 
 openBtn.addEventListener('click', () => dropzone.click());
@@ -126,6 +131,8 @@ const FORMATTING_PANEL_SHORT_LABEL: Record<FormattingPanelId, string> = {
 const formattingPanelEl = document.getElementById('formatting-panel') as HTMLElement | null;
 const citePanelEl = document.getElementById('cite-panel') as HTMLElement | null;
 const colorPanelEl = document.getElementById('color-panel') as HTMLElement | null;
+const docOpsPanelEl = document.getElementById('doc-ops-panel') as HTMLElement | null;
+const paragraphIntegrityBtn = document.getElementById('paragraph-integrity-btn') as HTMLButtonElement | null;
 const formattingPanelBtnRefs: { id: FormattingPanelId; btn: HTMLButtonElement }[] = [];
 for (const [id, btnId] of Object.entries(FORMATTING_PANEL_BUTTONS) as [FormattingPanelId, string][]) {
   const btn = document.getElementById(btnId) as HTMLButtonElement | null;
@@ -156,6 +163,9 @@ function applyFormattingPanel(mode: FormattingPanelMode, preview: boolean): void
   }
   if (colorPanelEl) {
     colorPanelEl.classList.toggle('hidden', mode === 'hidden');
+  }
+  if (docOpsPanelEl) {
+    docOpsPanelEl.classList.toggle('hidden', mode === 'hidden');
   }
   for (const { id, btn } of formattingPanelBtnRefs) {
     const keyDisplay = formatKeyForDisplay(primaryKeyFor(id));
@@ -264,6 +274,7 @@ settings.subscribe((s) => {
   applyBodyFont(s.bodyFont);
   applyLineHeight(s.lineHeight);
   applyFormattingPanel(s.formattingPanelMode, s.formattingPanelPreview);
+  syncParagraphIntegrityBtn();
   refreshWordCount();
 });
 applyReadMode(settings.get('readMode'));
@@ -275,10 +286,54 @@ applyBodyFont(settings.get('bodyFont'));
 applyLineHeight(settings.get('lineHeight'));
 applyFormattingPanel(settings.get('formattingPanelMode'), settings.get('formattingPanelPreview'));
 
+// Claim browser F-keys for our hotkeys. F3 (Find), F5 (Reload), F7
+// (Caret Browse), F11 (Fullscreen) and others normally trigger browser
+// UI. We listen in the BUBBLE phase (no `{ capture: true }`) so the
+// editor's PM keymap on `view.dom` gets first crack at the event —
+// PM bails out via `eventBelongsToView` if `event.defaultPrevented`
+// is already set, so a capture-phase preventDefault would silently
+// disable our own keymap. By the time this handler fires:
+//   - If PM matched a binding it already called preventDefault, and
+//     we skip (avoids double-firing the command).
+//   - If PM didn't match (binding absent OR editor unfocused), we
+//     preventDefault to block the browser's built-in action and, if
+//     the editor exists, dispatch the matching ribbon command
+//     manually.
+// Some keys are un-preventable in some browsers (F11 in Firefox; F5 /
+// F12 in some Chromium builds) — those are an OS/browser issue our
+// future Electron build will sidestep entirely.
+window.addEventListener('keydown', (e) => {
+  if (!/^F([3-9]|1[01])$/.test(e.key)) return;
+  if (e.defaultPrevented) return;
+  e.preventDefault();
+  if (!view) return;
+  const keyString = ribbonKeyStringFor(e);
+  const cmdId = ribbonCommandForKey(keyString);
+  if (!cmdId) return;
+  const cmd = getRibbonCommand(cmdId, ribbonContext);
+  cmd(view.state, view.dispatch.bind(view));
+});
+
 // Wire the color panel (split buttons + swatch pickers). Pass a ref
 // object so the panel reads the live view through `view.view` even
 // when the EditorView gets re-mounted (e.g. on docx import).
 wireColorPanel({ get view() { return view; } });
+
+// Paragraph Integrity toggle — clicking flips the setting; the
+// settings subscriber below mirrors the live value into the
+// aria-pressed attribute so the CSS reflects state.
+if (paragraphIntegrityBtn) {
+  paragraphIntegrityBtn.addEventListener('mousedown', (e) => e.preventDefault());
+  paragraphIntegrityBtn.addEventListener('click', () => {
+    settings.set('paragraphIntegrity', !settings.get('paragraphIntegrity'));
+  });
+}
+function syncParagraphIntegrityBtn(): void {
+  if (!paragraphIntegrityBtn) return;
+  const on = settings.get('paragraphIntegrity');
+  paragraphIntegrityBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
+syncParagraphIntegrityBtn();
 
 function refreshWordCount(): void {
   if (!view) {

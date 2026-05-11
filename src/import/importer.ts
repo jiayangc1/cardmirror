@@ -189,7 +189,25 @@ function parseRun(rNode: XmlNode, ctx: ImportContext, out: PMNode[]): void {
       const text = textContent(c);
       if (text.length > 0) {
         try {
-          out.push(schema.text(text, marks));
+          // Verbatim's pilcrow encoding: a `¶` glyph in a run sized to
+          // 6pt (`<w:sz w:val="12"/>`). Recognize it and use the
+          // non-inclusive `pilcrow_marker` mark in place of `font_size`
+          // — the inclusive font_size mark would otherwise cause
+          // adjacent typing to inherit the 6pt size.
+          let effectiveMarks = marks;
+          if (text === '¶') {
+            const sizeIdx = marks.findIndex(
+              (m) => m.type.name === 'font_size' && m.attrs['halfPoints'] === 12,
+            );
+            if (sizeIdx >= 0) {
+              effectiveMarks = [
+                ...marks.slice(0, sizeIdx),
+                ...marks.slice(sizeIdx + 1),
+                schema.marks['pilcrow_marker']!.create(),
+              ];
+            }
+          }
+          out.push(schema.text(text, effectiveMarks));
         } catch (_) {
           // Empty text or invalid characters; skip.
         }
@@ -336,6 +354,20 @@ function parseRPr(rPr: XmlNode): ParsedRPr {
       case 'w:i': {
         if (a['w:val'] !== '0' && a['w:val'] !== 'false') {
           marks.push(schema.marks['italic']!.create());
+        }
+        break;
+      }
+      case 'w:strike':
+      case 'w:dstrike': {
+        // Single (`<w:strike/>`) and double (`<w:dstrike/>`) strikethrough
+        // both map to our single strikethrough mark — we don't carry
+        // the double-strike distinction. On round-trip, double-strike
+        // becomes single-strike, which is functionally equivalent for
+        // the marks Verbatim users care about.
+        if (a['w:val'] !== '0' && a['w:val'] !== 'false') {
+          if (!marks.some((m) => m.type.name === 'strikethrough')) {
+            marks.push(schema.marks['strikethrough']!.create());
+          }
         }
         break;
       }

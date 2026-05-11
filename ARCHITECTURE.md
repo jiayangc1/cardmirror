@@ -149,10 +149,12 @@ Notes:
 - **Marks** for inline emphasis: `cite_mark`, `underline_mark`,
   `underline_direct`, `emphasis_mark`, `undertag_mark`,
   `analytic_mark`, plus direct-formatting marks `highlight(color)`,
-  `font_size(pt)`, `bold`, `italic`, `font_color`, `shading(color)`,
-  and `link(href)` for hyperlinks (URLs are the common case; intra-
-  doc links to bookmarked headings are supported for completeness —
-  see §12 on heading IDs).
+  `font_size(pt)`, `bold`, `italic`, `strikethrough`, `font_color`,
+  `shading(color)`, and `link(href)` for hyperlinks (URLs are the
+  common case; intra-doc links to bookmarked headings are supported
+  for completeness — see §12 on heading IDs). `strikethrough`
+  round-trips as `<w:strike/>`; OOXML's `<w:dstrike/>` (double
+  strikethrough) imports as the same single-strike mark.
 
   `underline_mark` is the named "Underline" character style — used
   in body textblocks. `underline_direct` is plain direct underline
@@ -1098,6 +1100,88 @@ Word-standard value.
   Uniform across card / analytic_unit / doc level — no new-card
   spawning, no splitting.
 
+### Condense / Uncondense / Toggle Case (F3 family)
+
+Verbatim parity for the text-collapse and case-toggle hotkeys. Three
+condense modes plus reverse and case toggle:
+
+- **F3 — default condense.** Reads `paragraphIntegrity` + `usePilcrows`
+  from settings and runs one of three branches:
+  - `paragraphIntegrity: true` → **Branch C**: clean intra-paragraph
+    whitespace in every textblock in scope (tabs / NBSPs → space;
+    collapse runs of spaces; strip leading space), then remove any
+    `card_body` / doc-level `paragraph` that ends up empty after the
+    cleanup. Mirrors Verbatim's `^p^w` + `^p^p` collapse: empty or
+    whitespace-only paragraphs between content paragraphs disappear,
+    so "paragraph ↵↵↵ paragraph" becomes "paragraph ↵ paragraph".
+    Structural placeholders (empty tag, cite_paragraph, undertag,
+    pocket, hat, block, analytic) are kept — removing an empty tag
+    would dissolve its card, and the others may be intentional slots.
+    No merging, no type changes for surviving textblocks.
+  - `paragraphIntegrity: false, usePilcrows: false` → **Branch A**:
+    merge collapsible paragraphs (card_body / doc-level paragraph)
+    using single spaces at original boundaries.
+  - `paragraphIntegrity: false, usePilcrows: true` → **Branch B**:
+    merge collapsible paragraphs using 6-pt ¶ (U+00B6) markers at
+    original boundaries — recoverable via Uncondense.
+- **Alt-F3 — condense without integrity (no pilcrows).** Forces
+  Branch A regardless of settings.
+- **Mod-Alt-F3 — condense without integrity (with pilcrows).** Forces
+  Branch B regardless of settings.
+- **Mod-Alt-Shift-F3 — Uncondense.** Finds 6-pt ¶ markers in scope
+  and splits the containing textblock at each (drops the ¶ char).
+- **Shift-F3 — toggle case.** 3-state cycle on the selection:
+  lowercase → UPPERCASE → Title Case → lowercase. Mixed-case
+  selections start at lowercase.
+
+**Scope** (all condense modes):
+  - Selection non-empty → operate on the selection's range.
+  - Selection empty + cursor in a card or analytic_unit → operate on
+    the whole container.
+  - Selection empty + cursor at doc level → no-op.
+
+**The `headingMode` setting** modifies selection-based merging
+(Alt+F3 / Mod+Alt+F3 / F3-when-integrity-off) only — no-selection
+in-card and Branch C ignore it. Three options:
+  - `'strict'` — selection-based condense **no-ops** if the selection
+    touches any structural element (`pocket` / `hat` / `block` /
+    `tag` / `analytic` / `cite_paragraph` / `undertag`). Safest mode.
+    Body-only selections behave like `'respect'`.
+  - `'respect'` (default) — touched paragraphs of type `pocket` /
+    `hat` / `block` / `tag` / `analytic` / `cite_paragraph` /
+    `undertag` stay separate; only consecutive runs of `card_body`
+    and doc-level `paragraph` merge (each run yielding one merged
+    textblock of the run's source type).
+  - `'demolish'` — every touched paragraph contributes its *full
+    text* to a single merged textblock whose type = type of the
+    first touched paragraph. Cards / analytic_units whose head was
+    touched dissolve; their non-touched body slots reconstitute (a
+    leftover tag at doc level starts a new card; an orphan body slot
+    at doc level demotes to a paragraph).
+
+**Pilcrow representation:** a `¶` (U+00B6) text node carrying a
+**non-inclusive** `pilcrow_marker` mark (rendered via CSS class
+`.pmd-pilcrow { font-size: 6pt }`). Non-inclusive specifically so the
+cursor adjacent to a pilcrow doesn't inherit the 6-pt formatting —
+typing near a pilcrow stays at the surrounding text size, not 6-pt.
+
+Round-trips losslessly via Verbatim's canonical encoding: exporter
+writes `<w:sz w:val="12"/>` (and `w:szCs`) for any run carrying
+`pilcrow_marker`; importer recognizes a `<w:t>¶</w:t>` run sized to
+6-pt and swaps the `font_size:12` mark it would normally apply for
+`pilcrow_marker`. Uncondense detects pilcrows via either the new
+`pilcrow_marker` mark or the legacy `font_size:12 + ¶` pairing (for
+back-compat with docs saved before this fix), so plain ¶ characters
+at body size are still left alone.
+
+**Ribbon button (Paragraph Integrity ¶):** lives in a new doc-ops
+panel section after the color panel. Visual pressed/unpressed state
+mirrors `settings.paragraphIntegrity` via `aria-pressed` — pressed
+when on, unpressed when off. Settings panel also exposes
+`paragraphIntegrity`, `usePilcrows`, and `respectHeadings` as toggle
+entries. The doc-ops panel is reserved space for future doc-level
+operations.
+
 **Ribbon UI:** the formatting panel (3×2 grid of structural-style
 buttons) and the cite panel (2×2 grid for inline marks: Cite, Underline,
 Emphasis, plus one reserved slot) are settings-driven: a
@@ -1107,11 +1191,16 @@ buttons preview the styles they apply (bold / underline / color / box,
 following per-style typography flags). Tooltips display the active
 keyboard binding using the platform's modifier glyphs.
 
-**Empty Verbatim ribbon slots:** Verbatim's F12 (Clear Formatting) and
-the Shrink / Condense / Cleanup families aren't shipped yet. The same
-registry surface will hold them when they land. (Verbatim's F11 was
-Highlight Yellow — single-color; ours is a fuller toggle-plus-picker
-with the full Word palette and a sibling background-color control.)
+**Empty Verbatim ribbon slots:** Verbatim's F12 (Clear Formatting),
+Shrink (Alt+F3 → font-size cycle on un-underlined runs), and the
+Cleanup family aren't shipped yet. The same registry surface will hold
+them when they land. (Verbatim's F11 was Highlight Yellow — single-
+color; ours is a fuller toggle-plus-picker with the full Word palette
+and a sibling background-color control. Verbatim's F3 family —
+Condense / CondenseNoPilcrows / CondenseWithPilcrows / Uncondense —
+is shipped via our F3 / Alt+F3 / Mod+Alt+F3 / Mod+Alt+Shift+F3
+rebinding; the user-visible mapping differs slightly to consolidate
+ergonomically. Shrink is the open slot.)
 
 ## 16. Stylepox handling
 

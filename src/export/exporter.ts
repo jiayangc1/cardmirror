@@ -252,6 +252,9 @@ class DocxExporter {
       props.push('<w:i/>');
       props.push('<w:iCs/>');
     }
+    if (marks.some((m) => m.type.name === 'strikethrough')) {
+      props.push('<w:strike/>');
+    }
 
     // undertag_mark style implies italic display; emit italic for parity
     // (per DECISIONS.md: dual-encoding precedent set by underline_mark).
@@ -272,6 +275,14 @@ class DocxExporter {
       const hp = Number(sizeMark.attrs['halfPoints'] ?? 22);
       props.push(emptyEl('w:sz', { 'w:val': hp }));
       props.push(emptyEl('w:szCs', { 'w:val': hp }));
+    } else if (marks.some((m) => m.type.name === 'pilcrow_marker')) {
+      // pilcrow_marker carries no attrs — Verbatim's canonical 6-pt
+      // pilcrow encoding is `<w:sz w:val="12"/>`. Emit when no explicit
+      // font_size is present (font_size takes precedence if both are
+      // somehow set on the same run, though that shouldn't happen in
+      // practice).
+      props.push(emptyEl('w:sz', { 'w:val': 12 }));
+      props.push(emptyEl('w:szCs', { 'w:val': 12 }));
     }
 
     if (

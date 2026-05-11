@@ -897,3 +897,121 @@ grey so tests reading default behavior stay stable).
 Word doesn't bind one and debate use is heavily black-by-default,
 so font color is dropdown-only for now. Easy to add later if the
 user wants e.g. Ctrl-Shift-C bound to "apply current font color".
+
+## 2026-05-11: Condense family (F3) — Verbatim parity with rebound keys
+
+Implemented Verbatim's text-collapse family with a simpler 4-key
+mapping. The behavior follows Verbatim's `CondenseCard` / `Uncondense`
+exactly (see `reference-docs/verbatim/desktop/src/Condense.bas`),
+with three branches gated on two settings:
+
+| `paragraphIntegrity` | `usePilcrows` | Branch | What F3 does |
+|---|---|---|---|
+| `true` | * | **C** | Clean intra-paragraph whitespace; no merging. |
+| `false` | `false` | **A** | Merge collapsible runs with spaces. |
+| `false` | `true` | **B** | Merge collapsible runs with 6-pt ¶ markers (reversible via Uncondense). |
+
+**Hotkeys** (rebound from Verbatim for ergonomics):
+
+| Ours | Verbatim equivalent | Forces |
+|---|---|---|
+| `F3` | `CondenseCard` (reads settings) | Whatever settings say (A / B / C). |
+| `Alt-F3` | `Ctrl-F3` (CondenseNoPilcrows) | Branch A, regardless of settings. |
+| `Mod-Alt-F3` | `Ctrl-Alt-F3` (CondenseWithPilcrows) | Branch B, regardless of settings. |
+| `Mod-Alt-Shift-F3` | `Ctrl-Alt-Shift-F3` (Uncondense) | Find 6-pt ¶, split textblock at each. |
+| `Shift-F3` | Word's `Shift-F3` (Toggle Case) | 3-state cycle on selection. |
+
+Verbatim's Shrink (originally Alt-F3, font-size cycle on un-underlined
+runs) is not yet implemented — the slot is now free since we rebound
+Alt-F3 to no-integrity condense. A future implementation can pick a
+new key (Ctrl-8 is Verbatim's alternate).
+
+### The `headingMode` setting
+
+Three distinct user models for how selection-based collapse handles
+structural elements:
+
+- **`'strict'`** — if the selection touches any structural element
+  (heading / cite_paragraph / undertag), the operation is a no-op.
+  Safest mode; the user opts into a more aggressive mode if they
+  actually want to cross a structural boundary. Body-only selections
+  behave like `'respect'`.
+- **`'respect'` (default)** — preserves structural elements (`pocket`,
+  `hat`, `block`, `tag`, `analytic`, `cite_paragraph`, `undertag`);
+  only consecutive runs of `card_body` and doc-level `paragraph`
+  merge.
+- **`'demolish'`** — selection demolishes everything in the range.
+  The merged textblock's type = type of the first touched paragraph.
+  Cards / analytic_units whose head was touched dissolve; orphan body
+  slots reconstitute (a leftover tag at doc level starts a new card;
+  an orphan body slot at doc level demotes to a paragraph). The
+  cite-classifier plugin re-evaluates the result, naturally promoting
+  the merged textblock to `cite_paragraph` if `cite_mark` is present.
+
+The original spec for `'demolish'`: "if someone selects across Body A
+halfway through Body B, then the selected part of Body B will become
+part of Card A, since Tag B will become a card_body unit." Because
+the operation removes paragraph breaks, every touched paragraph
+contributes its full text — not just the portion inside the selection
+— since once a paragraph's leading or trailing break is gone, its
+content joins what's adjacent.
+
+The setting was originally a boolean (`respectHeadings: true/false`)
+covering only `'respect'` and `'demolish'`. The 3-option enum adds
+`'strict'` as the safest default for users who want condense to never
+accidentally cross a tag/cite/undertag boundary. The setting is
+settings-panel-only (no ribbon UI) — rare to toggle once chosen. The
+ribbon exposes only the more frequently-flipped `paragraphIntegrity`
+(via the ¶ button).
+
+### No-selection in-card case
+
+When the cursor is in a card or analytic_unit with no selection, the
+collapse always uses the "respect headings"-style behavior implicitly:
+- F3 (Branch C): per-textblock whitespace cleanup.
+- Alt-F3 / Mod-Alt-F3: tag (schema-required), cite_paragraphs, and
+  undertags stay separate; consecutive `card_body` runs merge.
+
+This is required for schema validity (a card MUST start with a tag),
+and it matches the spirit of Verbatim's `CondenseCard` which auto-
+skips leading cites via `SelectCardTextRange`'s `IdentifyCite`
+heuristic. We use type-level distinction (`cite_paragraph`) instead
+of heuristic detection.
+
+### Pilcrow representation
+
+A `¶` (U+00B6) text node carrying a **non-inclusive** `pilcrow_marker`
+mark. Rendered at 6-pt via a CSS class on the mark's span; the mark
+itself has no attrs. Round-trips losslessly: the exporter writes
+`<w:sz w:val="12"/>` for any run with `pilcrow_marker`, and the
+importer detects a 6-pt run whose content is exactly `¶` and swaps
+the `font_size:12` mark it would normally apply for `pilcrow_marker`.
+
+**Why non-inclusive matters:** the original implementation used
+`font_size` (inclusive=true) at halfPoints=12, which caused the
+cursor adjacent to a pilcrow to inherit the 6-pt size — typing near
+the pilcrow then produced 6-pt text. ProseMirror's `$pos.marks()`
+includes inclusive marks from the previous text node at a child
+boundary, so any inclusive mark on the pilcrow leaks into adjacent
+typing. A dedicated non-inclusive marker mark sidesteps this; the
+6-pt rendering still comes from CSS, but PM's storedMarks logic
+correctly excludes the marker at the boundary.
+
+Detection (for Uncondense) checks for either the new `pilcrow_marker`
+or the legacy `font_size:12 + ¶` pairing, so docs saved before this
+fix are still recognized.
+
+Considered and rejected: introducing a dedicated `pilcrow` atom
+inline node. Cleaner conceptually but requires more schema and
+importer/exporter work; the mark approach is functionally equivalent
+and a smaller change.
+
+### Ribbon UI: doc-ops panel
+
+A new ribbon panel section after the color panel. Currently holds the
+Paragraph Integrity ¶ toggle. Reserved for future doc-level
+operations (Clear Formatting, Shrink, format painter, etc.). Visual
+state on the integrity toggle: `aria-pressed="true"` when on
+(matching CSS gives a grayed-out pressed look — same treatment as
+the paintbrush-active state on color buttons), `aria-pressed="false"`
+when off.

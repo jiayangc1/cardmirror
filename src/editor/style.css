@@ -304,6 +304,36 @@ body {
   border-color: rgba(0, 0, 0, 0.2);
 }
 
+/* Doc-ops panel — currently just the Paragraph Integrity toggle. Same
+   1.45rem vertical rhythm as the other panels so the buttons align
+   with the formatting panel's rows. */
+.ribbon-doc-ops-panel {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 0.5rem;
+  margin-left: 0.25rem;
+  border-left: 1px solid var(--pmd-c-border-soft);
+}
+.ribbon-doc-ops-panel.hidden { display: none; }
+
+/* Single-button height matching the formatting panel's row. */
+#ribbon .ribbon-doc-ops-btn {
+  height: 1.45rem;
+  width: 1.6rem;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+/* Toggle "pressed" state for the Paragraph Integrity button — same
+   visual treatment as the color-panel paintbrush-active state, so
+   the chrome reads consistently. */
+#ribbon .ribbon-doc-ops-btn[aria-pressed="true"] {
+  background: rgba(0, 0, 0, 0.15);
+  border-color: rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
 /* Paintbrush cursor on the editor while a paintbrush mode is on.
    `cell` reads as a select-tool / "I'm dragging to act on a region"
    gesture; same cursor for all three modes since the active button
@@ -738,6 +768,13 @@ code {
 
 #editor.pmd-undertag-bold .pmd-undertag-mark {
   font-weight: bold;
+}
+
+/* Pilcrow marker — small ¶ between paragraphs that Branch B condense
+   inserts. Non-inclusive mark (see marks.ts) so adjacent typing isn't
+   affected. Sized to 6pt to mirror Verbatim's encoding. */
+.pmd-pilcrow {
+  font-size: 6pt;
 }
 
 /* AnalyticChar (inline form): bold; color settings-driven via

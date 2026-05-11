@@ -88,6 +88,22 @@ export const marks: { [name: string]: MarkSpec } = {
     toDOM: () => ['span', { class: 'pmd-analytic-mark' }, 0],
   },
 
+  /**
+   * Pilcrow marker — a non-inclusive mark applied to the 6-pt `¶`
+   * characters Branch B inserts at original paragraph boundaries.
+   * Non-inclusive so the cursor adjacent to a pilcrow doesn't pick
+   * up its formatting and typing nearby stays at the surrounding
+   * text size. Round-trips as `<w:r><w:rPr><w:sz w:val="12"/></w:rPr>
+   * <w:t>¶</w:t></w:r>` — the exporter writes the equivalent of a
+   * 6-pt `font_size` mark for any run carrying this marker, and the
+   * importer recognizes the same pattern on the way back in.
+   */
+  pilcrow_marker: {
+    inclusive: false,
+    parseDOM: [{ tag: 'span.pmd-pilcrow' }],
+    toDOM: () => ['span', { class: 'pmd-pilcrow' }, 0],
+  },
+
   // -------- Direct-formatting marks --------
 
   bold: {
@@ -108,6 +124,22 @@ export const marks: { [name: string]: MarkSpec } = {
       { style: 'font-style=italic' },
     ],
     toDOM: () => ['em', 0],
+  },
+
+  /**
+   * Strikethrough — `<w:strike/>` in OOXML. Renders as `<s>`. We don't
+   * differentiate single-strike vs double-strike (`<w:dstrike/>`); the
+   * importer maps both to this mark and the exporter writes single-strike.
+   */
+  strikethrough: {
+    inclusive: true,
+    parseDOM: [
+      { tag: 's' },
+      { tag: 'strike' },
+      { tag: 'del' },
+      { style: 'text-decoration', getAttrs: (v) => /line-through/.test(String(v)) && null },
+    ],
+    toDOM: () => ['s', 0],
   },
 
   link: {

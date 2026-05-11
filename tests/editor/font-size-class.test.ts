@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { EditorState } from 'prosemirror-state';
 import { schema } from '../../src/schema/index.js';
-import { computeMinHalfPoints } from '../../src/editor/font-size-class-plugin.js';
+import {
+  computeMinHalfPoints,
+  fontSizeClassPlugin,
+} from '../../src/editor/font-size-class-plugin.js';
+import { DecorationSet } from 'prosemirror-view';
 
 const HP_4PT = 8;
 const HP_8PT = 16;
@@ -62,5 +67,67 @@ describe('font-size-class plugin (computeMinHalfPoints)', () => {
       schema.text('eight again', [fontSize(HP_8PT)]),
     );
     expect(computeMinHalfPoints(p)).toBe(HP_4PT);
+  });
+});
+
+// ---- Mixed-bare-text shrink suppression ----
+
+function tag(t: string) {
+  return schema.nodes['tag']!.create({ id: 'x' }, schema.text(t));
+}
+function card(...children: import('prosemirror-model').Node[]) {
+  return schema.nodes['card']!.createChecked(null, children);
+}
+function makeDoc(children: import('prosemirror-model').Node[]) {
+  return schema.nodes['doc']!.createChecked(null, children);
+}
+
+function decorationsForBodyPara(
+  para: import('prosemirror-model').Node,
+): { class?: string; style?: string }[] {
+  // Mount in a minimal doc and read the plugin's decoration set.
+  const doc = makeDoc([card(tag('T'), para)]);
+  const state = EditorState.create({ doc, plugins: [fontSizeClassPlugin] });
+  const set = fontSizeClassPlugin.getState(state) as DecorationSet;
+  let result: { class?: string; style?: string }[] = [];
+  set.find().forEach((d) => {
+    const spec = (d as unknown as { type: { attrs: { class?: string; style?: string } } }).type.attrs;
+    result.push(spec);
+  });
+  return result;
+}
+
+describe('font-size-class plugin — mixed-bare-text shrink suppression', () => {
+  it('applies pmd-fs-shrunk when ALL text has explicit small font_size', () => {
+    const p = bodyPara(
+      schema.text('all 8pt body', [fontSize(HP_8PT)]),
+    );
+    const decos = decorationsForBodyPara(p);
+    const shrunk = decos.find((d) => d.class === 'pmd-fs-shrunk');
+    expect(shrunk).toBeDefined();
+    expect(shrunk!.style).toContain('font-size: 8pt');
+  });
+
+  it('does NOT apply pmd-fs-shrunk when bare (no font_size) text is mixed with shrunk text', () => {
+    // After a condense merge, a paragraph may end up with some text
+    // from a non-shrunk source (no font_size mark) alongside text
+    // from a shrunken source (font_size 8pt). The plugin's strut-
+    // shrinkage would lower the paragraph's font-size, and the bare
+    // text — having no explicit mark — would cascade to the small
+    // size visually. Skipping the optimization keeps bare text at
+    // body default.
+    const p = bodyPara(
+      schema.text('plain bare text '), // no font_size mark
+      schema.text('shrunk piece', [fontSize(HP_8PT)]),
+    );
+    const decos = decorationsForBodyPara(p);
+    expect(decos.find((d) => d.class === 'pmd-fs-shrunk')).toBeUndefined();
+  });
+
+  it('does NOT apply pmd-fs-shrunk for a fully-bare default-size paragraph (no marks)', () => {
+    // Already covered by the >= default check, but good to lock in.
+    const p = bodyPara(schema.text('Lorem ipsum'));
+    const decos = decorationsForBodyPara(p);
+    expect(decos.find((d) => d.class === 'pmd-fs-shrunk')).toBeUndefined();
   });
 });
