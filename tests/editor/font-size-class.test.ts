@@ -97,59 +97,129 @@ function decorationsForBodyPara(
   return result;
 }
 
-describe('font-size-class plugin — mixed-bare-text decoration', () => {
-  it('applies pmd-fs-shrunk when ALL text has explicit small font_size', () => {
+describe('font-size-class plugin — line-height-only shrink', () => {
+  it('applies pmd-fs-shrunk with line-height (no font-size) when ALL text is small', () => {
     const p = bodyPara(
       schema.text('all 8pt body', [fontSize(HP_8PT)]),
     );
     const decos = decorationsForBodyPara(p);
     const shrunk = decos.find((d) => d.class === 'pmd-fs-shrunk');
     expect(shrunk).toBeDefined();
-    expect(shrunk!.style).toContain('font-size: 8pt');
-    // No bare text → no inline bare-protection decorations.
-    expect(decos.find((d) => d.style?.includes('font-size: 11pt'))).toBeUndefined();
+    // Ramp at 8pt: rampFrac = 0.4. The CSS calc ties the multiplier
+    // to var(--pmd-line-height) so the body knob scales the upper
+    // end of the curve.
+    expect(shrunk!.style).toContain(
+      'line-height: calc(8pt * (1 + 0.4 * (var(--pmd-line-height) - 1)))',
+    );
+    // Critical: we DO NOT cascade-shrink the paragraph's font-size.
+    expect(shrunk!.style).not.toMatch(/font-size/);
   });
 
-  it('shrinks AND emits inline bare-protection decoration when bare text is mixed with shrunk text', () => {
-    // After a condense merge (or a manual font_size selection), a
-    // paragraph may end up with some bare text alongside text marked
-    // 8pt. The plugin shrinks the paragraph's own font-size to 8pt
-    // so 8pt-only lines collapse, and emits an inline decoration
-    // over each bare range that pins it back to 11pt + the body
-    // line-height — so mixed lines (or lines that wrap to contain
-    // only bare text) still render at body size.
+  it('shrinks paragraph AND emits inline line-height decoration for non-font_size-marked text', () => {
+    // Mixed: bare body text + 8pt font_size-marked text. The paragraph
+    // decoration sets the shrunken strut; the bare-text inline
+    // decoration pins those lines to the body knob so they scale with
+    // body line-spacing settings instead of being capped at the
+    // content's natural extent.
     const p = bodyPara(
-      schema.text('plain bare text '), // no font_size mark
+      schema.text('plain bare text '),
       schema.text('shrunk piece', [fontSize(HP_8PT)]),
     );
     const decos = decorationsForBodyPara(p);
     const shrunk = decos.find((d) => d.class === 'pmd-fs-shrunk');
     expect(shrunk).toBeDefined();
-    expect(shrunk!.style).toContain('font-size: 8pt');
-    const bare = decos.find((d) => d.style?.includes('font-size: 11pt'));
+    expect(shrunk!.style).toContain(
+      'line-height: calc(8pt * (1 + 0.4 * (var(--pmd-line-height) - 1)))',
+    );
+    // Bare text gets the body-knob line-height (only the bare run,
+    // not the font_size-marked one).
+    const bare = decos.find((d) => d.style === 'line-height: var(--pmd-line-height)');
     expect(bare).toBeDefined();
-    expect(bare!.style).toContain('line-height: var(--pmd-line-height)');
+  });
+
+  it('does NOT emit an inline line-height decoration for font_size-marked text', () => {
+    // Uniform 8pt-marked paragraph: paragraph decoration only. No
+    // non-marked text, no inline decoration needed.
+    const p = bodyPara(
+      schema.text('all 8pt', [fontSize(HP_8PT)]),
+    );
+    const decos = decorationsForBodyPara(p);
+    expect(decos.find((d) => d.class === 'pmd-fs-shrunk')).toBeDefined();
+    expect(
+      decos.find((d) => d.style === 'line-height: var(--pmd-line-height)'),
+    ).toBeUndefined();
+  });
+
+  it('emits inline line-height decoration for named-style marks too (e.g., cite_mark)', () => {
+    // Named-style spans (.pmd-cite, .pmd-underline, etc.) don't carry
+    // font_size marks, so they get the same body-knob line-height
+    // pin — they should scale with body too.
+    const citeMark = schema.marks['cite_mark']!.create();
+    const p = bodyPara(
+      schema.text('cite ', [citeMark]),
+      schema.text('then 8pt', [fontSize(HP_8PT)]),
+    );
+    const decos = decorationsForBodyPara(p);
+    expect(decos.find((d) => d.class === 'pmd-fs-shrunk')).toBeDefined();
+    expect(
+      decos.find((d) => d.style === 'line-height: var(--pmd-line-height)'),
+    ).toBeDefined();
   });
 
   it('does NOT apply pmd-fs-shrunk for a fully-bare default-size paragraph (no marks)', () => {
     const p = bodyPara(schema.text('Lorem ipsum'));
     const decos = decorationsForBodyPara(p);
     expect(decos.find((d) => d.class === 'pmd-fs-shrunk')).toBeUndefined();
-    expect(decos.find((d) => d.style?.includes('font-size: 11pt'))).toBeUndefined();
   });
 
-  it('does NOT emit a bare-protection decoration for text carrying a named-style mark', () => {
-    // Underline-marked text already gets its font-size pinned by
-    // `.pmd-fs-shrunk .pmd-underline`, so an extra inline decoration
-    // would be redundant (and would override the user's custom
-    // --pmd-size-underline if they set one).
-    const underline = schema.marks['underline_mark']!.create();
+  it('picks the SMALLEST font_size mark for the line-height value', () => {
     const p = bodyPara(
-      schema.text('underlined ', [underline]),
-      schema.text('then 8pt', [fontSize(HP_8PT)]),
+      schema.text('eight ', [fontSize(HP_8PT)]),
+      schema.text('four', [fontSize(HP_4PT)]),
     );
     const decos = decorationsForBodyPara(p);
-    expect(decos.find((d) => d.class === 'pmd-fs-shrunk')).toBeDefined();
-    expect(decos.find((d) => d.style?.includes('font-size: 11pt'))).toBeUndefined();
+    const shrunk = decos.find((d) => d.class === 'pmd-fs-shrunk');
+    expect(shrunk).toBeDefined();
+    // 4pt is below the ramp floor → multiplier clamps to 1.0 →
+    // line-height is 4pt absolute (no body-knob involvement).
+    expect(shrunk!.style).toContain('line-height: 4pt');
+  });
+
+  it('recomputes after a mark-only transaction (font_size strip drops pmd-fs-shrunk)', () => {
+    // Mark steps produce identity position maps. The decoration-range
+    // helper has to walk `tr.steps` directly to notice them — without
+    // that, the plugin's `apply` would silently skip the affected
+    // paragraph and the pmd-fs-shrunk class would stick around forever.
+    const p = bodyPara(
+      schema.text('eight ', [fontSize(HP_8PT)]),
+      schema.text('eight again', [fontSize(HP_8PT)]),
+    );
+    const doc = makeDoc([card(tag('T'), p)]);
+    let state = EditorState.create({ doc, plugins: [fontSizeClassPlugin] });
+    const initialSet = fontSizeClassPlugin.getState(state) as DecorationSet;
+    expect(initialSet.find().some((d) => {
+      const attrs = (d as unknown as { type: { attrs: { class?: string } } }).type.attrs;
+      return attrs.class === 'pmd-fs-shrunk';
+    })).toBe(true);
+
+    // Strip the font_size mark across the paragraph's content range.
+    // The plugin's apply must pick this up via the step-based walk.
+    let paraFrom = -1;
+    let paraTo = -1;
+    state.doc.descendants((n, p2) => {
+      if (n.type.name === 'card_body') {
+        paraFrom = p2 + 1;
+        paraTo = p2 + n.nodeSize - 1;
+      }
+      return true;
+    });
+    const tr = state.tr.removeMark(paraFrom, paraTo, schema.marks['font_size']!);
+    state = state.apply(tr);
+
+    const afterSet = fontSizeClassPlugin.getState(state) as DecorationSet;
+    expect(afterSet.find().some((d) => {
+      const attrs = (d as unknown as { type: { attrs: { class?: string } } }).type.attrs;
+      return attrs.class === 'pmd-fs-shrunk';
+    })).toBe(false);
   });
 });

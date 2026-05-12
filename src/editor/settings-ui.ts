@@ -9,6 +9,7 @@
 
 import {
   SETTING_METADATA,
+  SETTINGS_DEFAULTS,
   settings,
   DISPLAY_SIZE_KEYS,
   DISPLAY_COLOR_KEYS,
@@ -188,7 +189,11 @@ class SettingsModal {
       return row;
     } else if (meta.kind === 'lineHeight') {
       row.appendChild(text);
-      row.appendChild(buildLineHeightEditor());
+      row.appendChild(buildLineHeightEditor(meta.key as LineHeightKey));
+      return row;
+    } else if (meta.kind === 'lineHeights') {
+      row.appendChild(text);
+      row.appendChild(buildLineHeightsEditor());
       return row;
     } else if (meta.kind === 'formattingPanelMode') {
       label.appendChild(buildFormattingPanelModeEditor());
@@ -410,7 +415,15 @@ function buildBodyFontEditor(): HTMLElement {
   return wrap;
 }
 
-function buildLineHeightEditor(): HTMLElement {
+type LineHeightKey =
+  | 'lineHeight'
+  | 'lineHeightCite'
+  | 'lineHeightTag'
+  | 'lineHeightAnalytic'
+  | 'lineHeightHeading'
+  | 'lineHeightUndertag';
+
+function buildLineHeightEditor(key: LineHeightKey): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'pmd-line-height-editor';
 
@@ -420,14 +433,14 @@ function buildLineHeightEditor(): HTMLElement {
   input.min = '1.0';
   input.max = '2.0';
   input.step = '0.05';
-  input.value = String(settings.get('lineHeight'));
+  input.value = String(settings.get(key));
   input.addEventListener('change', () => {
     const v = parseFloat(input.value);
     if (!Number.isFinite(v)) {
-      input.value = String(settings.get('lineHeight'));
+      input.value = String(settings.get(key));
       return;
     }
-    settings.set('lineHeight', v);
+    settings.set(key, v);
   });
   wrap.appendChild(input);
 
@@ -438,9 +451,93 @@ function buildLineHeightEditor(): HTMLElement {
 
   const unsubscribe = settings.subscribe(() => {
     if (document.activeElement !== input) {
-      input.value = String(settings.get('lineHeight'));
+      input.value = String(settings.get(key));
     }
   });
+  wrap.addEventListener('DOMNodeRemoved', () => unsubscribe());
+
+  return wrap;
+}
+
+const LINE_HEIGHT_ROWS: { key: LineHeightKey; label: string }[] = [
+  { key: 'lineHeight', label: 'Body' },
+  { key: 'lineHeightCite', label: 'Cite paragraphs' },
+  { key: 'lineHeightTag', label: 'Tags' },
+  { key: 'lineHeightAnalytic', label: 'Analytics' },
+  { key: 'lineHeightHeading', label: 'Pocket / Hat / Block' },
+  { key: 'lineHeightUndertag', label: 'Undertags' },
+];
+
+function buildLineHeightsEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-line-heights-editor';
+
+  const rowsContainer = document.createElement('div');
+  rowsContainer.className = 'pmd-line-heights-rows';
+  wrap.appendChild(rowsContainer);
+
+  function render(): void {
+    rowsContainer.innerHTML = '';
+    for (const { key, label: labelText } of LINE_HEIGHT_ROWS) {
+      const row = document.createElement('div');
+      row.className = 'pmd-line-height-row';
+
+      const label = document.createElement('label');
+      label.className = 'pmd-line-height-row-label';
+      label.textContent = labelText;
+      row.appendChild(label);
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'pmd-line-height-input';
+      input.min = '1.0';
+      input.max = '2.0';
+      input.step = '0.05';
+      input.value = String(settings.get(key));
+      input.addEventListener('change', () => {
+        const v = parseFloat(input.value);
+        if (!Number.isFinite(v)) {
+          input.value = String(settings.get(key));
+          return;
+        }
+        settings.set(key, v);
+      });
+      row.appendChild(input);
+
+      const unit = document.createElement('span');
+      unit.className = 'pmd-line-height-unit';
+      unit.textContent = '× font size';
+      row.appendChild(unit);
+
+      rowsContainer.appendChild(row);
+    }
+  }
+
+  // Reset button: restores every line-spacing knob to its built-in
+  // default. Same styling/shape as the zoom reset button in the
+  // status bar.
+  const footer = document.createElement('div');
+  footer.className = 'pmd-line-heights-footer';
+  const resetBtn = document.createElement('button');
+  resetBtn.type = 'button';
+  resetBtn.className = 'pmd-line-heights-reset-btn';
+  resetBtn.textContent = '↺';
+  resetBtn.title = 'Restore defaults';
+  resetBtn.setAttribute('aria-label', 'Restore line spacing defaults');
+  resetBtn.addEventListener('click', () => {
+    for (const { key } of LINE_HEIGHT_ROWS) {
+      settings.set(key, SETTINGS_DEFAULTS[key]);
+    }
+  });
+  footer.appendChild(resetBtn);
+  wrap.appendChild(footer);
+
+  const unsubscribe = settings.subscribe(() => {
+    if (!(document.activeElement && wrap.contains(document.activeElement))) {
+      render();
+    }
+  });
+  render();
   wrap.addEventListener('DOMNodeRemoved', () => unsubscribe());
 
   return wrap;

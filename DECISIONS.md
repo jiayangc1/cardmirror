@@ -1230,40 +1230,55 @@ phantom borders. This also matches Word's character-border rendering
 more closely (Word's borders hug the text rather than reserving
 internal padding).
 
-## 2026-05-12: Mixed-font paragraphs — bare-text inline decoration
+## 2026-05-12: Shrunken paragraphs — line-height only, never font-size
 
-Previously the font-size-class plugin bailed (`if (stats.hasBare)
-return`) the moment any text in a paragraph was missing a `font_size`
-mark. Rationale at the time: shrinking the paragraph's font-size to
-the smallest font_size mark would cascade-shrink bare text too, since
-bare text has nothing pinning its size.
+### What changed
 
-The cost: mixed-font paragraphs (the common case — 11pt body + 8pt
-citation runs) never got the per-paragraph strut shrink, so every
-line in those paragraphs sat at the body's 13.2pt strut. CSS's
-block-strut rule means the 8pt lines occupied the same 13.2pt of
-vertical space as the 11pt lines — visibly looser than Verbatim,
-which sizes each line to its own content.
+`pmd-fs-shrunk` paragraphs now carry inline
+`style="line-height: <minPt × 1.2>pt"` — and nothing else. The
+paragraph's own `font-size` is left alone. The bare-text inline
+decoration is gone, and the `.pmd-fs-shrunk .pmd-*` font-size
+pinning rules in CSS are gone.
 
-**Fix:** Always shrink the paragraph to the minimum font_size found
-on it (no `hasBare` bail). For each text node in the paragraph that
-carries NEITHER a `font_size` mark nor any named-style mark
-(cite_mark / underline_mark / emphasis_mark / undertag_mark /
-analytic_mark), emit a `Decoration.inline` over its range with
-`style: "font-size: 11pt; line-height: var(--pmd-line-height)"` —
-pinning bare text to the body default. Named-style marks are
-self-protecting via existing `.pmd-fs-shrunk .pmd-*` CSS rules and
-don't need additional decoration.
+### Why (the previous iterations)
 
-Result per-line:
-- All small-font_size text → line strut = paragraph strut
-  (e.g., 8pt × 1.1 = 8.8pt). Tight.
-- Contains bare/named-style text → inline strut (11pt × 1.2 or
-  the named style's pinned size) dominates → ~13.2pt+. Body-like.
-- Mixed → max of the two, same as Word's "single" line spacing.
+V1 (original): plugin shrinks paragraph to `font-size: <min>pt;
+line-height: <ramp>` whenever ALL text is marked small.
+- Bug: bailed on any bare text, so mixed-font paragraphs
+  (11pt body + 8pt citation runs — the common Verbatim shape)
+  got no shrink at all.
 
-This restores Word/Verbatim's per-line line-height behavior while
-keeping bare text readable at its intended size.
+V2 (the bare-text decoration): drop the hasBare bail; emit an
+inline `Decoration.inline` over each bare-text range pinning it
+back to 11pt + body line-height.
+- Bug: the decoration relies on a separate strip-and-re-pin pass.
+  When `font_size` marks were stripped via F9's toggle-off (or
+  any other path), the newly-bare text didn't always pick up the
+  decoration in the same paint cycle — text would appear small
+  even though no `font_size` mark was on it. The debug chip
+  reported the "right" size (body 11pt) while the visual stayed
+  small. Architecturally, "shrunk" was leaking into a font
+  cascade it should never have touched.
+
+V3 (current): "shrunk" is a line-height adjustment only. The
+paragraph keeps its body `font-size`. The strut gets the absolute
+`line-height: <minPt × 1.2>pt` value, which is inherited as a
+length by every inline descendant. Per-line rendering still works
+because CSS line-box height = max(strut, content's natural extent):
+- 8pt-only line: strut 9.6pt wins → 9.6pt tall. Tight.
+- Bare 11pt line: content's 11pt natural extent wins → ~11pt.
+- 13pt cite line: content wins → ~13pt.
+- mixed line: tallest element wins. (Same as Word's "single".)
+
+Named-style spans inherit the body cascade naturally (`.pmd-cite`
+keeps its unconditional 13pt; `.pmd-underline` / `.pmd-emphasis`
+inherit body 11pt), so no `.pmd-fs-shrunk .pmd-*` font-size pin
+is needed.
+
+Crucial invariant: applying / removing `font_size` marks now has
+predictable visual results. Bare text is bare text — it renders
+at its parent paragraph's font-size, full stop. The font-size
+chip is now always consistent with what the user sees.
 
 ## 2026-05-12: Cite paragraph + tag + analytic line-height = 1.1
 

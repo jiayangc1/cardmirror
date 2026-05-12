@@ -338,6 +338,36 @@ body {
 }
 .ribbon-doc-ops-panel.hidden { display: none; }
 
+/* Read-only font-size readout. Shows the effective font size at the
+   cursor (or "—" if the selection spans mixed sizes). Sized to match
+   the doc-ops button height so it sits on the same baseline. */
+.ribbon-font-size-display {
+  align-self: center;
+  min-width: 2.5rem;
+  height: 1.45rem;
+  padding: 0 0.4rem;
+  margin-left: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--pmd-c-bg);
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 3px;
+  font-size: 0.85rem;
+  color: var(--pmd-c-text);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  cursor: default;
+}
+
+/* Red text when the displayed size comes from an explicit font_size
+   mark (direct formatting). Bare runs and named-style-derived sizes
+   keep the default color, so the chip's color answers "is this run
+   overriding the paragraph's style?" at a glance. */
+.ribbon-font-size-display.pmd-font-size-direct {
+  color: #b00020;
+}
+
 /* Single-button cell matching the formatting panel's row height. */
 #ribbon .ribbon-doc-ops-btn {
   height: 1.45rem;
@@ -626,7 +656,18 @@ code {
      multiplier (settings.lineHeight). All updated at runtime. */
   --pmd-emphasis-box-size: 1pt;
   --pmd-body-font: "Calibri";
-  --pmd-line-height: 1.2;
+
+  /* Per-paragraph-type line-height multipliers. Body (`--pmd-line-height`)
+     is the only one that propagates via #editor's `line-height: var(...)`
+     declaration — everything else has its own explicit override on the
+     paragraph class. Defining them as variables now sets up the
+     per-type "line spacing" knobs we'll surface in settings later. */
+  --pmd-line-height: 1.2;          /* body (card_body / generic paragraph) */
+  --pmd-line-height-cite: 1.2;     /* cite paragraph */
+  --pmd-line-height-tag: 1.2;      /* tag head */
+  --pmd-line-height-analytic: 1.2; /* analytic head */
+  --pmd-line-height-heading: 1.2;  /* pocket / hat / block */
+  --pmd-line-height-undertag: 1.2; /* undertag paragraph */
 
   background: var(--pmd-c-bg);
   flex: 1 1 auto;
@@ -650,6 +691,7 @@ code {
 /* Pocket = Heading 1 with paragraph borders all four sides (the box). */
 .pmd-pocket {
   font-size: var(--pmd-size-pocket);
+  line-height: var(--pmd-line-height-heading);
   font-weight: bold;
   text-align: center;
   border: 3px solid var(--pmd-c-emphasis-box);
@@ -661,6 +703,7 @@ code {
 /* Hat = Heading 2, centered, double underline. */
 .pmd-hat {
   font-size: var(--pmd-size-hat);
+  line-height: var(--pmd-line-height-heading);
   font-weight: bold;
   text-align: center;
   text-decoration: underline double;
@@ -670,6 +713,7 @@ code {
 /* Block = Heading 3, centered, single underline. */
 .pmd-block {
   font-size: var(--pmd-size-block);
+  line-height: var(--pmd-line-height-heading);
   font-weight: bold;
   text-align: center;
   text-decoration: underline;
@@ -679,7 +723,7 @@ code {
 /* Tag = Heading 4, bold, larger. */
 .pmd-tag {
   font-size: var(--pmd-size-tag);
-  line-height: 1.1;
+  line-height: var(--pmd-line-height-tag);
   font-weight: bold;
   margin: 0.75rem 0 0.25rem 0;
 }
@@ -691,7 +735,7 @@ code {
    --pmd-color-analytic — see ARCHITECTURE.md §18. */
 #editor .pmd-analytic {
   font-size: var(--pmd-size-analytic);
-  line-height: 1.1;
+  line-height: var(--pmd-line-height-analytic);
   font-weight: bold;
   color: var(--pmd-color-analytic);
   margin: 0.75rem 0 0.25rem 0;
@@ -715,7 +759,7 @@ code {
    inside a cite paragraph (rare) still gets the body line-height via
    the bare-text inline decoration the font-size-class plugin emits. */
 .pmd-cite-para {
-  line-height: 1.1;
+  line-height: var(--pmd-line-height-cite);
 }
 
 
@@ -738,6 +782,7 @@ code {
   color: var(--pmd-color-undertag);
   font-family: 'Times New Roman', serif;
   font-size: var(--pmd-size-undertag);
+  line-height: var(--pmd-line-height-undertag);
 }
 
 #editor.pmd-undertag-italic .pmd-undertag {
@@ -860,31 +905,6 @@ code {
   padding: 0.25em;
   box-sizing: border-box;
   overflow: hidden;
-}
-
-/* When a body paragraph is shrunk by the font-size-class plugin (the
-   inline `font-size: Xpt` on the <p>), pin the named-style mark
-   wrappers to their declared sizes via the --pmd-size-* variables.
-   Without this, .pmd-underline et al. would inherit the small size
-   from the shrunk paragraph and visible content would shrink too.
-   The line-height restores comfortable spacing for readable runs
-   even though the surrounding (shrunk) paragraph uses a tighter
-   value — same as the body default. */
-.pmd-fs-shrunk .pmd-underline {
-  font-size: var(--pmd-size-underline);
-  line-height: 1.2;
-}
-.pmd-fs-shrunk .pmd-emphasis {
-  font-size: var(--pmd-size-emphasis);
-  line-height: 1.2;
-}
-.pmd-fs-shrunk .pmd-undertag-mark {
-  font-size: var(--pmd-size-undertag);
-  line-height: 1.2;
-}
-.pmd-fs-shrunk .pmd-analytic-mark {
-  font-size: var(--pmd-size-analytic);
-  line-height: 1.2;
 }
 
 /* Word's 15 named highlight colors with the OOXML-canonical saturated
@@ -1624,7 +1644,7 @@ body.pmd-nav-resize-active {
 }
 
 .pmd-line-height-input {
-  flex: 0 0 5rem;
+  flex: 0 0 4rem;
   font-family: inherit;
   font-size: 0.85rem;
   border: 1px solid var(--pmd-c-border);
@@ -1636,6 +1656,55 @@ body.pmd-nav-resize-active {
 .pmd-line-height-unit {
   font-size: 0.75rem;
   color: var(--pmd-c-text-muted);
+}
+
+.pmd-line-heights-editor {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.pmd-line-heights-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.pmd-line-height-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pmd-line-height-row-label {
+  flex: 1 1 auto;
+  font-size: 0.85rem;
+}
+
+.pmd-line-heights-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.pmd-line-heights-reset-btn {
+  font-family: inherit;
+  background: var(--pmd-c-bg);
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 3px;
+  cursor: pointer;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  font-size: 0.95rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pmd-line-heights-reset-btn:hover {
+  background: var(--pmd-c-hover);
 }
 
 .pmd-display-sizes-editor {

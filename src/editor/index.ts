@@ -67,6 +67,7 @@ const readModeBtn = document.getElementById('read-mode-btn') as HTMLButtonElemen
 const wordCountBtn = document.getElementById('word-count-btn') as HTMLButtonElement;
 const wordCountText = document.getElementById('word-count-text')!;
 const plainPasteToggleBtn = document.getElementById('plain-paste-toggle-btn') as HTMLButtonElement | null;
+const fontSizeDisplay = document.getElementById('font-size-display') as HTMLDivElement | null;
 
 function updatePlainPasteIndicator(armed: boolean): void {
   if (!plainPasteToggleBtn) return;
@@ -269,8 +270,17 @@ function applyBodyFont(font: string): void {
   editorEl.style.fontFamily = `${head}, 'Helvetica Neue', sans-serif`;
 }
 
-function applyLineHeight(multiplier: number): void {
-  editorEl.style.setProperty('--pmd-line-height', String(multiplier));
+function applyLineHeight(_multiplier: number): void {
+  // The runtime override now sets each of the six per-paragraph-type
+  // line-height variables from its corresponding setting, so every
+  // knob in the Settings dialog flows through to the editor surface.
+  const s = settings.all();
+  editorEl.style.setProperty('--pmd-line-height', String(s.lineHeight));
+  editorEl.style.setProperty('--pmd-line-height-cite', String(s.lineHeightCite));
+  editorEl.style.setProperty('--pmd-line-height-tag', String(s.lineHeightTag));
+  editorEl.style.setProperty('--pmd-line-height-analytic', String(s.lineHeightAnalytic));
+  editorEl.style.setProperty('--pmd-line-height-heading', String(s.lineHeightHeading));
+  editorEl.style.setProperty('--pmd-line-height-undertag', String(s.lineHeightUndertag));
 }
 
 // Apply read-mode visual state and editing lockdown whenever the
@@ -286,6 +296,7 @@ settings.subscribe((s) => {
   applyFormattingPanel(s.formattingPanelMode, s.formattingPanelPreview);
   syncParagraphIntegrityBtn();
   refreshWordCount();
+  refreshFontSizeDisplay();
 });
 applyReadMode(settings.get('readMode'));
 applyZoom(settings.get('zoomPct'));
@@ -361,6 +372,101 @@ if (plainPasteToggleBtn) {
     if (!view) return;
     togglePlainPaste()(view.state, view.dispatch.bind(view));
   });
+}
+
+function refreshFontSizeDisplay(): void {
+  if (!fontSizeDisplay) return;
+  if (!view) {
+    fontSizeDisplay.textContent = '—';
+    fontSizeDisplay.classList.remove('pmd-font-size-direct');
+    return;
+  }
+  const info = effectiveFontSizeForDisplay(view.state);
+  fontSizeDisplay.textContent = info.pt == null ? '—' : `${formatPt(info.pt)}`;
+  // Red when every contributing run derives its size from an explicit
+  // `font_size` mark; black when bare or driven by a named-style mark.
+  fontSizeDisplay.classList.toggle(
+    'pmd-font-size-direct',
+    info.pt != null && info.direct,
+  );
+}
+
+function formatPt(pt: number): string {
+  // Drop the trailing ".0" for whole numbers; otherwise show one decimal.
+  return Number.isInteger(pt) ? `${pt}` : pt.toFixed(1);
+}
+
+interface FontSizeInfo {
+  /** Effective size in pt, or `null` when the selection spans mixed sizes. */
+  pt: number | null;
+  /** True iff every contributing run derives its size from an explicit
+   *  `font_size` mark. False when any run is bare or named-style-derived. */
+  direct: boolean;
+}
+
+function effectiveFontSizeForDisplay(state: EditorState): FontSizeInfo {
+  const sel = state.selection;
+  const sizes = settings.get('displaySizes');
+  const paragraphDefault = (name: string): number => {
+    switch (name) {
+      case 'pocket': return sizes.pocket;
+      case 'hat': return sizes.hat;
+      case 'block': return sizes.block;
+      case 'tag': return sizes.tag;
+      case 'analytic': return sizes.analytic;
+      case 'undertag': return sizes.undertag;
+      default: return sizes.normal;
+    }
+  };
+  const sizeFromText = (text: PMNode, parent: PMNode): { pt: number; direct: boolean } => {
+    const fs = text.marks.find((m) => m.type.name === 'font_size');
+    if (fs) {
+      return { pt: Number(fs.attrs['halfPoints'] ?? 22) / 2, direct: true };
+    }
+    for (const m of text.marks) {
+      switch (m.type.name) {
+        case 'cite_mark': return { pt: sizes.cite, direct: false };
+        case 'underline_mark': return { pt: sizes.underline, direct: false };
+        case 'emphasis_mark': return { pt: sizes.emphasis, direct: false };
+        case 'undertag_mark': return { pt: sizes.undertag, direct: false };
+        case 'analytic_mark': return { pt: sizes.analytic, direct: false };
+      }
+    }
+    return { pt: paragraphDefault(parent.type.name), direct: false };
+  };
+
+  if (sel.empty) {
+    const $pos = sel.$from;
+    const parent = $pos.parent;
+    if (!parent.isTextblock) return { pt: null, direct: false };
+    const idx = $pos.index();
+    // Prefer the text node immediately BEFORE the cursor — that's the
+    // run the user is about to extend by typing. Falls back to the
+    // node AFTER for cursors at the start of a line.
+    const before = idx > 0 ? parent.child(idx - 1) : null;
+    const after = idx < parent.childCount ? parent.child(idx) : null;
+    const target = before?.isText ? before : (after?.isText ? after : null);
+    if (target) return sizeFromText(target, parent);
+    return { pt: paragraphDefault(parent.type.name), direct: false };
+  }
+
+  // Non-empty: collect (size, direct) per text run. Uniform size → show
+  // it; "direct" flag is the AND across runs (red only when every run
+  // is directly formatted).
+  const found = new Set<number>();
+  let allDirect = true;
+  let anyRun = false;
+  state.doc.nodesBetween(sel.from, sel.to, (node, _pos, parent) => {
+    if (!node.isText || !parent) return true;
+    const r = sizeFromText(node, parent);
+    found.add(r.pt);
+    if (!r.direct) allDirect = false;
+    anyRun = true;
+    return true;
+  });
+  if (!anyRun) return { pt: null, direct: false };
+  if (found.size === 1) return { pt: [...found][0]!, direct: allDirect };
+  return { pt: null, direct: false };
 }
 
 function refreshWordCount(): void {
@@ -506,6 +612,9 @@ function mountView(doc: PMNode): void {
       if (tx.docChanged) {
         currentDoc = next.doc;
       }
+      // Cheap; runs on every transaction (selection moves included)
+      // so the readout always reflects the cursor's current run.
+      refreshFontSizeDisplay();
       // Walking the doc to rebuild the nav pane and tally read-aloud
       // word count is the dominant per-keystroke cost on big docs.
       // Debounce so we only do it after typing pauses.
@@ -523,6 +632,7 @@ function mountView(doc: PMNode): void {
   // the right thing immediately on doc load.
   navPanel.update(doc);
   refreshWordCount();
+  refreshFontSizeDisplay();
 }
 
 let pendingHeavyUpdate: ReturnType<typeof setTimeout> | null = null;

@@ -156,10 +156,18 @@ export interface Settings {
    */
   bodyFont: string;
   /**
-   * Global line-height multiplier (unitless). Mirrors Verbatim's
-   * Spacing setting (Wide=1.4ish, Narrow=1.15ish). Range 1.0–2.0.
+   * Per-paragraph-type line-height multipliers. Each maps to a CSS
+   * variable on `#editor` (--pmd-line-height, --pmd-line-height-cite,
+   * etc.). `lineHeight` is the body knob — it also scales shrunken-
+   * paragraph line-heights via the font-size-class plugin's ramp.
+   * Each is unitless; range 1.0–2.0.
    */
   lineHeight: number;
+  lineHeightCite: number;
+  lineHeightTag: number;
+  lineHeightAnalytic: number;
+  lineHeightHeading: number;
+  lineHeightUndertag: number;
   /**
    * Display mode for the ribbon's formatting panel (Pocket / Hat /
    * Block / Tag / Analytic buttons). 'labels' shows the style name on
@@ -282,6 +290,11 @@ const DEFAULTS: Settings = {
   displayColors: { ...DEFAULT_DISPLAY_COLORS },
   bodyFont: 'Calibri',
   lineHeight: 1.2,
+  lineHeightCite: 1.2,
+  lineHeightTag: 1.2,
+  lineHeightAnalytic: 1.2,
+  lineHeightHeading: 1.2,
+  lineHeightUndertag: 1.2,
   formattingPanelMode: 'labels',
   formattingPanelPreview: true,
   lastHighlightColor: 'yellow',
@@ -293,6 +306,10 @@ const DEFAULTS: Settings = {
   condenseOnPaste: false,
   clearFormattingOnNamedStyleToggleOff: true,
 };
+
+/** Public read-only view of the built-in defaults — handy for any UI
+ *  that wants a "Restore defaults" button. */
+export const SETTINGS_DEFAULTS: Readonly<Settings> = DEFAULTS;
 
 /**
  * Human-readable metadata for each setting, used by the settings UI.
@@ -313,6 +330,7 @@ export interface SettingMeta {
     | 'displayColors'
     | 'bodyFont'
     | 'lineHeight'
+    | 'lineHeights'
     | 'formattingPanelMode'
     | 'headingMode';
 }
@@ -407,11 +425,13 @@ export const SETTING_METADATA: SettingMeta[] = [
       'When on, pressing F9 to toggle underlining off also strips direct formatting in the range. When off, only the underline style mark is removed; direct formatting applied to the underlined text is preserved.',
     kind: 'toggle',
   },
-  // Note: `lineHeight` is wired through (defaults to 1.2, applied to
-  // #editor via --pmd-line-height) but isn't exposed in the settings
-  // UI — the configurable version had a known interaction bug. Once
-  // that's fixed, add a `kind: 'lineHeight'` metadata entry here to
-  // surface it.
+  {
+    key: 'lineHeight',
+    label: 'Line spacing',
+    description:
+      'Line-spacing multiplier per paragraph type (unitless × font-size).',
+    kind: 'lineHeights',
+  },
 ];
 
 type Listener = (s: Readonly<Settings>) => void;
@@ -501,11 +521,12 @@ function sanitize(s: Settings): Settings {
     displayTypography: sanitizeDisplayTypography(s.displayTypography),
     displayColors: sanitizeDisplayColors(s.displayColors),
     bodyFont: sanitizeBodyFont(s.bodyFont),
-    lineHeight: clamp(
-      Number.isFinite(s.lineHeight) ? Math.round(s.lineHeight * 20) / 20 : 1.2,
-      1.0,
-      2.0,
-    ),
+    lineHeight: sanitizeLineHeight(s.lineHeight, DEFAULTS.lineHeight),
+    lineHeightCite: sanitizeLineHeight(s.lineHeightCite, DEFAULTS.lineHeightCite),
+    lineHeightTag: sanitizeLineHeight(s.lineHeightTag, DEFAULTS.lineHeightTag),
+    lineHeightAnalytic: sanitizeLineHeight(s.lineHeightAnalytic, DEFAULTS.lineHeightAnalytic),
+    lineHeightHeading: sanitizeLineHeight(s.lineHeightHeading, DEFAULTS.lineHeightHeading),
+    lineHeightUndertag: sanitizeLineHeight(s.lineHeightUndertag, DEFAULTS.lineHeightUndertag),
     formattingPanelMode: FORMATTING_PANEL_MODES.includes(s.formattingPanelMode as FormattingPanelMode)
       ? (s.formattingPanelMode as FormattingPanelMode)
       : DEFAULTS.formattingPanelMode,
@@ -545,6 +566,13 @@ function sanitize(s: Settings): Settings {
         ? DEFAULTS.clearFormattingOnNamedStyleToggleOff
         : !!s.clearFormattingOnNamedStyleToggleOff,
   };
+}
+
+function sanitizeLineHeight(raw: unknown, fallback: number): number {
+  const n = typeof raw === 'number' && Number.isFinite(raw) ? raw : fallback;
+  // Round to 0.05 steps; clamp to [1.0, 2.0] — the input UI uses the
+  // same step / range.
+  return clamp(Math.round(n * 20) / 20, 1.0, 2.0);
 }
 
 function sanitizeBodyFont(raw: unknown): string {

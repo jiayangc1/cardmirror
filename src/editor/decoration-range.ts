@@ -16,6 +16,20 @@ import type { Node as PMNode } from 'prosemirror-model';
  * Returns null if no range is affected (shouldn't happen when
  * `tr.docChanged` is true, but defensive). Range is in the *new* doc's
  * coordinates.
+ *
+ * Two walks combined:
+ *   1. `tr.mapping.maps.forEach` — picks up ranges from Replace /
+ *      ReplaceAround steps, where positions actually move.
+ *   2. `tr.steps` direct scan — mark steps (AddMark / RemoveMark /
+ *      AddNodeMark / RemoveNodeMark) produce identity mappings, so
+ *      step (1) misses them entirely. Each such step carries its
+ *      own `from` / `to`. We map those forward through subsequent
+ *      steps (`tr.mapping.slice(i + 1)`) to land in the final doc.
+ *
+ * Without step (2), a transaction that ONLY changes marks (e.g., F9
+ * stripping `font_size` from a run) registers no changed range, and
+ * plugins that depend on this helper (font-size-class) silently skip
+ * recomputation.
  */
 export function changedRange(tr: Transaction): { from: number; to: number } | null {
   let from = Infinity;
@@ -25,6 +39,15 @@ export function changedRange(tr: Transaction): { from: number; to: number } | nu
       if (nFrom < from) from = nFrom;
       if (nTo > to) to = nTo;
     });
+  });
+  tr.steps.forEach((step, i) => {
+    const s = step as unknown as { from?: unknown; to?: unknown };
+    if (typeof s.from !== 'number' || typeof s.to !== 'number') return;
+    const after = tr.mapping.slice(i + 1);
+    const f = after.map(s.from, -1);
+    const t = after.map(s.to, 1);
+    if (f < from) from = f;
+    if (t > to) to = t;
   });
   if (from > to) return null;
   return { from, to };
