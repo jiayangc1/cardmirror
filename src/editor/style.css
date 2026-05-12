@@ -827,7 +827,10 @@ code {
 
 #editor.pmd-emphasis-box .pmd-emphasis {
   border: var(--pmd-emphasis-box-size) solid var(--pmd-c-emphasis-box);
-  padding: 0 2px;
+  /* No horizontal padding: padding would leave a white sliver inside
+     the border whenever a highlight (which renders INSIDE the emphasis
+     wrapper) crosses the box. Letting the border hug the text matches
+     Word's character-border rendering. */
 }
 
 /* Placeholder span shown in place of unsupported image formats

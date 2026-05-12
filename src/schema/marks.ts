@@ -269,6 +269,11 @@ export const marks: { [name: string]: MarkSpec } = {
     // based targeting is more robust than the bare `mark` element
     // selector — ProseMirror's view layer can normalize element names
     // in ways that defeat element-typed CSS rules in some cases.
+    // Emphasis box padding is intentionally 0 so the highlight bg
+    // reaches the box's inner border edge with no white gap, even
+    // though emphasis is OUTER to highlight in mark rank (a continuous
+    // emphasis run renders as ONE `.pmd-emphasis` span regardless of
+    // which sub-runs carry highlight — no phantom internal borders).
     toDOM: (mark) => [
       'span',
       {

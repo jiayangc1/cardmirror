@@ -1200,3 +1200,32 @@ general paste rewrite.
 - Status-bar HTML gained `<div id="plain-paste-indicator">` (hidden
   by default); the paste plugin's `onArmedChange` callback toggles
   its `hidden` attribute.
+
+## 2026-05-12: Emphasis box white-gap fix — drop the 2px padding
+
+Highlights crossing an emphasis-boxed run showed a thin white sliver
+on each side of the boxed text: the highlight bg only painted INSIDE
+the `.pmd-highlight` span, but emphasis carried `padding: 0 2px` to
+give the box visual breathing room — and that padding sat between
+emphasis's border and the highlight's painted area.
+
+**First attempt (reverted):** moved `shading` and `highlight` to outer
+mark ranks (right after `font_size`) so highlight's bg would wrap the
+entire emphasis span, padding and all. This filled the gap — but
+created a worse bug. When a single continuous emphasis run has some
+sub-ranges highlighted and others not, PM splits the inner mark into
+multiple DOM spans at every change in the outer marks. With emphasis
+inner, a run like `<hl><emph>how narrow </emph></hl><emph>his </emph><hl><emph>margins are</emph></hl>`
+renders THREE `.pmd-emphasis` spans, each painting its own border —
+visible as "phantom" internal borders inside what looks like a single
+emphasis box to the user.
+
+**Adopted fix:** keep the historical mark ranks (emphasis OUTER,
+highlight INNER) and remove the `padding: 0 2px` from
+`#editor.pmd-emphasis-box .pmd-emphasis`. With no padding, the
+border hugs the text directly and there is no padding region for the
+gap to appear in. A continuous emphasis run is still ONE
+`.pmd-emphasis` span regardless of internal highlight changes, so no
+phantom borders. This also matches Word's character-border rendering
+more closely (Word's borders hug the text rather than reserving
+internal padding).
