@@ -93,6 +93,8 @@ const ribbonContext: RibbonContext = {
   usePilcrows: () => settings.get('usePilcrows'),
   headingMode: () => settings.get('headingMode'),
   condenseOnPaste: () => settings.get('condenseOnPaste'),
+  clearFormattingOnNamedStyleToggleOff: () =>
+    settings.get('clearFormattingOnNamedStyleToggleOff'),
 };
 
 openBtn.addEventListener('click', () => dropzone.click());

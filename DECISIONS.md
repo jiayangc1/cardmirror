@@ -1283,3 +1283,62 @@ Trade-off acknowledged: the 1.1 here is a CSS literal rather than a
 variable, so if we later expose body line-height as a user setting
 those structural elements won't track it. Refactoring to a "tight"
 companion variable can wait for that surfacing.
+
+## 2026-05-12: Style apply strips direct formatting (F4–F10)
+
+Verbatim semantics: applying a paragraph or character style is a
+"reset to canonical" action — the new style's typography defines
+the run's visual identity, and prior direct overrides
+(font-size / color / family, bold, italic, strikethrough, highlight,
+shading) lose their meaning. Our hotkeys now mirror that.
+
+### F8 (Cite), F10 (Emphasis) — one-directional apply
+
+`applyBodyMark` adds the named-style mark and then strips
+`DIRECT_FORMATTING_MARK_NAMES` across the same range. Always. The
+user can re-apply direct formatting manually afterward.
+
+### F9 (Underline) — true toggle
+
+- **Apply direction:** for each per-textblock segment, add the
+  underline mark (`underline_mark` in body, `underline_direct` in
+  structural per the existing body/structural split) and strip
+  direct formatting. `underline_direct` is intentionally excluded
+  from `DIRECT_FORMATTING_MARK_NAMES` so the strip pass doesn't
+  erase the mark it just added in a structural segment.
+- **Toggle-off direction:** removes both underline marks. Whether
+  it also strips other direct formatting is gated by the new setting
+  `clearFormattingOnNamedStyleToggleOff` (default **true** — matches
+  Verbatim's "press F9 twice to clear formatting" workflow). Users
+  who prefer F9 as a pure underline toggle can flip it off.
+
+### F4 / F5 / F6 setHeading; F7 setTag; Mod-F7 setAnalytic; Mod-F8 setUndertag
+
+Every promotion code path strips
+`PROMOTION_STRIP_MARK_NAMES` from the new structural block's text
+content. This is the union of direct formatting +
+`underline_direct` + every named-style mark (cite_mark /
+underline_mark / emphasis_mark / undertag_mark / analytic_mark).
+`link` and `pilcrow_marker` are preserved (semantic content, not
+formatting).
+
+Strip is performed at content-fragment time (`stripPromotionMarksOnFragment`)
+when a new structural node is being constructed from existing
+content, and via `stripPromotionMarksOnTr` on `setNodeMarkup`
+paths where content stays put but the wrapping node changes type.
+
+### Exception: tag ↔ analytic same-tier swap
+
+`convertCardToAnalyticUnit` (tag → analytic), `convertAnalyticUnitToCard`
+(analytic → tag), and the matching branch of `asTransformed` inside
+`applyStructuralToSelection` deliberately skip the strip. Tag and
+analytic are the same structural tier — both are container anchors
+holding a heading-shaped run, distinguished only by the cite vs
+analytic semantic. Swapping between them isn't really "applying a
+different style"; it's reclassifying the same heading. Preserving
+direct formatting matches the user's expectation that bold/etc.
+manually added to a tag survives an F7-while-already-in-analytic
+(or Mod-F7 from a tag) reclassification.
+
+All other dissolves (tag → pocket via setHeading, tag → undertag via
+setUndertag, etc.) still strip.

@@ -975,6 +975,16 @@ through one overrides surface):
   Multi-paragraph selections apply the target style to every touched
   paragraph in a single rebuild. Heading IDs preserved across
   heading↔heading conversions.
+
+  **Strip-on-apply.** Every promotion code path strips
+  `PROMOTION_STRIP_MARK_NAMES` (all direct formatting + every
+  named-style mark) from the new structural block's content — the
+  destination's CSS typography defines the run's identity. Exception:
+  tag ↔ analytic is a same-tier swap (same structural role, only the
+  cite/analytic semantic differs), so `convertCardToAnalyticUnit`,
+  `convertAnalyticUnitToCard`, and the matching branch of
+  `asTransformed` deliberately preserve direct formatting. See
+  DECISIONS 2026-05-12.
 - **Mod-B / Mod-I.** Toggle the `bold` / `italic` direct-formatting
   marks via `toggleMark`. Standard Word semantics.
 - **F2 — Paste Text (armed mode).** Browsers won't let a web app
@@ -996,6 +1006,9 @@ through one overrides surface):
   the selection but skips structural blocks (tag, analytic, pocket,
   hat, block, undertag); a span across a tag-bracketed body region
   only marks the body portions. No-op on collapsed selections.
+  Strips direct formatting (font_size / color / family, bold, italic,
+  strikethrough, highlight, shading) in the same range — the named
+  style's typography replaces direct overrides.
 - **F9 / Mod-U — toggle Underline.** Two backing marks reflect
   Verbatim's named-style vs direct distinction:
   `underline_mark` (the "Underline" character style — used in body
@@ -1013,6 +1026,13 @@ through one overrides surface):
   `emphasis_mark` in the range — body text holds at most one of
   cite / underline / emphasis. Mod-U is a registered alias of F9
   for the future settings UI; only F9 surfaces in the ribbon chrome.
+  **Apply direction** strips direct formatting (Verbatim parity);
+  `underline_direct` is excluded from the strip set so the
+  structural-segment apply doesn't erase its own newly-added mark.
+  **Toggle-off direction** strips direct formatting only when the
+  `clearFormattingOnNamedStyleToggleOff` setting is on (default;
+  matches Verbatim's "press F9 twice clears formatting"). Off-state
+  preserves any direct formatting the user manually applied.
 - **F10 — apply Emphasis character style.** Same shape as F8 in most
   respects — applies `emphasis_mark` to text in the selection, skips
   structural blocks (tag, analytic, pocket, hat, block, undertag),
@@ -1024,7 +1044,8 @@ through one overrides surface):
   deliberately selects, emphasis is often a single word and the
   cursor-on-word gesture is convenient. F8 and F10 share
   `applyBodyMark()` internally; the differing empty-selection
-  behavior is parameterized via `expandToWordWhenEmpty`.
+  behavior is parameterized via `expandToWordWhenEmpty`. Both strip
+  direct formatting in the marked range as part of the apply.
 - **F11 — toggle Highlight.** Color-agnostic toggle: if every char in
   the selection already carries any `highlight` mark, the toggle
   strips it. Otherwise the active color (from `settings.lastHighlight

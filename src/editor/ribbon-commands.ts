@@ -74,6 +74,83 @@ const DOC_LEVEL_CONVERTIBLE = new Set<string>([
   'block',
 ]);
 
+/** Direct-formatting marks. Stripped when F8/F9/F10 ADD a named
+ *  style — the named style's typography (cite 13pt bold, underline
+ *  style, emphasis decorations) replaces direct overrides. F9 also
+ *  strips these on toggle-off when
+ *  `clearFormattingOnNamedStyleToggleOff` is true (Verbatim parity
+ *  for "press F9 twice to clear formatting").
+ *
+ *  `underline_direct` is intentionally NOT in this set even though
+ *  it IS technically direct formatting: F9's apply pass writes
+ *  underline_direct for structural-block segments, so this strip
+ *  must not run in the same pass or it would erase the just-added
+ *  mark. F9's toggle-off pass removes underline_direct explicitly
+ *  via `tr.removeMark(..., directMark)` so it's still cleared.
+ *  Promotion strips (F4–F7) include underline_direct explicitly
+ *  through `PROMOTION_STRIP_MARK_NAMES`.
+ *
+ *  `link` is excluded — semantic content, not formatting. */
+const DIRECT_FORMATTING_MARK_NAMES = [
+  'font_size',
+  'font_color',
+  'font_family',
+  'bold',
+  'italic',
+  'strikethrough',
+  'highlight',
+  'shading',
+] as const;
+
+function stripDirectFormatting(tr: Transaction, from: number, to: number): void {
+  for (const name of DIRECT_FORMATTING_MARK_NAMES) {
+    const mt = schema.marks[name];
+    if (mt) tr.removeMark(from, to, mt);
+  }
+}
+
+/** All marks stripped when body text is promoted into a structural
+ *  block (F4–F7 / Mod-F7 / Mod-F8). The structural block's own
+ *  typography applies — named-style marks (cite_mark / underline_mark
+ *  / emphasis_mark / undertag_mark / analytic_mark) and any direct
+ *  formatting lose meaning. `link` is preserved (semantic content);
+ *  `pilcrow_marker` is also preserved (post-condense markers shouldn't
+ *  silently vanish when their paragraph is restyled). */
+const PROMOTION_STRIP_MARK_NAMES = [
+  ...DIRECT_FORMATTING_MARK_NAMES,
+  'underline_direct',
+  'cite_mark',
+  'underline_mark',
+  'emphasis_mark',
+  'undertag_mark',
+  'analytic_mark',
+] as const;
+const PROMOTION_STRIP_SET = new Set<string>(PROMOTION_STRIP_MARK_NAMES);
+
+function stripPromotionMarksOnTr(
+  tr: Transaction,
+  from: number,
+  to: number,
+): void {
+  for (const name of PROMOTION_STRIP_MARK_NAMES) {
+    const mt = schema.marks[name];
+    if (mt) tr.removeMark(from, to, mt);
+  }
+}
+
+/** Strip promotion-affected marks from every text/inline node in a
+ *  fragment, returning a new fragment. Use this when building NEW
+ *  structural nodes from existing body content (e.g., wrapping a
+ *  paragraph in a card+tag — the tag should get clean content). */
+function stripPromotionMarksOnFragment(fragment: Fragment): Fragment {
+  const out: PMNode[] = [];
+  fragment.forEach((child) => {
+    const newMarks = child.marks.filter((m) => !PROMOTION_STRIP_SET.has(m.type.name));
+    out.push(child.mark(newMarks));
+  });
+  return Fragment.fromArray(out);
+}
+
 /**
  * F4 / F5 / F6 — convert the current paragraph or heading to the target
  * doc-level heading type.
@@ -104,6 +181,12 @@ export function setHeading(typeName: HeadingTypeName): Command {
         schema.nodes[typeName]!,
         { id },
       );
+      // The promoted heading takes its identity from the structural
+      // type's CSS, so any prior named-style / direct formatting marks
+      // on the source content are stripped.
+      const contentFrom = $from.before(1) + 1;
+      const contentTo = contentFrom + parent.content.size;
+      stripPromotionMarksOnTr(tr, contentFrom, contentTo);
       dispatch(tr.scrollIntoView());
       return true;
     }
@@ -139,7 +222,11 @@ export function setTag(): Command {
       const id = DOC_HEADINGS.has(pname)
         ? ((parent.attrs['id'] as string | null) ?? newHeadingId())
         : newHeadingId();
-      const tagNode = schema.nodes['tag']!.create({ id }, parent.content);
+      // Strip promotion-affected marks from the source content before
+      // wrapping it — body-only named-style marks and direct overrides
+      // don't belong on a tag's text.
+      const cleanContent = stripPromotionMarksOnFragment(parent.content);
+      const tagNode = schema.nodes['tag']!.create({ id }, cleanContent);
       const cardNode = schema.nodes['card']!.create(null, [tagNode]);
       const from = $from.before(1);
       const to = $from.after(1);
@@ -198,7 +285,8 @@ export function setAnalytic(): Command {
       const id = DOC_HEADINGS.has(pname)
         ? ((parent.attrs['id'] as string | null) ?? newHeadingId())
         : newHeadingId();
-      const analyticNode = schema.nodes['analytic']!.create({ id }, parent.content);
+      const cleanContent = stripPromotionMarksOnFragment(parent.content);
+      const analyticNode = schema.nodes['analytic']!.create({ id }, cleanContent);
       const unitNode = schema.nodes['analytic_unit']!.create(null, [analyticNode]);
       const from = $from.before(1);
       const to = $from.after(1);
@@ -265,6 +353,9 @@ export function setUndertag(): Command {
         schema.nodes['undertag']!,
         null,
       );
+      const contentFrom = $from.before(1) + 1;
+      const contentTo = contentFrom + parent.content.size;
+      stripPromotionMarksOnTr(tr, contentFrom, contentTo);
       dispatch(tr.scrollIntoView());
       return true;
     }
@@ -274,11 +365,15 @@ export function setUndertag(): Command {
       if (pname === 'undertag') return true;
       if (pname === 'card_body' || pname === 'cite_paragraph') {
         if (!dispatch) return true;
+        const parent = $from.parent;
         const tr = state.tr.setNodeMarkup(
           $from.before(2),
           schema.nodes['undertag']!,
           null,
         );
+        const contentFrom = $from.before(2) + 1;
+        const contentTo = contentFrom + parent.content.size;
+        stripPromotionMarksOnTr(tr, contentFrom, contentTo);
         dispatch(tr.scrollIntoView());
         return true;
       }
@@ -303,7 +398,10 @@ function dissolveContainerToUndertag(
   if (container.type.name === 'analytic_unit' && head.type.name !== 'analytic') return false;
   if (!dispatch) return true;
 
-  const undertagNode = schema.nodes['undertag']!.create(null, head.content);
+  const undertagNode = schema.nodes['undertag']!.create(
+    null,
+    stripPromotionMarksOnFragment(head.content),
+  );
   const nonHeadChildren: PMNode[] = [];
   container.forEach((child, _offset, index) => {
     if (index === 0) return;
@@ -357,6 +455,10 @@ function convertCardToAnalyticUnit(
   if (!dispatch) return true;
 
   const id = (tag.attrs['id'] as string | null) ?? newHeadingId();
+  // Tag → analytic is a same-tier swap (same structural role, just
+  // different cite/analytic semantic). Preserve direct formatting the
+  // user manually applied — the apply-style strip is only meant to
+  // fire when promoting INTO a different kind of element.
   const analyticNode = schema.nodes['analytic']!.create({ id }, tag.content);
   const rest: PMNode[] = [];
   card.forEach((child, _offset, index) => {
@@ -418,21 +520,22 @@ function splitContainerAtBody(
 
   let liftedNodes: PMNode[];
   let insideOffset: number;
+  const cleanHeadContent = stripPromotionMarksOnFragment(cursorBody.content);
   if (opts.mode === 'heading') {
     const headingType = schema.nodes[opts.headingType]!;
-    const newHead = headingType.create({ id: newHeadingId() }, cursorBody.content);
+    const newHead = headingType.create({ id: newHeadingId() }, cleanHeadContent);
     const followingLifted = followingChildren.map(liftCardChild);
     liftedNodes = [newHead, ...followingLifted];
     insideOffset = 1;
   } else if (opts.mode === 'tag') {
-    const tagNode = schema.nodes['tag']!.create({ id: newHeadingId() }, cursorBody.content);
+    const tagNode = schema.nodes['tag']!.create({ id: newHeadingId() }, cleanHeadContent);
     // following children are already valid card content (card_body /
     // undertag / cite_paragraph / analytic), so pass through unchanged.
     const newCard = schema.nodes['card']!.create(null, [tagNode, ...followingChildren]);
     liftedNodes = [newCard];
     insideOffset = 2;
   } else {
-    const analyticNode = schema.nodes['analytic']!.create({ id: newHeadingId() }, cursorBody.content);
+    const analyticNode = schema.nodes['analytic']!.create({ id: newHeadingId() }, cleanHeadContent);
     const followingForUnit = followingChildren.map(toAnalyticUnitChild);
     const newUnit = schema.nodes['analytic_unit']!.create(null, [analyticNode, ...followingForUnit]);
     liftedNodes = [newUnit];
@@ -468,7 +571,10 @@ function dissolveContainerToHeading(
   if (!dispatch) return true;
 
   const id = (head.attrs['id'] as string | null) ?? newHeadingId();
-  const newHeading = schema.nodes[typeName]!.create({ id }, head.content);
+  const newHeading = schema.nodes[typeName]!.create(
+    { id },
+    stripPromotionMarksOnFragment(head.content),
+  );
 
   const lifted: PMNode[] = [newHeading];
   container.forEach((child, _offset, index) => {
@@ -618,7 +724,14 @@ function applyBodyMark(
 
     const tr = state.tr;
     const mark = markType.create();
-    for (const r of ranges) tr.addMark(r.from, r.to, mark);
+    for (const r of ranges) {
+      tr.addMark(r.from, r.to, mark);
+      // F8 / F10 are one-directional applies — the named style's
+      // typography is the run's new identity, so direct overrides
+      // (font_size, bold, highlight, etc.) get cleared. The user can
+      // re-apply direct formatting manually after if they want.
+      stripDirectFormatting(tr, r.from, r.to);
+    }
     dispatch(tr);
     return true;
   };
@@ -657,7 +770,9 @@ export function applyEmphasis(): Command {
  * underline / emphasis" policy), structural gets `underline_direct`
  * (doesn't conflict with anything).
  */
-export function applyUnderline(): Command {
+export function applyUnderline(
+  clearFormattingOnToggleOff: () => boolean = () => true,
+): Command {
   return (state, dispatch) => {
     const { from, to, empty } = state.selection;
     const namedMark = schema.marks['underline_mark']!;
@@ -693,6 +808,12 @@ export function applyUnderline(): Command {
       // Toggle off: strip both underline marks across the range.
       tr.removeMark(runStart, runEnd, namedMark);
       tr.removeMark(runStart, runEnd, directMark);
+      // Symmetric Verbatim parity: "press F9 twice clears formatting."
+      // The toggle-off-also-strips direction is opt-out via setting so
+      // users who want F9 as a pure underline toggle can disable it.
+      if (clearFormattingOnToggleOff()) {
+        stripDirectFormatting(tr, runStart, runEnd);
+      }
     } else {
       // Toggle on: add the appropriate mark per parent textblock.
       // For body textblocks `underline_mark` carries `excludes:
@@ -724,6 +845,9 @@ export function applyUnderline(): Command {
         const otherMark = seg.structural ? namedMark : directMark;
         tr.removeMark(seg.from, seg.to, otherMark);
         tr.addMark(seg.from, seg.to, markType.create());
+        // Apply direction always strips direct formatting — the named
+        // style's typography replaces direct overrides.
+        stripDirectFormatting(tr, seg.from, seg.to);
       }
     }
 
@@ -1050,6 +1174,7 @@ function convertAnalyticUnitToCard(
   if (!dispatch) return true;
 
   const id = (analytic.attrs['id'] as string | null) ?? newHeadingId();
+  // Analytic → tag: same-tier swap, see convertCardToAnalyticUnit.
   const tagNode = schema.nodes['tag']!.create({ id }, analytic.content);
   const rest: PMNode[] = [];
   unit.forEach((child, _offset, index) => {
@@ -1205,20 +1330,31 @@ function asTransformed(child: PMNode, opts: StructuralMode): PMNode {
     typeof child.attrs['id'] === 'string' && child.attrs['id']
       ? (child.attrs['id'] as string)
       : null;
+  // Selection-based promotion replaces the source paragraph entirely;
+  // strip named-style and direct-formatting marks so the new structural
+  // block carries only the canonical typography. Exception: tag↔analytic
+  // is a same-tier swap (same structural role, different cite/analytic
+  // semantic) so direct formatting carries through.
+  const sameTierSwap =
+    (opts.mode === 'tag' || opts.mode === 'analytic') &&
+    (child.type.name === 'tag' || child.type.name === 'analytic');
+  const cleanContent = sameTierSwap
+    ? child.content
+    : stripPromotionMarksOnFragment(child.content);
   if (opts.mode === 'undertag') {
     // Undertag has no id and no wrapping container — at doc level it
     // sits as a sibling, inside a card it sits among the body slots.
-    return schema.nodes['undertag']!.create(null, child.content);
+    return schema.nodes['undertag']!.create(null, cleanContent);
   }
   const id = existingId ?? newHeadingId();
   if (opts.mode === 'heading') {
-    return schema.nodes[opts.headingType]!.create({ id }, child.content);
+    return schema.nodes[opts.headingType]!.create({ id }, cleanContent);
   }
   if (opts.mode === 'tag') {
-    const tag = schema.nodes['tag']!.create({ id }, child.content);
+    const tag = schema.nodes['tag']!.create({ id }, cleanContent);
     return schema.nodes['card']!.create(null, [tag]);
   }
-  const a = schema.nodes['analytic']!.create({ id }, child.content);
+  const a = schema.nodes['analytic']!.create({ id }, cleanContent);
   return schema.nodes['analytic_unit']!.create(null, [a]);
 }
 
@@ -1359,6 +1495,9 @@ export interface RibbonContext {
   headingMode: () => 'strict' | 'respect' | 'demolish';
   /** Whether F2 (Paste Text) runs the default condense pass after pasting. */
   condenseOnPaste: () => boolean;
+  /** Whether F9's toggle-off direction also strips direct formatting
+   *  (Verbatim's "press F9 twice clears formatting"). */
+  clearFormattingOnNamedStyleToggleOff: () => boolean;
 }
 
 const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
@@ -1368,6 +1507,7 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   usePilcrows: () => false,
   headingMode: () => 'respect',
   condenseOnPaste: () => false,
+  clearFormattingOnNamedStyleToggleOff: () => true,
 };
 
 function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
@@ -1381,7 +1521,7 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
     case 'toggleBold': return toggleMark(schema.marks['bold']!);
     case 'toggleItalic': return toggleMark(schema.marks['italic']!);
     case 'applyCite': return applyCite();
-    case 'applyUnderline': return applyUnderline();
+    case 'applyUnderline': return applyUnderline(ctx.clearFormattingOnNamedStyleToggleOff);
     case 'applyEmphasis': return applyEmphasis();
     case 'applyHighlight': return applyHighlight(ctx.highlightColor);
     case 'applyShading': return applyShading(ctx.shadingColor);

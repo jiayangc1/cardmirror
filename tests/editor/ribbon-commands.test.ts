@@ -2460,3 +2460,266 @@ describe('tryPasteSplitContainer (paste tag/analytic into a container body)', ()
     expect(tryPasteSplitContainer(state, tagSlice('X'))).toBeNull();
   });
 });
+
+// ---- Style-apply formatting strip rules ----
+
+function bodyParagraphWithMarkedText(...runs: { text: string; markName: string; attrs?: Record<string, unknown> }[]) {
+  const nodes = runs.map((r) => {
+    const mt = schema.marks[r.markName]!;
+    return schema.text(r.text, [mt.create(r.attrs ?? {})]);
+  });
+  return schema.nodes['card_body']!.create(null, nodes);
+}
+
+function hasMarkOnText(
+  doc: import('prosemirror-model').Node,
+  textFragment: string,
+  markName: string,
+): boolean {
+  let any = false;
+  doc.descendants((n) => {
+    if (!n.isText) return;
+    if (!(n.text ?? '').includes(textFragment)) return;
+    if (n.marks.some((m) => m.type.name === markName)) any = true;
+  });
+  return any;
+}
+
+describe('F8/F9/F10 apply strips direct formatting', () => {
+  it('applyCite (F10): strips font_size + bold + highlight, keeps cite_mark', () => {
+    const doc = makeDoc([
+      cardWithChildren(
+        tag('T'),
+        bodyParagraphWithMarkedText(
+          { text: 'small bold', markName: 'font_size', attrs: { halfPoints: 16 } },
+        ),
+      ),
+    ]);
+    let from = -1;
+    let to = -1;
+    doc.descendants((n, p) => {
+      if (n.isText && (n.text ?? '').includes('small bold')) {
+        from = p;
+        to = p + n.nodeSize;
+      }
+      return true;
+    });
+    const base = EditorState.create({ doc });
+    const state = base.apply(
+      base.tr.setSelection(TextSelection.create(base.doc, from, to)),
+    );
+    const next = apply(state, applyCite());
+    expect(next).not.toBeNull();
+    expect(hasMarkOnText(next!.doc, 'small bold', 'cite_mark')).toBe(true);
+    expect(hasMarkOnText(next!.doc, 'small bold', 'font_size')).toBe(false);
+  });
+
+  it('applyEmphasis (F8): strips highlight + bold across the selection', () => {
+    const bold = schema.marks['bold']!.create();
+    const hl = schema.marks['highlight']!.create({ color: 'yellow' });
+    const text = schema.text('important', [bold, hl]);
+    const body = schema.nodes['card_body']!.create(null, text);
+    const doc = makeDoc([cardWithChildren(tag('T'), body)]);
+    let from = -1;
+    let to = -1;
+    doc.descendants((n, p) => {
+      if (n.isText && n.text === 'important') {
+        from = p;
+        to = p + n.nodeSize;
+      }
+      return true;
+    });
+    const base = EditorState.create({ doc });
+    const state = base.apply(
+      base.tr.setSelection(TextSelection.create(base.doc, from, to)),
+    );
+    const next = apply(state, applyEmphasis());
+    expect(next).not.toBeNull();
+    expect(hasMarkOnText(next!.doc, 'important', 'emphasis_mark')).toBe(true);
+    expect(hasMarkOnText(next!.doc, 'important', 'bold')).toBe(false);
+    expect(hasMarkOnText(next!.doc, 'important', 'highlight')).toBe(false);
+  });
+
+  it('applyUnderline (F9): apply direction strips direct formatting', () => {
+    const bold = schema.marks['bold']!.create();
+    const fs = schema.marks['font_size']!.create({ halfPoints: 16 });
+    const text = schema.text('hello', [bold, fs]);
+    const body = schema.nodes['card_body']!.create(null, text);
+    const doc = makeDoc([cardWithChildren(tag('T'), body)]);
+    let from = -1;
+    let to = -1;
+    doc.descendants((n, p) => {
+      if (n.isText && n.text === 'hello') {
+        from = p;
+        to = p + n.nodeSize;
+      }
+      return true;
+    });
+    const base = EditorState.create({ doc });
+    const state = base.apply(
+      base.tr.setSelection(TextSelection.create(base.doc, from, to)),
+    );
+    const next = apply(state, applyUnderline());
+    expect(next).not.toBeNull();
+    expect(hasMarkOnText(next!.doc, 'hello', 'underline_mark')).toBe(true);
+    expect(hasMarkOnText(next!.doc, 'hello', 'bold')).toBe(false);
+    expect(hasMarkOnText(next!.doc, 'hello', 'font_size')).toBe(false);
+  });
+
+  it('applyUnderline (F9): toggle-off WITH setting on strips direct formatting too', () => {
+    const um = schema.marks['underline_mark']!.create();
+    const bold = schema.marks['bold']!.create();
+    const text = schema.text('hello', [um, bold]);
+    const body = schema.nodes['card_body']!.create(null, text);
+    const doc = makeDoc([cardWithChildren(tag('T'), body)]);
+    let from = -1;
+    let to = -1;
+    doc.descendants((n, p) => {
+      if (n.isText && n.text === 'hello') {
+        from = p;
+        to = p + n.nodeSize;
+      }
+      return true;
+    });
+    const base = EditorState.create({ doc });
+    const state = base.apply(
+      base.tr.setSelection(TextSelection.create(base.doc, from, to)),
+    );
+    const next = apply(state, applyUnderline(() => true));
+    expect(next).not.toBeNull();
+    // Toggle off: underline_mark removed AND bold cleared.
+    expect(hasMarkOnText(next!.doc, 'hello', 'underline_mark')).toBe(false);
+    expect(hasMarkOnText(next!.doc, 'hello', 'bold')).toBe(false);
+  });
+
+  it('applyUnderline (F9): toggle-off WITH setting off preserves direct formatting', () => {
+    const um = schema.marks['underline_mark']!.create();
+    const bold = schema.marks['bold']!.create();
+    const text = schema.text('hello', [um, bold]);
+    const body = schema.nodes['card_body']!.create(null, text);
+    const doc = makeDoc([cardWithChildren(tag('T'), body)]);
+    let from = -1;
+    let to = -1;
+    doc.descendants((n, p) => {
+      if (n.isText && n.text === 'hello') {
+        from = p;
+        to = p + n.nodeSize;
+      }
+      return true;
+    });
+    const base = EditorState.create({ doc });
+    const state = base.apply(
+      base.tr.setSelection(TextSelection.create(base.doc, from, to)),
+    );
+    const next = apply(state, applyUnderline(() => false));
+    expect(next).not.toBeNull();
+    // Toggle off: underline_mark removed but bold kept.
+    expect(hasMarkOnText(next!.doc, 'hello', 'underline_mark')).toBe(false);
+    expect(hasMarkOnText(next!.doc, 'hello', 'bold')).toBe(true);
+  });
+
+  it('applyUnderline (F9) in a tag: applies underline_direct AND preserves it (not stripped)', () => {
+    // Structural F9 puts underline_direct, which is itself direct
+    // formatting. The strip pass must NOT erase the mark it just added.
+    const doc = makeDoc([cardWithChildren(tag('TagText'))]);
+    let from = -1;
+    let to = -1;
+    doc.descendants((n, p) => {
+      if (n.isText && n.text === 'TagText') {
+        from = p;
+        to = p + n.nodeSize;
+      }
+      return true;
+    });
+    const base = EditorState.create({ doc });
+    const state = base.apply(
+      base.tr.setSelection(TextSelection.create(base.doc, from, to)),
+    );
+    const next = apply(state, applyUnderline());
+    expect(next).not.toBeNull();
+    expect(hasMarkOnText(next!.doc, 'TagText', 'underline_direct')).toBe(true);
+  });
+});
+
+describe('F4–F7 promotion strips marks; tag↔analytic preserves them', () => {
+  it('F4 setHeading: doc-level paragraph with bold+font_size → pocket clears both marks', () => {
+    const bold = schema.marks['bold']!.create();
+    const fs = schema.marks['font_size']!.create({ halfPoints: 16 });
+    const para = schema.nodes['paragraph']!.create(null, schema.text('hello', [bold, fs]));
+    const doc = makeDoc([para]);
+    const state = cursorIn(doc, (n) => n.type.name === 'paragraph');
+    const next = apply(state, setHeading('pocket'));
+    expect(next).not.toBeNull();
+    expect(next!.doc.firstChild!.type.name).toBe('pocket');
+    expect(hasMarkOnText(next!.doc, 'hello', 'bold')).toBe(false);
+    expect(hasMarkOnText(next!.doc, 'hello', 'font_size')).toBe(false);
+  });
+
+  it('F7 setTag: paragraph with cite_mark+highlight → tag strips both', () => {
+    const cite = schema.marks['cite_mark']!.create();
+    const hl = schema.marks['highlight']!.create({ color: 'yellow' });
+    const para = schema.nodes['paragraph']!.create(null, schema.text('hello', [cite, hl]));
+    const doc = makeDoc([para]);
+    const state = cursorIn(doc, (n) => n.type.name === 'paragraph');
+    const next = apply(state, setTag());
+    expect(next).not.toBeNull();
+    // After wrap: doc → card → tag → text 'hello'
+    expect(hasMarkOnText(next!.doc, 'hello', 'cite_mark')).toBe(false);
+    expect(hasMarkOnText(next!.doc, 'hello', 'highlight')).toBe(false);
+  });
+
+  it('Mod-F7 setAnalytic on a card anchor tag: PRESERVES bold (same-tier swap)', () => {
+    const bold = schema.marks['bold']!.create();
+    const tagNode = schema.nodes['tag']!.create(
+      { id: 'tag-id' },
+      schema.text('TagWithBold', [bold]),
+    );
+    const cardNode = schema.nodes['card']!.create(null, [tagNode]);
+    const doc = makeDoc([cardNode]);
+    const state = cursorIn(doc, (n) => n.type.name === 'tag');
+    const next = apply(state, setAnalytic());
+    expect(next).not.toBeNull();
+    // analytic_unit → analytic → text 'TagWithBold'
+    expect(hasMarkOnText(next!.doc, 'TagWithBold', 'bold')).toBe(true);
+  });
+
+  it('F7 setTag on an analytic_unit anchor analytic: PRESERVES bold (same-tier swap)', () => {
+    const bold = schema.marks['bold']!.create();
+    const analyticNode = schema.nodes['analytic']!.create(
+      { id: 'analytic-id' },
+      schema.text('AnalyticBold', [bold]),
+    );
+    const unitNode = schema.nodes['analytic_unit']!.create(null, [analyticNode]);
+    const doc = makeDoc([unitNode]);
+    const state = cursorIn(doc, (n) => n.type.name === 'analytic');
+    const next = apply(state, setTag());
+    expect(next).not.toBeNull();
+    expect(hasMarkOnText(next!.doc, 'AnalyticBold', 'bold')).toBe(true);
+  });
+
+  it('F4 setHeading dissolving a card anchor tag: strips marks (tag → pocket is a real swap)', () => {
+    const bold = schema.marks['bold']!.create();
+    const tagNode = schema.nodes['tag']!.create(
+      { id: 'tag-id' },
+      schema.text('PromoteMe', [bold]),
+    );
+    const cardNode = schema.nodes['card']!.create(null, [tagNode]);
+    const doc = makeDoc([cardNode]);
+    const state = cursorIn(doc, (n) => n.type.name === 'tag');
+    const next = apply(state, setHeading('pocket'));
+    expect(next).not.toBeNull();
+    expect(next!.doc.firstChild!.type.name).toBe('pocket');
+    expect(hasMarkOnText(next!.doc, 'PromoteMe', 'bold')).toBe(false);
+  });
+
+  it('Mod-F8 setUndertag from a body paragraph: strips marks', () => {
+    const hl = schema.marks['highlight']!.create({ color: 'yellow' });
+    const para = schema.nodes['paragraph']!.create(null, schema.text('plain', [hl]));
+    const doc = makeDoc([para]);
+    const state = cursorIn(doc, (n) => n.type.name === 'paragraph');
+    const next = apply(state, setUndertag());
+    expect(next).not.toBeNull();
+    expect(next!.doc.firstChild!.type.name).toBe('undertag');
+    expect(hasMarkOnText(next!.doc, 'plain', 'highlight')).toBe(false);
+  });
+});

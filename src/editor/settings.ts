@@ -244,6 +244,20 @@ export interface Settings {
    * `usePilcrows` / `headingMode`).
    */
   condenseOnPaste: boolean;
+  /**
+   * When true, removing a named-style mark (F8 Emphasis / F9 Underline /
+   * F10 Cite) via the apply key ALSO strips direct formatting (font
+   * size / color / family, bold, italic, strikethrough, highlight,
+   * shading, direct underline) from the same range. Mirrors Verbatim's
+   * "press F9 twice to clear formatting" workflow. When off, toggling
+   * the named-style off leaves any direct formatting the user manually
+   * added intact.
+   *
+   * Always applies on the apply direction (adding the named-style mark
+   * strips direct formatting unconditionally — the user can manually
+   * re-apply direct formatting after).
+   */
+  clearFormattingOnNamedStyleToggleOff: boolean;
 }
 
 export type HeadingMode = 'strict' | 'respect' | 'demolish';
@@ -277,6 +291,7 @@ const DEFAULTS: Settings = {
   usePilcrows: true,
   headingMode: 'respect',
   condenseOnPaste: false,
+  clearFormattingOnNamedStyleToggleOff: true,
 };
 
 /**
@@ -384,6 +399,13 @@ export const SETTING_METADATA: SettingMeta[] = [
     description:
       'How selection-based condense without paragraph integrity treats structural elements (headings, cites, undertags) inside the selection. "Strict" blocks attempts to condense that include structural elements. "Respect" (default) keeps structural paragraphs unmerged and merges everything else in the selection. "Demolish" merges everything in the selection.',
     kind: 'headingMode',
+  },
+  {
+    key: 'clearFormattingOnNamedStyleToggleOff',
+    label: 'F9 toggle-off also clears direct formatting',
+    description:
+      'When on, pressing F9 to toggle underlining off also strips direct formatting in the range. When off, only the underline style mark is removed; direct formatting applied to the underlined text is preserved.',
+    kind: 'toggle',
   },
   // Note: `lineHeight` is wired through (defaults to 1.2, applied to
   // #editor via --pmd-line-height) but isn't exposed in the settings
@@ -518,6 +540,10 @@ function sanitize(s: Settings): Settings {
       s.condenseOnPaste === undefined
         ? DEFAULTS.condenseOnPaste
         : !!s.condenseOnPaste,
+    clearFormattingOnNamedStyleToggleOff:
+      s.clearFormattingOnNamedStyleToggleOff === undefined
+        ? DEFAULTS.clearFormattingOnNamedStyleToggleOff
+        : !!s.clearFormattingOnNamedStyleToggleOff,
   };
 }
 
