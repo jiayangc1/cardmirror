@@ -13,8 +13,11 @@ import { settings } from '../settings.js';
 import {
   CLOD_ACTIVITIES_BY_TIME,
   DEFAULT_CLOD_TIME_PERIODS,
+  PRONOUN_PRESETS,
   type ClodTimePeriod,
 } from './clod.js';
+
+type PronounChoice = 'he' | 'she' | 'they' | 'it' | 'custom';
 
 const PERIODS: ClodTimePeriod[] = ['morning', 'day', 'evening', 'night'];
 
@@ -69,6 +72,11 @@ export function openClodConfigurator(): void {
     evening: { ...initialRanges.evening },
     night: { ...initialRanges.night },
   };
+  const draftPersona = {
+    name: settings.get('aiPersonaName'),
+    pronounChoice: settings.get('aiPersonaPronouns') as PronounChoice,
+    custom: { ...settings.get('aiPersonaCustomPronouns') },
+  };
 
   type Panel = HTMLElement;
   const panels = new Map<string, Panel>();
@@ -92,6 +100,77 @@ export function openClodConfigurator(): void {
     tabButtons.set(name, btn);
     tabs.appendChild(btn);
   }
+
+  // Persona tab first — name + pronoun set. Drives the AI
+  // commenter's display name, the activity templating, and the
+  // tooltips throughout the editor.
+  const personaPanel = document.createElement('div');
+  personaPanel.className = 'pmd-clod-panel';
+  const nameRow = document.createElement('label');
+  nameRow.className = 'pmd-clod-name-row';
+  const nameLabel = document.createElement('span');
+  nameLabel.textContent = 'Name';
+  nameRow.appendChild(nameLabel);
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.className = 'pmd-clod-name-input';
+  nameInput.value = draftPersona.name;
+  nameInput.spellcheck = false;
+  nameInput.autocomplete = 'off';
+  nameInput.addEventListener('change', () => {
+    const v = nameInput.value.trim();
+    draftPersona.name = v || 'Clod';
+    if (!v) nameInput.value = 'Clod';
+  });
+  nameRow.appendChild(nameInput);
+  personaPanel.appendChild(nameRow);
+
+  const pronounLabel = document.createElement('div');
+  pronounLabel.className = 'pmd-clod-pronoun-heading';
+  pronounLabel.textContent = 'Pronouns';
+  personaPanel.appendChild(pronounLabel);
+
+  const customRow = document.createElement('div');
+  customRow.className = 'pmd-clod-pronoun-custom';
+  customRow.hidden = draftPersona.pronounChoice !== 'custom';
+  const customFields: Record<'subject' | 'object' | 'possessive' | 'reflexive', HTMLInputElement> = {
+    subject: makeCustomField('subject', draftPersona.custom.subject, (v) => { draftPersona.custom.subject = v; }),
+    object: makeCustomField('object', draftPersona.custom.object, (v) => { draftPersona.custom.object = v; }),
+    possessive: makeCustomField('possessive', draftPersona.custom.possessive, (v) => { draftPersona.custom.possessive = v; }),
+    reflexive: makeCustomField('reflexive', draftPersona.custom.reflexive, (v) => { draftPersona.custom.reflexive = v; }),
+  };
+  for (const f of Object.values(customFields)) customRow.appendChild(f.parentElement!);
+
+  const pronounOptions: { id: PronounChoice; label: string; example: string }[] = [
+    { id: 'he', label: 'he / him', example: 'his / himself' },
+    { id: 'she', label: 'she / her', example: 'her / herself' },
+    { id: 'they', label: 'they / them', example: 'their / themself' },
+    { id: 'it', label: 'it / it', example: 'its / itself' },
+    { id: 'custom', label: 'Custom…', example: '' },
+  ];
+  for (const opt of pronounOptions) {
+    const row = document.createElement('label');
+    row.className = 'pmd-clod-pronoun-row';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'pmd-clod-pronoun';
+    radio.value = opt.id;
+    radio.checked = draftPersona.pronounChoice === opt.id;
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return;
+      draftPersona.pronounChoice = opt.id;
+      customRow.hidden = opt.id !== 'custom';
+    });
+    row.appendChild(radio);
+    const txt = document.createElement('span');
+    txt.textContent = opt.example ? `${opt.label} (${opt.example})` : opt.label;
+    row.appendChild(txt);
+    personaPanel.appendChild(row);
+  }
+  personaPanel.appendChild(customRow);
+
+  personaPanel.hidden = true;
+  addTab('persona', 'Persona', personaPanel);
 
   // One tab per time period — text area with newline-separated activities.
   for (const period of PERIODS) {
@@ -204,13 +283,16 @@ export function openClodConfigurator(): void {
   save.addEventListener('click', () => {
     settings.set('clodActivitiesByTime', draftActivities);
     settings.set('clodTimePeriods', draftRanges);
+    settings.set('aiPersonaName', draftPersona.name);
+    settings.set('aiPersonaPronouns', draftPersona.pronounChoice);
+    settings.set('aiPersonaCustomPronouns', draftPersona.custom);
     close();
   });
   footer.appendChild(save);
   dialog.appendChild(footer);
 
   document.body.appendChild(overlay);
-  activate('morning');
+  activate('persona');
 
   // Escape closes too.
   const onKey = (e: KeyboardEvent): void => {
@@ -220,6 +302,26 @@ export function openClodConfigurator(): void {
     }
   };
   document.addEventListener('keydown', onKey);
+}
+
+function makeCustomField(label: string, value: string, onChange: (v: string) => void): HTMLInputElement {
+  const wrap = document.createElement('label');
+  wrap.className = 'pmd-clod-pronoun-custom-field';
+  const tag = document.createElement('span');
+  tag.textContent = label;
+  wrap.appendChild(tag);
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = value;
+  input.spellcheck = false;
+  input.autocomplete = 'off';
+  input.addEventListener('change', () => {
+    const v = input.value.trim();
+    if (v) onChange(v);
+    else input.value = value;
+  });
+  wrap.appendChild(input);
+  return input;
 }
 
 function makeHourInput(value: number, onChange: (v: number) => void): HTMLInputElement {

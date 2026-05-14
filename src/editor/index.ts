@@ -12,7 +12,7 @@ import { EditorView } from 'prosemirror-view';
 import { keymap } from 'prosemirror-keymap';
 import { history, undo, redo } from 'prosemirror-history';
 import { baseKeymap } from 'prosemirror-commands';
-import { Node as PMNode } from 'prosemirror-model';
+import { Node as PMNode, type Mark } from 'prosemirror-model';
 import { schema, newHeadingId } from '../schema/index.js';
 import { fromDocxFull, toDocx } from '../index.js';
 import { transformForExport } from '../export/transform-for-export.js';
@@ -430,25 +430,42 @@ function refreshAiButtonVisibility(): void {
   if (!commentsAiBtn) return;
   const enabled = settings.get('aiFeaturesEnabled');
   commentsAiBtn.hidden = !enabled;
+  // When Clod mode is on, the tooltip uses the configured persona
+  // name ("Ask Clod"). Otherwise it falls back to "Ask AI".
+  const personaName = settings.get('clodEnabled')
+    ? (settings.get('aiPersonaName') || 'Clod')
+    : 'AI';
+  commentsAiBtn.title = `Ask ${personaName} about the selection`;
+  commentsAiBtn.setAttribute('aria-label', `Ask ${personaName} about selection`);
 }
 refreshAiButtonVisibility();
 settings.subscribe(() => refreshAiButtonVisibility());
 
 /** Find the threadId of a comment_range mark at the current cursor
- *  position. Returns null when the cursor isn't inside one. Looks
- *  at both `$from.marks()` and `$to.marks()` so a non-collapsed
- *  selection that started inside a comment still counts. */
+ *  position. Returns null when the cursor isn't inside or touching
+ *  one. Robust to the non-inclusive boundary cases: we check the
+ *  inherited marks at $from / $to, plus the marks of the text node
+ *  immediately before / after the cursor — so a cursor parked at
+ *  the very start of a marked range still resolves to that thread. */
 function threadIdAtCursor(state: EditorState): string | null {
   const sel = state.selection;
-  for (const $pos of [sel.$from, sel.$to]) {
-    for (const mark of $pos.marks()) {
-      if (mark.type.name === 'comment_range') {
-        const id = String(mark.attrs['threadId'] ?? '');
-        if (id) return id;
+  const harvest = (markSources: readonly (readonly Mark[])[]): string | null => {
+    for (const marks of markSources) {
+      for (const m of marks) {
+        if (m.type.name === 'comment_range') {
+          const id = String(m.attrs['threadId'] ?? '');
+          if (id) return id;
+        }
       }
     }
-  }
-  return null;
+    return null;
+  };
+  return harvest([
+    sel.$from.marks(),
+    sel.$to.marks(),
+    sel.$from.nodeAfter?.marks ?? [],
+    sel.$to.nodeBefore?.marks ?? [],
+  ]);
 }
 
 // Zoom controls.

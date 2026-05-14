@@ -27,8 +27,27 @@ import {
   EXPLAIN_SYSTEM_PROMPT,
   hasAiMention,
 } from './ai/explain-context.js';
-import { activitiesForNow, pickRandomActivity } from './ai/clod.js';
+import {
+  activitiesForNow,
+  pickRandomActivity,
+  personalizeActivity,
+  personaInitials,
+  PRONOUN_PRESETS,
+  type AiPersona,
+} from './ai/clod.js';
 import { showToast } from './toast.js';
+
+/** Resolve the configured AI persona (name + pronouns) from
+ *  settings. Centralized here so every consumer (invokeAi,
+ *  in-flight placeholder, button tooltip) reads the same thing. */
+export function getAiPersona(): AiPersona {
+  const name = settings.get('aiPersonaName') || 'Clod';
+  const choice = settings.get('aiPersonaPronouns');
+  if (choice === 'custom') {
+    return { name, pronouns: settings.get('aiPersonaCustomPronouns') };
+  }
+  return { name, pronouns: PRONOUN_PRESETS[choice] ?? PRONOUN_PRESETS.he };
+}
 
 /** Cycle the Clod-activity placeholder text every this many
  *  milliseconds while an AI request is in flight. ~4 seconds reads
@@ -79,6 +98,22 @@ export class CommentsColumn {
    *  layout anchors it at its preferred Y, displacing neighbors
    *  outward to make room. Null means no card is currently active. */
   private activeThreadId: string | null = null;
+  /** Records HOW the active thread got there:
+   *   - `'click'`: user clicked the card. Sticky — only dismissed
+   *     by clicking elsewhere, opening a different card, or hitting
+   *     the toggle button. Cursor moves don't change it.
+   *   - `'cursor'`: cursor is inside the comment_range. Follows
+   *     cursor — when the cursor leaves the range the thread
+   *     collapses.
+   *   - `null`: nothing active. */
+  private activeBy: 'click' | 'cursor' | null = null;
+  /** Most recently active thread, retained even after collapse so
+   *  the toggle button has something to re-expand. */
+  private lastActiveThreadId: string | null = null;
+  /** Global mousedown listener installed while a thread is
+   *  sticky-active. Dismisses sticky when the user clicks somewhere
+   *  not inside the active card. */
+  private stickyDismissHandler: ((e: MouseEvent) => void) | null = null;
 
   constructor(root: HTMLElement, getView: () => EditorView | null) {
     this.root = root;
@@ -86,13 +121,70 @@ export class CommentsColumn {
   }
 
   /** Switch which thread is "active" — the expanded one whose card
-   *  anchors at its preferred Y position. Idempotent; bails out
-   *  silently when the value is unchanged so cursor-move handlers
-   *  can call freely. */
-  setActiveThread(id: string | null): void {
-    if (this.activeThreadId === id) return;
+   *  anchors at its preferred Y position. The `by` flavor matters:
+   *   - `'cursor'` calls (from the editor's cursor-tracking) leave
+   *     a click-sticky active alone. A cursor-set active deactivates
+   *     when the cursor leaves the range.
+   *   - `'click'` calls (from clicking a card) take over and install
+   *     a global mousedown dismiss listener.
+   *  Idempotent for same id + same flavor so callers can fire freely. */
+  setActiveThread(id: string | null, by: 'click' | 'cursor' = 'cursor'): void {
+    if (this.activeBy === 'click' && by === 'cursor') {
+      // Sticky owns the active state — cursor changes don't touch
+      // it. (Cursor moving back INTO the sticky thread's range is
+      // already a no-op; cursor moving away is suppressed here so
+      // the click stays expanded until something else dismisses.)
+      return;
+    }
+    if (this.activeThreadId === id && this.activeBy === (id ? by : null)) return;
     this.activeThreadId = id;
+    this.activeBy = id ? by : null;
+    if (id) this.lastActiveThreadId = id;
+    this.refreshStickyDismissListener();
     this.render();
+  }
+
+  /** Manual dismiss path — used by the global mousedown listener
+   *  when the user clicks somewhere outside a sticky-active card,
+   *  and by the toggle button. Clears the active state and then
+   *  re-evaluates cursor position so a cursor-in-range still wins. */
+  private dismissActive(): void {
+    this.activeThreadId = null;
+    this.activeBy = null;
+    this.refreshStickyDismissListener();
+    this.render();
+  }
+
+  /** Install / remove the document-level mousedown listener that
+   *  dismisses a sticky-active card when the user clicks outside
+   *  it. Only attached while the active flavor is `'click'`. */
+  private refreshStickyDismissListener(): void {
+    const needed = this.activeBy === 'click' && this.activeThreadId !== null;
+    if (needed && !this.stickyDismissHandler) {
+      const handler = (e: MouseEvent): void => {
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+        // Click inside the active card — keep sticky.
+        if (target.closest(`[data-thread-id="${cssEscape(this.activeThreadId!)}"]`)) return;
+        // Click inside the column on a DIFFERENT card — the card's
+        // own handler will call setActiveThread('click') and we'll
+        // refresh the listener for the new active card.
+        if (target.closest('.pmd-comment-thread')) return;
+        // Click on the toggle button — let it handle dismissal.
+        if (target.closest('.pmd-comments-toggle-active')) return;
+        this.dismissActive();
+      };
+      // Defer one frame so the activating click itself doesn't fire
+      // this handler synchronously and immediately cancel sticky.
+      requestAnimationFrame(() => {
+        if (this.activeBy !== 'click') return;
+        document.addEventListener('mousedown', handler, true);
+        this.stickyDismissHandler = handler;
+      });
+    } else if (!needed && this.stickyDismissHandler) {
+      document.removeEventListener('mousedown', this.stickyDismissHandler, true);
+      this.stickyDismissHandler = null;
+    }
   }
 
   /** Show/hide the entire column. The toggle button in the ribbon
@@ -149,9 +241,35 @@ export class CommentsColumn {
       this.root.appendChild(this.renderThread(thread, ranges.get(id) ?? null));
     }
 
+    // Toggle button — bottom-left of the column. Up arrow when
+    // something is active (click collapses), down arrow when
+    // nothing is active (click re-expands the most recently
+    // active thread, if any).
+    this.root.appendChild(this.renderToggle(state.threads.size > 0));
+
     // Defer measurement to the next frame so the browser has
     // committed the new card DOM and computed their natural heights.
     requestAnimationFrame(() => this.layoutCards(view, ranges));
+  }
+
+  private renderToggle(haveAnyThreads: boolean): HTMLElement {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pmd-comments-toggle-active';
+    const expanded = this.activeThreadId !== null;
+    btn.textContent = expanded ? '▾' : '▴';
+    btn.title = expanded ? 'Collapse comment' : 'Expand most recent comment';
+    btn.disabled = !haveAnyThreads;
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.activeThreadId !== null) {
+        this.dismissActive();
+      } else if (this.lastActiveThreadId !== null) {
+        this.setActiveThread(this.lastActiveThreadId, 'click');
+      }
+    });
+    return btn;
   }
 
   /** Position each thread card next to its anchored range using
@@ -261,14 +379,16 @@ export class CommentsColumn {
     if (isActive) card.classList.add('pmd-comment-thread-active');
 
     // Click → make this thread active (expand it, anchor it to its
-    // range). We also move the editor cursor into the commented
-    // range so subsequent cursor-tracking logic agrees the right
-    // thread is active. Clicks inside an editable (reply input)
-    // bubble through normally so typing still works.
+    // range). The click flavor is sticky: stays expanded until the
+    // user clicks elsewhere, opens a different card, or hits the
+    // toggle button. We also scroll the editor to the range so
+    // the user sees what the comment refers to. Clicks inside an
+    // editable (reply input / button) bubble through normally so
+    // typing still works.
     card.addEventListener('click', (e) => {
       const target = e.target as HTMLElement | null;
       if (target && target.closest('textarea, input, button')) return;
-      this.setActiveThread(thread.id);
+      this.setActiveThread(thread.id, 'click');
       if (range) this.scrollToRange(range);
     });
 
@@ -335,17 +455,18 @@ export class CommentsColumn {
 
   private renderAiThinkingPlaceholder(): HTMLElement {
     const useClod = settings.get('clodEnabled');
+    const persona = getAiPersona();
     const block = document.createElement('div');
     block.className = 'pmd-comment-reply pmd-comment-ai pmd-comment-ai-thinking';
     const header = document.createElement('header');
     header.className = 'pmd-comment-header';
     const badge = document.createElement('span');
     badge.className = 'pmd-comment-initials';
-    badge.textContent = useClod ? 'CL' : 'AI';
+    badge.textContent = useClod ? personaInitials(persona.name) : 'AI';
     header.appendChild(badge);
     const name = document.createElement('span');
     name.className = 'pmd-comment-author';
-    name.textContent = useClod ? 'Clod' : 'AI';
+    name.textContent = useClod ? persona.name : 'AI';
     header.appendChild(name);
     block.appendChild(header);
     const body = document.createElement('div');
@@ -367,7 +488,8 @@ export class CommentsColumn {
       customByTime: settings.get('clodActivitiesByTime'),
       ranges: settings.get('clodTimePeriods'),
     });
-    return pickRandomActivity(pool);
+    const raw = pickRandomActivity(pool);
+    return personalizeActivity(raw, getAiPersona());
   }
 
   /** Tick the in-flight placeholders' text to fresh Clod activities
@@ -424,9 +546,12 @@ export class CommentsColumn {
   }
 
   private renderPrimaryInput(thread: Thread, root: Comment): HTMLElement {
-    const form = this.buildInputForm(thread, 'Add a comment…', (text) => {
+    const isAi = this.pendingAiFirst.has(thread.id);
+    const placeholder = isAi ? 'Ask a question' : 'Add a comment…';
+    const submitLabel = isAi ? 'Ask' : 'Comment';
+    const form = this.buildInputForm(thread, placeholder, (text) => {
       this.commitRootText(thread.id, root.id, text);
-    }, 'Comment');
+    }, submitLabel);
     return form;
   }
 
@@ -648,10 +773,20 @@ export class CommentsColumn {
     if (messages.length === 0) return;
 
     const useClod = settings.get('clodEnabled');
-    const aiAuthor = useClod ? 'Clod' : 'AI';
-    const aiInitials = useClod ? 'CL' : 'AI';
+    const persona = getAiPersona();
+    const aiAuthor = useClod ? persona.name : 'AI';
+    const aiInitials = useClod ? personaInitials(persona.name) : 'AI';
 
     this.aiInFlight.add(threadId);
+    // Force the AI thread to be the active (expanded) one for the
+    // duration of the request. Without this, the textarea-blur
+    // path on submit could shuffle active state and the user
+    // would lose sight of the Thinking… placeholder and the
+    // arriving AI reply.
+    this.activeThreadId = threadId;
+    this.activeBy = 'click';
+    this.lastActiveThreadId = threadId;
+    this.refreshStickyDismissListener();
     this.render();
     this.startActivityTicker();
 

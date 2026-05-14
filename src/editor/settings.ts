@@ -365,6 +365,21 @@ export interface Settings {
     evening: { start: number; end: number };
     night: { start: number; end: number };
   };
+  /** Display name for the AI persona — drives the comment author
+   *  name (when Clod mode is on), the in-flight activity text
+   *  (substituted into the built-in "Clod is …" templates), and the
+   *  AI button tooltip. Default: "Clod". */
+  aiPersonaName: string;
+  /** Pronoun set used to template the built-in Clod activities.
+   *  `'custom'` reads from `aiPersonaCustomPronouns`. */
+  aiPersonaPronouns: 'he' | 'she' | 'they' | 'it' | 'custom';
+  /** Used only when `aiPersonaPronouns === 'custom'`. */
+  aiPersonaCustomPronouns: {
+    subject: string;
+    object: string;
+    possessive: string;
+    reflexive: string;
+  };
 }
 
 /** Open-delimiter options for "Condense with warning" markers. The
@@ -459,6 +474,14 @@ const DEFAULTS: Settings = {
     day: { start: 9, end: 20 },
     evening: { start: 20, end: 23 },
     night: { start: 23, end: 5 },
+  },
+  aiPersonaName: 'Clod',
+  aiPersonaPronouns: 'he',
+  aiPersonaCustomPronouns: {
+    subject: 'they',
+    object: 'them',
+    possessive: 'their',
+    reflexive: 'themself',
   },
 };
 
@@ -844,7 +867,26 @@ function sanitize(s: Settings): Settings {
     clodEnabled: !!s.clodEnabled,
     clodActivitiesByTime: sanitizeClodActivitiesByTime(s.clodActivitiesByTime),
     clodTimePeriods: sanitizeClodTimePeriods(s.clodTimePeriods),
+    aiPersonaName:
+      typeof s.aiPersonaName === 'string' && s.aiPersonaName.trim()
+        ? s.aiPersonaName.trim()
+        : DEFAULTS.aiPersonaName,
+    aiPersonaPronouns: ['he', 'she', 'they', 'it', 'custom'].includes(s.aiPersonaPronouns as string)
+      ? (s.aiPersonaPronouns as Settings['aiPersonaPronouns'])
+      : DEFAULTS.aiPersonaPronouns,
+    aiPersonaCustomPronouns: sanitizeCustomPronouns(s.aiPersonaCustomPronouns),
   };
+}
+
+function sanitizeCustomPronouns(raw: unknown): Settings['aiPersonaCustomPronouns'] {
+  const out = { ...DEFAULTS.aiPersonaCustomPronouns };
+  if (!raw || typeof raw !== 'object') return out;
+  const r = raw as Partial<Settings['aiPersonaCustomPronouns']>;
+  for (const k of ['subject', 'object', 'possessive', 'reflexive'] as const) {
+    const v = r[k];
+    if (typeof v === 'string' && v.trim()) out[k] = v.trim();
+  }
+  return out;
 }
 
 function sanitizeClodActivitiesByTime(raw: unknown): Settings['clodActivitiesByTime'] {

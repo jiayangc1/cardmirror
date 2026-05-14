@@ -535,3 +535,78 @@ export function pickRandomActivity(pool: readonly string[]): string {
   if (pool.length === 0) return 'Clod is thinking…';
   return pool[Math.floor(Math.random() * pool.length)]!;
 }
+
+// ----------------------- persona templating ---------------------
+//
+// Built-in activity strings are written with the canonical Clod
+// persona (proper noun "Clod", male pronouns). When the user
+// customizes the persona via the easter-egg configurator we
+// substitute Clod / his / him / himself with the configured
+// name and pronoun set at render time. Word-boundary regexes
+// avoid stomping on substrings inside other words (e.g. "his" in
+// "history", "him" in "shimmer").
+
+export interface AiPersonaPronouns {
+  /** Subject — "he" / "she" / "they". */
+  subject: string;
+  /** Object — "him" / "her" / "them". */
+  object: string;
+  /** Possessive determiner — "his" / "her" / "their". */
+  possessive: string;
+  /** Reflexive — "himself" / "herself" / "themself". */
+  reflexive: string;
+}
+
+export interface AiPersona {
+  /** Display name for the AI commenter ("Clod" by default). */
+  name: string;
+  pronouns: AiPersonaPronouns;
+}
+
+/** Built-in pronoun presets. The configurator picks one of these
+ *  by id; `'custom'` lets the user fill in all four explicitly. */
+export const PRONOUN_PRESETS: Record<'he' | 'she' | 'they' | 'it', AiPersonaPronouns> = {
+  he:   { subject: 'he',   object: 'him',  possessive: 'his',   reflexive: 'himself' },
+  she:  { subject: 'she',  object: 'her',  possessive: 'her',   reflexive: 'herself' },
+  they: { subject: 'they', object: 'them', possessive: 'their', reflexive: 'themself' },
+  it:   { subject: 'it',   object: 'it',   possessive: 'its',   reflexive: 'itself' },
+};
+
+const CLOD_PRONOUNS = PRONOUN_PRESETS.he;
+
+/** Replace the canonical Clod tokens (`Clod`, `his`, `him`,
+ *  `himself`) with the configured persona's name and pronouns.
+ *  Word-boundary regex so we don't munge substrings inside other
+ *  words. Idempotent for the default persona (Clod + he/him). */
+export function personalizeActivity(text: string, persona: AiPersona): string {
+  let out = text;
+  // Order matters: longer tokens first so "himself" replaces before
+  // "him" tries to.
+  if (persona.pronouns.reflexive !== CLOD_PRONOUNS.reflexive) {
+    out = out.replace(/\bhimself\b/g, persona.pronouns.reflexive);
+  }
+  if (persona.pronouns.object !== CLOD_PRONOUNS.object) {
+    out = out.replace(/\bhim\b/g, persona.pronouns.object);
+  }
+  if (persona.pronouns.possessive !== CLOD_PRONOUNS.possessive) {
+    out = out.replace(/\bhis\b/g, persona.pronouns.possessive);
+  }
+  if (persona.pronouns.subject !== CLOD_PRONOUNS.subject) {
+    out = out.replace(/\bhe\b/g, persona.pronouns.subject);
+  }
+  if (persona.name !== 'Clod') {
+    out = out.replace(/\bClod\b/g, persona.name);
+  }
+  return out;
+}
+
+/** Two-letter badge initials for an arbitrary persona name. */
+export function personaInitials(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return 'AI';
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return ((parts[0]?.[0] ?? '') + (parts[parts.length - 1]?.[0] ?? '')).toUpperCase();
+  }
+  return parts[0]!.slice(0, 2).toUpperCase();
+}

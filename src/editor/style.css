@@ -2649,6 +2649,90 @@ body.pmd-nav-resize-active {
   border-color: var(--pmd-c-accent, #4a90e2);
 }
 
+/* Bottom-left toggle: collapse/expand the active comment.
+   Pinned with position: sticky so it stays in view as the column
+   scrolls. */
+.pmd-comments-toggle-active {
+  position: sticky;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  width: 1.8rem;
+  height: 1.8rem;
+  margin-left: 0.5rem;
+  border: 1px solid var(--pmd-c-border, #999);
+  border-radius: 50%;
+  background: var(--pmd-c-bg, #fff);
+  color: var(--pmd-c-text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1;
+  z-index: 2;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.pmd-comments-toggle-active:hover:not(:disabled) {
+  background: var(--pmd-c-button-hover, rgba(0, 0, 0, 0.06));
+}
+.pmd-comments-toggle-active:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Persona configurator rows */
+.pmd-clod-name-row {
+  display: grid;
+  grid-template-columns: 6rem 1fr;
+  gap: 0.5rem;
+  align-items: center;
+}
+.pmd-clod-name-input {
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--pmd-c-border, #999);
+  border-radius: 4px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+.pmd-clod-pronoun-heading {
+  margin-top: 0.6rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pmd-c-text-muted);
+}
+.pmd-clod-pronoun-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.pmd-clod-pronoun-custom {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem 0.6rem;
+  padding-left: 1.5rem;
+  margin-top: 0.25rem;
+}
+.pmd-clod-pronoun-custom-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.78rem;
+  color: var(--pmd-c-text-muted);
+}
+.pmd-clod-pronoun-custom-field input {
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--pmd-c-border, #999);
+  border-radius: 4px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+
 .pmd-comment-root,
 .pmd-comment-reply {
   display: flex;
@@ -2776,6 +2860,11 @@ body.pmd-nav-resize-active {
    row. */
 .ribbon-comments-ops-panel {
   display: grid;
+  /* `auto-flow: column` would mis-shape the layout once we get the
+     toggle + the row-2 children. Use 2 fixed auto columns and have
+     the toggle span both. When the AI button is hidden, its grid
+     cell collapses (`hidden` → `display: none`) and the column
+     width follows. */
   grid-template-columns: auto auto;
   grid-template-rows: 1.45rem 1.45rem;
   align-content: center;
@@ -2786,6 +2875,13 @@ body.pmd-nav-resize-active {
 }
 .ribbon-comments-ops-panel .ribbon-comments-toggle {
   grid-column: 1 / span 2;
+}
+/* Belt-and-suspenders for the AI button's hidden state. Some
+   browsers and CSS resets weaken the implicit `display: none` from
+   the `hidden` attribute; explicitly force it here so a stray rule
+   can't sneak the button back into view. */
+#comments-ai-btn[hidden] {
+  display: none !important;
 }
 
 /* ---------------------------------------------- Clod configurator */
