@@ -408,15 +408,14 @@ body {
   letter-spacing: -0.05em;
 }
 
-/* The up-arrow glyph sits low on the baseline by default — same row
-   as the "A" — which reads as visually unbalanced (the arrow looks
-   like it's hugging the bottom of the A rather than centered with
-   the cap). Nudge it up so the arrow tip aligns near the A's cap-
-   height. The down-arrow is already balanced relative to the A's
-   baseline, so it doesn't need shifting. */
+/* The ▲ glyph naturally sits high in the line box (its visual mass
+   is in the upper half), while the ▼ glyph sits low — so without
+   adjustment they don't visually align horizontally with the row of
+   ▾ arrows on neighboring controls. Push ▲ DOWN so its visual
+   center matches the ▾s on the same ribbon row. */
 .ribbon-font-size-step-up-arrow {
   display: inline-block;
-  transform: translateY(-0.18em);
+  transform: translateY(0.18em);
 }
 
 /* Dropdown popup — preset pt sizes, styled like the color picker. */
@@ -2015,6 +2014,14 @@ body.pmd-nav-resize-active {
   padding: 0 0.5rem;
   font-size: 0.78rem;
   line-height: 1;
+}
+
+/* Doc / Card dropdown-arrow chevron — gray to match the color-panel
+   arrows. Only the A▴ / A▾ font-size increment / decrement buttons
+   keep black arrows (they're action buttons, not dropdown triggers). */
+.ribbon-doc-menu-arrow {
+  color: var(--pmd-c-text-secondary, #666);
+  font-size: 0.65rem;
 }
 
 .pmd-doc-menu {
