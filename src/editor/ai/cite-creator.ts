@@ -87,17 +87,20 @@ Important:
 - Do not remove any information from the citation that was included in the submission.
 - Do not add any information to the citation that was not included in the submission.
 - If the title or publication or names or qualifications are in another language, translate them to English.
-- Always end your response with a new line character.
-
-OUTPUT FORMAT (this differs from the clipboard utility — the editor needs structured output so it can apply the F8 cite-style highlighting to the author/date tokens):
 
 Respond with VALID JSON ONLY — no prose around it, no \`\`\`json fences. Shape:
 {
   "cite": "<the full reformatted citation, exactly as you'd otherwise have returned it>",
-  "tokens": ["<the FirstName LastName Date piece(s) verbatim, exactly as they appear in 'cite'>"]
+  "tokens": ["<verbatim substring(s) of 'cite' to highlight in cite style>"]
 }
 
-The "tokens" array lists every short author-name+date span the editor should highlight as a debate-style cite. There is usually one entry — the author-name+date span that appears at the very start of the citation (e.g. "J. D. Tuccille 23", "Adrien Rose & Christian Wilson 9/23", "Jie Jiang et al. 23"). Each entry MUST be a substring of "cite" so the editor's search can locate it.`;
+The "tokens" array lists every substring that should be highlighted with the F8 cite mark. The highlighted portion is the LASTNAME(s) + SHORTDATE of the leading author block; firstnames stay unmarked.
+
+  - One author ("Michael Townsend 25"): tokens = ["Townsend 25"]
+  - Two authors ("Laura Weiss & John Bresnahan 3/26"): tokens = ["Weiss & ", "Bresnahan 3/26"]
+  - Three+ authors ("Carla Norrlöf et al. 24"): tokens = ["Norrlöf et al. 24"]
+
+For the two-author case, the first token ends with "& " (ampersand + trailing space) and the second token starts with the second lastname — the firstname between them stays unmarked. For "et al." cases the whole "Lastname et al. Date" is one contiguous token. Each entry MUST be a verbatim substring of "cite" so the editor can locate it.`;
 
 export interface AiCiteResult {
   cite: string;
@@ -173,6 +176,14 @@ export function applyCiteToSelection(
 
   const start = from;
   const end = from + result.cite.length;
+  // Strip every mark the inserted text picked up from the boundary
+  // (PM `insertText` inherits the start position's marks). Without
+  // this, a selection that started inside an existing cite_mark
+  // span — or any other mark — leaves the whole replacement
+  // wearing that mark, and the per-token application below ends up
+  // redundant. The cite text should come out clean and only the
+  // tokens should pick up cite_mark afterward.
+  tr.removeMark(start, end);
   for (const token of result.tokens) {
     if (!token) continue;
     let searchOffset = 0;
