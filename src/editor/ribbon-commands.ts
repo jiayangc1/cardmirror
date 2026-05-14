@@ -33,7 +33,7 @@
  * cite-slot of a card rather than the anchor of an analytic_unit.
  */
 
-import { Fragment, type Mark, type Node as PMNode, type ResolvedPos } from 'prosemirror-model';
+import { Fragment, type Mark, type MarkType, type Node as PMNode, type ResolvedPos } from 'prosemirror-model';
 import { Selection, TextSelection, type Command, type EditorState, type Transaction } from 'prosemirror-state';
 import { toggleMark } from 'prosemirror-commands';
 import { schema } from '../schema/index.js';
@@ -2035,12 +2035,21 @@ export function pasteAsText(): Command {
  *     with the FIRST bookend's color (Verbatim's
  *     `c.Item(1).HighlightColorIndex` rule — first wins on color
  *     mismatch).
+ *   - font_size: ALWAYS clear the gap's font_size mark (so stale
+ *     shrunken-size marks don't persist across the bridge). If
+ *     BOTH bookends have explicit font_size, additionally set the
+ *     gap to the SMALLER halfPoints value — "smaller wins" so a
+ *     shrunk-text bookend pulls the gap down to match (versus a
+ *     larger gap that would visually stand out).
  *
  * Bridges per mark are independent, so a span with mixed bridgeable
  * marks (e.g. underline + highlight on the bookends) gets both
  * filled into the gap simultaneously.
  *
- * No-op (returns false) when no bridgeable gap exists in scope.
+ * No-op (returns false) when nothing in scope actually changes —
+ * either no regex matches, or every queued removeMark / addMark
+ * collapses to a no-op because the gap already had the marks the
+ * bridge would assign.
  */
 export function fixFormattingGaps(): Command {
   return (state, dispatch) => {
@@ -2053,10 +2062,16 @@ export function fixFormattingGaps(): Command {
     const citeType = schema.marks['cite_mark']!;
     const highlightType = schema.marks['highlight']!;
     const shadingType = schema.marks['shading']!;
+    const fontSizeType = schema.marks['font_size']!;
 
     const gapRegex = /[A-Za-z0-9][.,;:?()\-! ]+[A-Za-z0-9]/g;
 
-    type Add = { from: number; to: number; marks: Mark[] };
+    type Add = {
+      from: number;
+      to: number;
+      marksToAdd: Mark[];
+      marksToRemove: MarkType[];
+    };
     const adds: Add[] = [];
 
     state.doc.nodesBetween(from, to, (node, pos) => {
@@ -2121,8 +2136,11 @@ export function fixFormattingGaps(): Command {
         const lmHasUnderline = lm.some((mk) => mk.type === underlineType);
         const lmHasEmphasis = lm.some((mk) => mk.type === emphasisType);
         const lmHasCite = lm.some((mk) => mk.type === citeType);
+        const fmFs = fm.find((mk) => mk.type === fontSizeType);
+        const lmFs = lm.find((mk) => mk.type === fontSizeType);
 
         const marksToAdd: Mark[] = [];
+        const marksToRemove: MarkType[] = [];
 
         // Named-style bridge rule (Verbatim parity, plus cite):
         //   - both same → that mark.
@@ -2158,8 +2176,41 @@ export function fixFormattingGaps(): Command {
           }
         }
 
-        if (marksToAdd.length > 0) {
-          adds.push({ from: gapFrom, to: gapTo, marks: marksToAdd });
+        // Font size on the gap: always clear the gap's font_size
+        // mark — its stale value (typically a leftover shrunken size
+        // from an earlier edit) shouldn't survive the bridge. The
+        // gap then inherits whichever size its surroundings imply.
+        // If BOTH bookends carry explicit font_size, additionally
+        // assign the gap the smaller of the two halfPoints values.
+        // "Smaller wins" is the conservative choice: a smaller gap
+        // character blends visually into either bookend better than
+        // a larger one would.
+        //
+        // Pre-check whether any gap char actually has font_size so
+        // that the no-op detection stays accurate — we don't want
+        // dryrun to claim "something will happen" purely because we
+        // would queue a removeMark that the gap doesn't need.
+        let gapHasFontSize = false;
+        for (let i = firstIdx + 1; i < lastIdx; i++) {
+          const gn = charNode[i];
+          if (gn && gn.marks.some((mk) => mk.type === fontSizeType)) {
+            gapHasFontSize = true;
+            break;
+          }
+        }
+        if (gapHasFontSize) {
+          marksToRemove.push(fontSizeType);
+        }
+        if (fmFs && lmFs) {
+          const fHp = Number(fmFs.attrs['halfPoints'] ?? 22);
+          const lHp = Number(lmFs.attrs['halfPoints'] ?? 22);
+          marksToAdd.push(
+            fontSizeType.create({ halfPoints: Math.min(fHp, lHp) }),
+          );
+        }
+
+        if (marksToAdd.length > 0 || marksToRemove.length > 0) {
+          adds.push({ from: gapFrom, to: gapTo, marksToAdd, marksToRemove });
         }
       }
       return false;
@@ -2169,9 +2220,21 @@ export function fixFormattingGaps(): Command {
     if (!dispatch) return true;
 
     const tr = state.tr;
-    for (const { from: f, to: t, marks } of adds) {
-      for (const m of marks) tr.addMark(f, t, m);
+    for (const { from: f, to: t, marksToAdd, marksToRemove } of adds) {
+      // Removes first (clear the gap's stale font_size if present)
+      // then adds (named-style / highlight / shading bridge + any
+      // bookend-derived font_size). PM's removeMark is idempotent if
+      // the mark isn't present, so a gap with no font_size silently
+      // contributes no step here.
+      for (const mt of marksToRemove) tr.removeMark(f, t, mt);
+      for (const m of marksToAdd) tr.addMark(f, t, m);
     }
+    // Pre-empt empty-TR dispatches: most gaps don't actually carry a
+    // font_size mark to clear, so even though we queue a removeMark
+    // for every match the final TR may still be empty. Skipping the
+    // dispatch in that case keeps history clean and lets the return
+    // value continue to mean "did anything happen?"
+    if (tr.steps.length === 0) return false;
     dispatch(tr);
     return true;
   };

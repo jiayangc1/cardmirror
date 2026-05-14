@@ -3238,6 +3238,95 @@ describe('fixFormattingGaps', () => {
     expect(chars[4]!.marks.has('emphasis_mark')).toBe(false);
   });
 
+  // Font size on the gap.
+  function withFs(text: string, halfPoints: number, otherMarks: import('prosemirror-model').Mark[] = []) {
+    return schema.text(text, [
+      schema.marks['font_size']!.create({ halfPoints }),
+      ...otherMarks,
+    ]);
+  }
+
+  function fontSizeAtChar(
+    doc: import('prosemirror-model').Node,
+    charIdx: number,
+  ): number | null {
+    let cur = 0;
+    let result: number | null = null;
+    let done = false;
+    doc.descendants((node) => {
+      if (done) return false;
+      if (!node.isText || !node.text) return true;
+      if (charIdx >= cur && charIdx < cur + node.text.length) {
+        const fs = node.marks.find((m) => m.type.name === 'font_size');
+        result = fs ? Number(fs.attrs['halfPoints']) : null;
+        done = true;
+        return false;
+      }
+      cur += node.text.length;
+      return false;
+    });
+    return result;
+  }
+
+  it('clears the gap font_size when neither bookend has explicit font_size', () => {
+    // Bookends have only a named-style mark (no font_size). Gap is
+    // explicitly 8pt (shrunken). After: the gap's font_size is
+    // cleared so it falls back to the parent's natural size,
+    // matching the bookends visually.
+    const u = (t: string) =>
+      schema.text(t, [schema.marks['underline_mark']!.create()]);
+    const doc = makeDoc(p(
+      u('foo'),
+      withFs(' ', 16),
+      u('bar'),
+    ));
+    const state = EditorState.create({ doc, schema });
+    let next: EditorState | null = null;
+    fixFormattingGaps()(state, (tr) => { next = state.apply(tr); });
+    expect(next).not.toBeNull();
+    // Char index 3 = the space.
+    expect(fontSizeAtChar(next!.doc, 3)).toBeNull();
+  });
+
+  it('clears the gap font_size when only one bookend has explicit font_size', () => {
+    // Bookends differ: first has font_size:22 (11pt), last has none.
+    // Same-mark named-style bridge happens (both underline). The gap
+    // had its own font_size; that should be cleared.
+    const u = schema.marks['underline_mark']!.create();
+    const doc = makeDoc(p(
+      schema.text('foo', [u, schema.marks['font_size']!.create({ halfPoints: 22 })]),
+      withFs(' ', 16, []),
+      schema.text('bar', [u]),
+    ));
+    const state = EditorState.create({ doc, schema });
+    let next: EditorState | null = null;
+    fixFormattingGaps()(state, (tr) => { next = state.apply(tr); });
+    // Gap font_size cleared (was 16, now null).
+    expect(fontSizeAtChar(next!.doc, 3)).toBeNull();
+    // First bookend keeps its 22.
+    expect(fontSizeAtChar(next!.doc, 0)).toBe(22);
+    // Last bookend stays clear.
+    expect(fontSizeAtChar(next!.doc, 4)).toBeNull();
+  });
+
+  it('sets the gap font_size to MIN of bookend sizes when both have explicit', () => {
+    // First bookend 22 (11pt), last bookend 16 (8pt). Gap was 26
+    // (13pt). After: gap should be 16 (min). Bookends keep their
+    // own values.
+    const u = schema.marks['underline_mark']!.create();
+    const doc = makeDoc(p(
+      schema.text('foo', [u, schema.marks['font_size']!.create({ halfPoints: 22 })]),
+      withFs(' ', 26, []),
+      schema.text('bar', [u, schema.marks['font_size']!.create({ halfPoints: 16 })]),
+    ));
+    const state = EditorState.create({ doc, schema });
+    let next: EditorState | null = null;
+    fixFormattingGaps()(state, (tr) => { next = state.apply(tr); });
+    expect(fontSizeAtChar(next!.doc, 0)).toBe(22);
+    expect(fontSizeAtChar(next!.doc, 3)).toBe(16);
+    expect(fontSizeAtChar(next!.doc, 4)).toBe(16);
+  });
+
   it('does not touch bookends even on same-style bridge (range is gap-only)', () => {
     // Sanity check that the gap-only range applies even for matching
     // bookends — addMark on the bookends would be idempotent for same-
