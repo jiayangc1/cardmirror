@@ -1840,9 +1840,32 @@ exporter itself stays option-agnostic — strip / filter logic lives
 in one focused module that can grow as we add features.
 
 Read-mode keep/hide rules deliberately mirror the runtime
-`read-mode-plugin.ts` keep/hide rules so "save what you see"
-holds. The unit tests in `tests/export/transform-for-export.test.ts`
-lock the parity.
+`read-mode-plugin.ts` keep/hide rules AND the read-mode display CSS
+in `style.css` so "save what you see" holds end-to-end:
+
+  - **Doc level**: only pocket / hat / block / card / analytic_unit
+    survive. Loose paragraphs / cite_paragraphs / card_bodies /
+    undertags at doc level are `display: none` in read mode and so
+    drop on export too.
+  - **Inside a card / analytic_unit**: adjacent body paragraphs
+    (`card_body`, `paragraph`) merge into a single flowing body —
+    matching the read-mode CSS rule `.pmd-card > .pmd-card-body
+    { display: contents }`. Block-level children (tag, analytic,
+    cite_paragraph) flush the merge buffer first so their relative
+    position is preserved.
+  - **Undertags**: invisible in read mode CSS (not in the visible-
+    children allowlist for either `.pmd-card` or `.pmd-analytic-
+    unit`), so they drop wholesale. Tables likewise.
+  - **Inline separator**: consecutive kept inlines get a synthesized
+    space text node between them, matching the runtime CSS
+    `.pmd-rm-keep::after { content: ' ' }` rule. We skip the
+    separator when whitespace is already present on either side
+    so the export doesn't get double-spaces.
+
+The unit tests in `tests/export/transform-for-export.test.ts` lock
+the parity branch by branch (merge across body chains, separator
+insertion, cite-paragraph breaking the merge, undertag NOT
+breaking it, etc.).
 
 ## 2026-05-13: In-app Save As dialog (replaces `window.prompt` fallback)
 

@@ -47,67 +47,109 @@ export function transformForExport(
 }
 
 // --------------------------- read mode ---------------------------
+//
+// Mirrors the read-mode CSS in `style.css` (search "pmd-read-mode"):
+//   - Doc level: only pocket / hat / block / card / analytic_unit are
+//     visible. Loose paragraphs, cite_paragraphs, card_bodies, etc.
+//     at doc level are `display: none` and so drop on export too.
+//   - Inside a card: tag / cite_paragraph / analytic stay block;
+//     card_body uses `display: contents` so adjacent bodies flow
+//     together as one stream. Undertags are not in the visible-
+//     children allowlist → drop.
+//   - Inline: every text node carrying the visibility-keep mark gets
+//     a `::after { content: ' ' }` separator, so adjacent kept chunks
+//     read as separate words. We synthesize the equivalent here as
+//     literal space text nodes between consecutive kept inlines.
 
 function applyReadModeTransform(doc: PMNode): PMNode {
   const schema = doc.type.schema;
   const out: PMNode[] = [];
   doc.forEach((child) => {
-    const t = transformForReadMode(child, schema);
+    const t = transformDocLevelForReadMode(child, schema);
     if (t) out.push(t);
   });
   return schema.nodes['doc']!.create(null, out);
 }
 
-function transformForReadMode(node: PMNode, schema: Schema): PMNode | null {
+function transformDocLevelForReadMode(node: PMNode, schema: Schema): PMNode | null {
   const name = node.type.name;
-  // Heading-shaped paragraphs survive in their entirety — they're
-  // the structural skeleton the reader navigates by.
   if (name === 'pocket' || name === 'hat' || name === 'block') return node;
-
-  // Card / analytic_unit: keep the required first heading (tag or
-  // analytic), recurse into the rest.
   if (name === 'card' || name === 'analytic_unit') {
-    const children: PMNode[] = [];
-    node.forEach((child) => {
-      const t = transformForReadMode(child, schema);
-      if (t) children.push(t);
-    });
-    // Schema requires the first child (tag for card, analytic for
-    // analytic_unit) — `transformForReadMode` keeps both as-is so the
-    // container is always valid as long as we got at least one
-    // survivor.
-    if (children.length === 0) return null;
-    return node.type.create(node.attrs, children);
+    return transformContainerForReadMode(node, schema);
   }
-
-  // Tag / analytic standalone (inside a card / analytic_unit recursion):
-  // kept whole.
-  if (name === 'tag' || name === 'analytic') return node;
-
-  // Cite paragraph: keep only text carrying cite_mark.
-  if (name === 'cite_paragraph') {
-    return filterParagraphByMark(node, 'cite_mark');
-  }
-
-  // Body paragraphs (card_body / generic paragraph / undertag): keep
-  // only text carrying the highlight mark.
-  if (name === 'card_body' || name === 'paragraph' || name === 'undertag') {
-    return filterParagraphByMark(node, 'highlight');
-  }
-
-  // Tables, images, anything else: dropped.
+  // Everything else at doc level is hidden in read mode display
+  // (loose paragraphs, cite_paragraphs, card_bodies, undertags,
+  // tables) so it drops on export.
   return null;
 }
 
-function filterParagraphByMark(node: PMNode, markName: string): PMNode | null {
+/** Card / analytic_unit children rebuilt for read mode. Block-level
+ *  children (tag, analytic, cite_paragraph) keep their own paragraph
+ *  position. card_body / paragraph children flow together — their
+ *  kept inlines accumulate into a merge buffer that flushes to a
+ *  single card_body whenever a real block separates them, or at the
+ *  end of the container. Undertags and tables drop without breaking
+ *  the merge run (they're invisible in read mode display, so
+ *  surrounding bodies stay contiguous). */
+function transformContainerForReadMode(container: PMNode, schema: Schema): PMNode | null {
+  const out: PMNode[] = [];
+  let mergeBuffer: PMNode[] = [];
+
+  const flushMerge = (): void => {
+    if (mergeBuffer.length === 0) return;
+    out.push(schema.nodes['card_body']!.create(null, mergeBuffer));
+    mergeBuffer = [];
+  };
+
+  container.forEach((child) => {
+    const name = child.type.name;
+    // Block-level children: flush the merge buffer first so their
+    // position relative to surrounding bodies is preserved.
+    if (name === 'tag' || name === 'analytic') {
+      flushMerge();
+      out.push(child); // structural headings keep all their content
+    } else if (name === 'cite_paragraph') {
+      flushMerge();
+      const kept = filterInlinesByMark(child, 'cite_mark', schema);
+      if (kept.length > 0) out.push(child.type.create(child.attrs, kept));
+    } else if (name === 'card_body' || name === 'paragraph') {
+      const kept = filterInlinesByMark(child, 'highlight', schema);
+      for (const inline of kept) appendToMergeBuffer(mergeBuffer, inline, schema);
+    }
+    // Undertags + tables drop without flushing — bodies on either
+    // side remain a single flowing run.
+  });
+  flushMerge();
+
+  if (out.length === 0) return null;
+  return container.type.create(container.attrs, out);
+}
+
+/** Walk a paragraph's inline children, keep the ones carrying the
+ *  given mark, and stitch them with separator spaces wherever the
+ *  CSS `::after { content: ' ' }` rule would have inserted one. */
+function filterInlinesByMark(node: PMNode, markName: string, schema: Schema): PMNode[] {
   const kept: PMNode[] = [];
   node.forEach((child) => {
     if (child.isText && child.marks.some((m) => m.type.name === markName)) {
-      kept.push(child);
+      appendToMergeBuffer(kept, child, schema);
     }
   });
-  if (kept.length === 0) return null;
-  return node.type.create(node.attrs, kept);
+  return kept;
+}
+
+/** Push `next` onto `buffer`, inserting a separator space first
+ *  unless the boundary already has whitespace on either side. */
+function appendToMergeBuffer(buffer: PMNode[], next: PMNode, schema: Schema): void {
+  if (buffer.length > 0) {
+    const last = buffer[buffer.length - 1]!;
+    const lastText = last.isText ? (last.text ?? '') : '';
+    const nextText = next.isText ? (next.text ?? '') : '';
+    if (!/\s$/.test(lastText) && !/^\s/.test(nextText)) {
+      buffer.push(schema.text(' '));
+    }
+  }
+  buffer.push(next);
 }
 
 // --------------------------- analytics ---------------------------

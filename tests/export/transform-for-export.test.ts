@@ -139,13 +139,15 @@ describe('transformForExport — read mode', () => {
     expect(out.firstChild!.type.name).toBe('pocket');
   });
 
-  it('keeps doc-level paragraphs that contain highlighted text, filtered to the highlight', () => {
+  it('drops doc-level loose paragraphs entirely (display: none in read mode)', () => {
     const doc = makeDoc(
       paragraph(txt('before '), txt('keep me', 'highlight'), txt(' after')),
     );
     const out = transformForExport(doc, RM);
-    expect(out.childCount).toBe(1);
-    expect(out.firstChild!.textContent).toBe('keep me');
+    // Doc-level body paragraphs aren't in the read-mode visible-
+    // children allowlist (.ProseMirror > .pmd-paragraph etc. are
+    // display:none), so they drop regardless of inner highlights.
+    expect(out.childCount).toBe(0);
   });
 
   it('keeps tag + cite-mark text in cite_paragraph + highlighted card body', () => {
@@ -199,7 +201,7 @@ describe('transformForExport — read mode', () => {
     expect(au.child(1).textContent).toBe('mark');
   });
 
-  it('keeps undertag paragraphs only when they have highlighted text', () => {
+  it('drops undertags in read mode (hidden by the read-mode CSS regardless of inner highlights)', () => {
     const undertagWithHighlight = schema.nodes['undertag']!.create(null, [
       txt('before '),
       txt('mark', 'highlight'),
@@ -212,10 +214,91 @@ describe('transformForExport — read mode', () => {
     const out = transformForExport(doc, RM);
     const c1 = out.child(0);
     const c2 = out.child(1);
-    expect(c1.childCount).toBe(1); // undertag dropped — nothing highlighted
-    expect(c2.childCount).toBe(2);
-    expect(c2.child(1).type.name).toBe('undertag');
-    expect(c2.child(1).textContent).toBe('mark');
+    // Undertags aren't in the read-mode visible-children allowlist
+    // (.pmd-card > .pmd-undertag stays display:none), so they drop
+    // wholesale — even when they contain highlighted text.
+    expect(c1.childCount).toBe(1);
+    expect(c2.childCount).toBe(1);
+    expect(c2.child(0).type.name).toBe('tag');
+  });
+
+  it('merges adjacent card_bodies into a single flowing paragraph', () => {
+    const doc = makeDoc(card(
+      tag('T'),
+      cardBody(txt('first ', 'highlight')),
+      cardBody(txt('second ', 'highlight')),
+      cardBody(txt('third', 'highlight')),
+    ));
+    const out = transformForExport(doc, RM);
+    const c = out.firstChild!;
+    expect(c.childCount).toBe(2);
+    expect(c.child(0).type.name).toBe('tag');
+    expect(c.child(1).type.name).toBe('card_body');
+    expect(c.child(1).textContent).toBe('first second third');
+  });
+
+  it('inserts a separator space between consecutive kept inlines that lack natural whitespace', () => {
+    const doc = makeDoc(card(
+      tag('T'),
+      cardBody(
+        txt('before '),
+        txt('Author', 'highlight'),
+        txt(' some plain '),
+        txt('2024', 'highlight'),
+        txt(' after'),
+      ),
+    ));
+    const out = transformForExport(doc, RM);
+    const body = out.firstChild!.child(1);
+    expect(body.type.name).toBe('card_body');
+    expect(body.textContent).toBe('Author 2024');
+  });
+
+  it('does not insert a double space when the boundary already has whitespace', () => {
+    const doc = makeDoc(card(
+      tag('T'),
+      cardBody(
+        txt('first ', 'highlight'),  // trailing space already present
+        txt(' plain text '),
+        txt(' second', 'highlight'), // leading space already present
+      ),
+    ));
+    const out = transformForExport(doc, RM);
+    const body = out.firstChild!.child(1);
+    // Both natural whitespace boundaries kept; no synthetic space.
+    expect(body.textContent).toBe('first  second');
+  });
+
+  it('cite_paragraph between bodies breaks the merge (cite is its own block)', () => {
+    const doc = makeDoc(card(
+      tag('T'),
+      cardBody(txt('body1', 'highlight')),
+      citeParagraph(txt('Author 2024', 'cite_mark'), txt(' rest of cite')),
+      cardBody(txt('body2', 'highlight')),
+    ));
+    const out = transformForExport(doc, RM);
+    const c = out.firstChild!;
+    expect(c.childCount).toBe(4);
+    expect(c.child(0).type.name).toBe('tag');
+    expect(c.child(1).type.name).toBe('card_body');
+    expect(c.child(1).textContent).toBe('body1');
+    expect(c.child(2).type.name).toBe('cite_paragraph');
+    expect(c.child(2).textContent).toBe('Author 2024');
+    expect(c.child(3).type.name).toBe('card_body');
+    expect(c.child(3).textContent).toBe('body2');
+  });
+
+  it('undertag between bodies does NOT break the merge (undertag is invisible in read mode)', () => {
+    const doc = makeDoc(card(
+      tag('T'),
+      cardBody(txt('body1', 'highlight')),
+      undertag('plain'),
+      cardBody(txt('body2', 'highlight')),
+    ));
+    const out = transformForExport(doc, RM);
+    const c = out.firstChild!;
+    expect(c.childCount).toBe(2);
+    expect(c.child(1).textContent).toBe('body1 body2');
   });
 
   it('drops tables in read mode', () => {
