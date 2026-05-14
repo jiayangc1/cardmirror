@@ -2070,7 +2070,13 @@ export function fixFormattingGaps(): Command {
     const shadingType = schema.marks['shading']!;
     const fontSizeType = schema.marks['font_size']!;
 
-    const gapRegex = /[A-Za-z0-9][.,;:?()\-! ]+[A-Za-z0-9]/g;
+    // Word-char class: ASCII alphanumerics + straight quotes
+    // (`'` / `"`) + curly quotes (`‘`/`’`/`“`/`”`). Verbatim's
+    // original regex is ASCII-only; we widen the bookend class so
+    // a gap adjacent to a quoted run still bridges (e.g.,
+    // `must supply " reasoned explanation"`, where the bookend on
+    // one side is the curly quote).
+    const gapRegex = /[A-Za-z0-9'"‘’“”][.,;:?()\-! ]+[A-Za-z0-9'"‘’“”]/g;
 
     type Add = {
       from: number;

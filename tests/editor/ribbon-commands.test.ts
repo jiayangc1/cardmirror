@@ -3380,6 +3380,25 @@ describe('fixFormattingGaps', () => {
     expect(barColor).toBe('green');
   });
 
+  it('bridges across gaps where a bookend is a curly quote', () => {
+    // Verbatim docs frequently quote-wrap argument text. The opening
+    // curly quote is usually the start of the next styled run, so
+    // the regex needs to accept it as a valid bookend.
+    const u = schema.marks['underline_mark']!.create();
+    const doc = makeDoc(p(
+      schema.text('foo', [u]),
+      schema.text(' '),
+      schema.text('“bar”', [u]),
+    ));
+    const state = EditorState.create({ doc, schema });
+    let next: EditorState | null = null;
+    fixFormattingGaps()(state, (tr) => { next = state.apply(tr); });
+    expect(next).not.toBeNull();
+    // The space (char index 3) should have gained underline_mark.
+    const chars = marksByChar(next!.doc);
+    expect(chars[3]!.marks.has('underline_mark')).toBe(true);
+  });
+
   it('does NOT clear font_size on gaps that do not qualify', () => {
     // First bookend has underline; second bookend is shrunken plain
     // text (only font_size, no named-style). Gap has its own
