@@ -419,17 +419,28 @@ class MultiPaneShell {
   }
 
   /** Mark `slot` as focused. The shared ribbon / chrome will route
-   *  through its visible doc's EditorView. */
+   *  through its visible doc's EditorView. In wide-scroll layout
+   *  with three active panes, also scroll the focused pane into
+   *  view — that's what makes clicking the peeking third doc
+   *  bring it fully into view (the `scroll-snap-type: x mandatory`
+   *  on the row keeps the landing position clean). */
   focusSlot(slot: Slot): void {
-    if (this.focusedSlot === slot && getActiveView() === slot.visible?.view) {
-      return;
-    }
-    if (this.focusedSlot) {
+    const wasSame = this.focusedSlot === slot && getActiveView() === slot.visible?.view;
+    if (this.focusedSlot && this.focusedSlot !== slot) {
       this.focusedSlot.paneEl.classList.remove('pmd-pane-focused');
     }
     this.focusedSlot = slot;
     slot.paneEl.classList.add('pmd-pane-focused');
-    setActiveView(slot.visible?.view ?? null);
+    if (!wasSame) {
+      setActiveView(slot.visible?.view ?? null);
+    }
+    const activeCount = SLOT_IDS.filter((id) => this.slots[id].stack.length > 0).length;
+    if (this.layoutMode === 'wide' && activeCount === 3) {
+      // `inline: 'start'` clamps to scroll-max on the rightmost pane,
+      // so clicking the third doc's peek lands at the snap position
+      // where pane 2 + pane 3 are fully visible.
+      slot.paneEl.scrollIntoView({ inline: 'start', block: 'nearest', behavior: 'smooth' });
+    }
   }
 
   /** Handle a slot becoming empty — if it had focus, transfer to
