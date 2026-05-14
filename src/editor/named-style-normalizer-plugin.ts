@@ -29,6 +29,7 @@ import { Plugin } from 'prosemirror-state';
 import type { Transaction } from 'prosemirror-state';
 import { Fragment, type Node as PMNode } from 'prosemirror-model';
 import { schema } from '../schema/index.js';
+import { changedRange } from './transaction-utils.js';
 
 const BODY_TEXTBLOCKS = new Set<string>(['paragraph', 'card_body', 'cite_paragraph']);
 const STRUCTURAL_TEXTBLOCKS = new Set<string>([
@@ -37,7 +38,10 @@ const STRUCTURAL_TEXTBLOCKS = new Set<string>([
 
 export const namedStyleNormalizerPlugin: Plugin = new Plugin({
   appendTransaction(transactions, _oldState, newState) {
-    if (!transactions.some((t) => t.docChanged)) return null;
+    // Scope to mapped change ranges so typing in a large doc
+    // doesn't trigger a full-doc descendants walk per keystroke.
+    const range = changedRange(transactions);
+    if (!range) return null;
 
     const directMark = schema.marks['underline_direct']!;
     const namedMark = schema.marks['underline_mark']!;
@@ -45,7 +49,7 @@ export const namedStyleNormalizerPlugin: Plugin = new Plugin({
     const emphasisMark = schema.marks['emphasis_mark']!;
     let tr: Transaction | null = null;
 
-    newState.doc.descendants((node, pos, parent) => {
+    newState.doc.nodesBetween(range.from, range.to, (node, pos, parent) => {
       if (!node.isText || !parent) return true;
       const parentName = parent.type.name;
       const hasDirect = node.marks.some((m) => m.type === directMark);

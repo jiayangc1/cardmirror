@@ -148,9 +148,14 @@ export const commentsPlugin: Plugin<CommentsState> = new Plugin<CommentsState>({
     // entire commented range. Only do work when the doc actually
     // changed (cheap fast path).
     if (!transactions.some((tr) => tr.docChanged)) return null;
-    const liveIds = collectLiveThreadIds(newState.doc);
     const state = commentsKey.getState(newState);
     if (!state) return null;
+    // Early bail when there are no threads to GC. Avoids a full-doc
+    // walk per keystroke for the (overwhelmingly common) case of a
+    // doc with no comments — including all multi-doc workspaces,
+    // since comments are disabled there.
+    if (state.threads.size === 0) return null;
+    const liveIds = collectLiveThreadIds(newState.doc);
     const stale: string[] = [];
     for (const id of state.threads.keys()) {
       if (!liveIds.has(id)) stale.push(id);
