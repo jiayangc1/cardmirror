@@ -208,25 +208,19 @@ export class EditorDragSurface implements DragSurface {
     if (!this.view || !this.host) return;
     const view = this.view;
     const host = this.host;
-    const hostRect = host.getBoundingClientRect();
-    // #editor uses CSS `zoom`, so `style.top` set on an indicator is
-    // interpreted in the host's unzoomed CSS pixels (then multiplied by
-    // zoom at render time). The viewport-distance from coordsAtPos /
-    // getBoundingClientRect has to be divided back out.
-    const zoom = this.getEditorZoom();
 
-    // Two-pass to avoid layout thrash. The previous single-pass loop
-    // called `view.coordsAtPos` (which reads layout) then
-    // `host.appendChild(indicator)` (which invalidates layout). For
-    // hundreds of headings the browser was forced to recompute layout
-    // before every coordsAtPos read — the dominant cost of drag-
-    // pickup on large docs.
-    //
-    // Pass 1: read all positions. No DOM mutations, so the browser
-    // can serve every coordsAtPos from one cached layout.
+    // Use each heading's rendered DOM element to derive its CSS top
+    // INSIDE the host (`offsetTop` walks the offsetParent chain).
+    // Previously we used `view.coordsAtPos` (viewport coords) and
+    // transformed back with `host.getBoundingClientRect().top` and
+    // `host.scrollTop`. That worked in single-doc where the host IS
+    // the scroll container, but broke in multi-doc — the scroll
+    // container is the pane *body*, not the host, so the transform
+    // collapsed all indicators near the top of the host's content.
+    // Offsets sidestep the viewport coordinate space entirely.
     const positions: { insertPos: number; top: number }[] = [];
     const seen = new Set<number>();
-    const pushCoord = (insertPos: number, top: number): void => {
+    const pushPos = (insertPos: number, top: number): void => {
       if (seen.has(insertPos)) return;
       seen.add(insertPos);
       positions.push({ insertPos, top });
@@ -235,29 +229,44 @@ export class EditorDragSurface implements DragSurface {
       if (entry.level > draggedLevel) continue;
       const range = computeHeadingRange(view.state.doc, entry);
       if (!range) continue;
-      try {
-        const coords = view.coordsAtPos(range.from);
-        pushCoord(range.from, coords.top);
-      } catch {
-        /* skip */
+      const id = entry.id;
+      // The heading's DOM element carries `data-id`; walk the
+      // offsetParent chain from there to host so we get the CSS
+      // top in host's coordinate system regardless of nesting.
+      let topInHost: number | null = null;
+      if (id) {
+        const el = view.dom.querySelector<HTMLElement>(`[data-id="${cssEscape(id)}"]`);
+        if (el) topInHost = offsetTopWithin(el, host);
       }
+      if (topInHost == null) {
+        // Headings without a stable id (rare) fall back to
+        // coordsAtPos + the viewport→host transform.
+        try {
+          const hostRect = host.getBoundingClientRect();
+          const zoom = this.getEditorZoom();
+          const coords = view.coordsAtPos(range.from);
+          topInHost = (coords.top - hostRect.top) / zoom + host.scrollTop;
+        } catch {
+          continue;
+        }
+      }
+      pushPos(range.from, topInHost);
     }
+    // Doc-end indicator: no DOM element to query, so use the host's
+    // own scrollHeight as the floor (it's the bottom-most CSS top
+    // inside host that any indicator could occupy).
     const docEnd = view.state.doc.content.size;
-    try {
-      const endCoords = view.coordsAtPos(docEnd);
-      pushCoord(docEnd, endCoords.bottom);
-    } catch {
-      /* skip */
+    if (!seen.has(docEnd)) {
+      pushPos(docEnd, host.scrollHeight || 0);
     }
 
-    // Pass 2: build all the indicator elements into a fragment, then
-    // append them in a single DOM operation. One layout invalidation
-    // total instead of one per heading.
+    // Single-DOM append via a fragment — no layout thrash from the
+    // per-iteration mutations the old loop did.
     const fragment = document.createDocumentFragment();
     for (const { insertPos, top } of positions) {
       const indicator = document.createElement('div');
       indicator.className = 'pmd-editor-drop-indicator';
-      indicator.style.top = `${(top - hostRect.top) / zoom + host.scrollTop}px`;
+      indicator.style.top = `${top}px`;
       fragment.appendChild(indicator);
       this.indicators.push({ el: indicator, insertPos });
     }
@@ -556,3 +565,30 @@ export class EditorDragSurface implements DragSurface {
  * Workspace-wide singleton.
  */
 export const editorDragSurface = new EditorDragSurface();
+
+/** Sum `offsetTop` from `el` up to (but excluding) `host`. Returns the
+ *  CSS top of `el` inside `host`'s coordinate system, regardless of
+ *  intermediate positioned ancestors. Used by drop-indicator placement
+ *  to avoid the viewport→host transform that fails when the host
+ *  isn't the scroll container. */
+function offsetTopWithin(el: HTMLElement, host: HTMLElement): number | null {
+  let top = 0;
+  let walker: HTMLElement | null = el;
+  // 16 hops is a generous bound for editor DOM nesting; prevents
+  // accidental infinite walks if `host` somehow isn't in `el`'s
+  // offsetParent chain.
+  for (let i = 0; i < 16 && walker; i++) {
+    if (walker === host) return top;
+    top += walker.offsetTop;
+    walker = walker.offsetParent as HTMLElement | null;
+  }
+  return null;
+}
+
+/** Minimal CSS.escape polyfill — matches the helper in nav-panel.ts. */
+function cssEscape(s: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(s);
+  }
+  return s.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`);
+}
