@@ -1720,3 +1720,51 @@ fulfilling the "same pipeline" guarantee the user asked for.
 - "Condense with warning: marker delimiter" — adds a "Custom" radio
   row beneath the six built-in rows, with two short text inputs for
   open and close + a live sample preview.
+
+## 2026-05-13: Import — HYPERLINK field codes + soft / non-breaking hyphens
+
+Two narrow import additions, both bidirectional.
+
+### HYPERLINK field codes
+
+Word emits two encodings for hyperlinks: the structured
+`<w:hyperlink r:id="…">…</w:hyperlink>` element (modern, what our
+exporter produces) and the older field-code form:
+
+```xml
+<w:r><w:fldChar w:fldCharType="begin"/></w:r>
+<w:r><w:instrText> HYPERLINK "https://…" </w:instrText></w:r>
+<w:r><w:fldChar w:fldCharType="separate"/></w:r>
+<w:r>…display runs…</w:r>
+<w:r><w:fldChar w:fldCharType="end"/></w:r>
+```
+
+The importer now tracks an `ImportContext.fieldStack` of `FieldState`
+records (`phase: 'instr' | 'result'`, accumulated `instr`, parsed
+`hyperlinkHref`). Field chars drive state transitions; `<w:instrText>`
+accumulates into the top field's `instr`; on `separate`, we parse
+`/HYPERLINK\s+"([^"]*)"/i` out of the instructions; on `end`, we pop.
+Display runs between `separate` and `end` get our existing `link` mark
+applied via the same `currentMarks()` resolver that handles
+`<w:hyperlink>`-element-based links. Display content between `begin`
+and `separate` (the spec section) is suppressed.
+
+Non-HYPERLINK fields (PAGE, REF, DATE, …) pop through the same state
+machine but contribute no mark; their result runs survive as plain
+text, which is the right behavior for debate docs where field values
+should be flattened on import.
+
+On export we keep emitting only the `<w:hyperlink>` element form;
+there's no reason to write field-code-style links.
+
+### Soft / non-breaking hyphens
+
+Imports now convert `<w:noBreakHyphen/>` → U+2011 and `<w:softHyphen/>`
+→ U+00AD inline (as text nodes inheriting the run's marks). Exports
+split text on these two characters before composing `<w:r>` children,
+emitting `<w:noBreakHyphen/>` / `<w:softHyphen/>` between the surrounding
+`<w:t>` segments. The previous behavior dropped both elements silently.
+
+Round-trip is symmetric: a doc whose only hyphen content is U+2011 /
+U+00AD passes through editor → docx → editor with identical text
+content and identical OOXML hyphen-element placement.

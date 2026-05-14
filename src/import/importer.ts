@@ -65,10 +65,27 @@ export interface MediaPart {
 /** Map of zip paths (e.g. 'word/media/image1.png') to image data. */
 export type MediaPartsMap = Map<string, MediaPart>;
 
+/** State for a single Word field code region delimited by
+ *  `<w:fldChar w:fldCharType="begin"/>` … `<w:fldChar
+ *  w:fldCharType="separate"/>` … `<w:fldChar w:fldCharType="end"/>`.
+ *  Fields can nest, so we keep a stack. The only field type we
+ *  preserve semantically is HYPERLINK; others fall through and
+ *  their result runs render as plain text. */
+interface FieldState {
+  /** `instr` while between begin and separate; `result` after. */
+  phase: 'instr' | 'result';
+  /** Accumulated `<w:instrText>` content during the instr phase. */
+  instr: string;
+  /** Parsed href if `instr` matched `HYPERLINK "..."`. */
+  hyperlinkHref: string | null;
+}
+
 interface ImportContext {
   rels: RelMap;
   /** Track active hyperlink rId stack while walking inline content. */
   hyperlinkStack: string[];
+  /** Active Word field-code regions while walking runs. */
+  fieldStack: FieldState[];
   /** Media parts from the source zip; null if not provided (drawings drop). */
   mediaParts: MediaPartsMap | null;
 }
@@ -80,7 +97,7 @@ export function importDoc(
   mediaParts: MediaPartsMap | null = null,
 ): PMNode {
   const rels = relsXml ? parseRels(relsXml) : {};
-  const ctx: ImportContext = { rels, hyperlinkStack: [], mediaParts };
+  const ctx: ImportContext = { rels, hyperlinkStack: [], fieldStack: [], mediaParts };
 
   const root = parseXml(documentXml);
   const docEl = findChild(root, 'w:document');
@@ -340,37 +357,82 @@ function collectInlines(node: XmlNode, ctx: ImportContext, out: PMNode[]): void 
 function parseRun(rNode: XmlNode, ctx: ImportContext, out: PMNode[]): void {
   const rChildren = childrenOf(rNode, 'w:r');
   const rPrEl = findChild(rChildren, 'w:rPr');
-  const marks = rPrEl ? [...parseRPr(rPrEl).marks] : [];
+  const baseMarks = rPrEl ? [...parseRPr(rPrEl).marks] : [];
 
-  // Apply hyperlink mark from active stack.
-  if (ctx.hyperlinkStack.length > 0) {
-    const top = ctx.hyperlinkStack[ctx.hyperlinkStack.length - 1]!;
-    const href = ctx.rels[top];
-    if (href) {
-      marks.push(schema.marks['link']!.create({ href }));
+  // Compute the live marks at the moment of emitting a text node.
+  // Field state can change mid-run when `<w:fldChar>` appears between
+  // text-emitting children, so we resolve hyperlink-from-field per
+  // emission rather than once up-front.
+  const currentMarks = (): Mark[] => {
+    const m: Mark[] = [...baseMarks];
+    if (ctx.hyperlinkStack.length > 0) {
+      const top = ctx.hyperlinkStack[ctx.hyperlinkStack.length - 1]!;
+      const href = ctx.rels[top];
+      if (href) m.push(schema.marks['link']!.create({ href }));
     }
-  }
+    if (!m.some((x) => x.type.name === 'link')) {
+      for (let i = ctx.fieldStack.length - 1; i >= 0; i--) {
+        const f = ctx.fieldStack[i]!;
+        if (f.phase === 'result' && f.hyperlinkHref) {
+          m.push(schema.marks['link']!.create({ href: f.hyperlinkHref }));
+          break;
+        }
+      }
+    }
+    return m;
+  };
 
-  // Collect text from <w:t> children (and <w:tab>, <w:br> if needed).
+  const inInstrPhase = (): boolean =>
+    ctx.fieldStack.some((f) => f.phase === 'instr');
+
   for (const c of rChildren) {
+    // Field-code state transitions: begin → instr phase, separate →
+    // result phase (parse HYPERLINK url if present), end → pop.
+    if ('w:fldChar' in c) {
+      const t = attrsOf(c)['w:fldCharType'];
+      if (t === 'begin') {
+        ctx.fieldStack.push({ phase: 'instr', instr: '', hyperlinkHref: null });
+      } else if (t === 'separate') {
+        const top = ctx.fieldStack[ctx.fieldStack.length - 1];
+        if (top) {
+          top.phase = 'result';
+          const mm = top.instr.match(/HYPERLINK\s+"([^"]*)"/i);
+          if (mm) top.hyperlinkHref = mm[1] ?? null;
+        }
+      } else if (t === 'end') {
+        ctx.fieldStack.pop();
+      }
+      continue;
+    }
+    // Field instruction text accumulates into the current field's
+    // `instr` buffer; we never emit it as display text.
+    if ('w:instrText' in c) {
+      const top = ctx.fieldStack[ctx.fieldStack.length - 1];
+      if (top && top.phase === 'instr') top.instr += textContent(c);
+      continue;
+    }
+    // Any display content between begin and separate (rare) is part
+    // of the field's specification, not its rendered output. Drop.
+    if (inInstrPhase()) continue;
+
     if ('w:t' in c) {
       const text = textContent(c);
       if (text.length > 0) {
         try {
+          let effectiveMarks = currentMarks();
           // Verbatim's pilcrow encoding: a `¶` glyph in a run sized to
           // 6pt (`<w:sz w:val="12"/>`). Recognize it and use the
           // non-inclusive `pilcrow_marker` mark in place of `font_size`
           // — the inclusive font_size mark would otherwise cause
           // adjacent typing to inherit the 6pt size.
-          let effectiveMarks = marks;
           if (text === '¶') {
-            const sizeIdx = marks.findIndex(
+            const sizeIdx = effectiveMarks.findIndex(
               (m) => m.type.name === 'font_size' && m.attrs['halfPoints'] === 12,
             );
             if (sizeIdx >= 0) {
               effectiveMarks = [
-                ...marks.slice(0, sizeIdx),
-                ...marks.slice(sizeIdx + 1),
+                ...effectiveMarks.slice(0, sizeIdx),
+                ...effectiveMarks.slice(sizeIdx + 1),
                 schema.marks['pilcrow_marker']!.create(),
               ];
             }
@@ -381,16 +443,20 @@ function parseRun(rNode: XmlNode, ctx: ImportContext, out: PMNode[]): void {
         }
       }
     } else if ('w:tab' in c) {
-      try {
-        out.push(schema.text('\t', marks));
-      } catch (_) { /* ignore */ }
+      try { out.push(schema.text('\t', currentMarks())); } catch (_) { /* */ }
     }
     // <w:br/> with type=page is a hard page break; for now just newline.
     // <w:br/> without type is line break.
     else if ('w:br' in c) {
-      try {
-        out.push(schema.text('\n', marks));
-      } catch (_) { /* ignore */ }
+      try { out.push(schema.text('\n', currentMarks())); } catch (_) { /* */ }
+    }
+    // Word-internal hyphen elements: non-breaking hyphen and soft
+    // (optional/discretionary) hyphen. Round-trip as the corresponding
+    // Unicode characters so they survive editing.
+    else if ('w:noBreakHyphen' in c) {
+      try { out.push(schema.text('‑', currentMarks())); } catch (_) { /* */ }
+    } else if ('w:softHyphen' in c) {
+      try { out.push(schema.text('­', currentMarks())); } catch (_) { /* */ }
     }
     // Inline pictures: <w:drawing><wp:inline>… or floating
     // <w:drawing><wp:anchor>…. Both wrap a picture referenced via

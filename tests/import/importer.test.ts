@@ -375,6 +375,102 @@ describe('importer — hyperlinks', () => {
     expect(linkMark).toBeDefined();
     expect(linkMark!.attrs['href']).toBe('https://example.com');
   });
+
+  it('converts a HYPERLINK field code to a link mark on the result runs', () => {
+    const xml = bodyXml(`
+      <w:p>
+        <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+        <w:r><w:instrText xml:space="preserve"> HYPERLINK "https://field.example/page" </w:instrText></w:r>
+        <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+        <w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>field link</w:t></w:r>
+        <w:r><w:fldChar w:fldCharType="end"/></w:r>
+      </w:p>
+    `);
+    const doc = importDoc(xml);
+    const para = doc.firstChild!;
+    let found = false;
+    para.descendants((node) => {
+      if (node.isText && node.text === 'field link') {
+        found = true;
+        const link = node.marks.find((m) => m.type.name === 'link');
+        expect(link).toBeDefined();
+        expect(link!.attrs['href']).toBe('https://field.example/page');
+      }
+    });
+    expect(found).toBe(true);
+    // Instruction text must not bleed into the rendered output.
+    expect(para.textContent).toBe('field link');
+  });
+
+  it('drops non-hyperlink field codes but keeps their result text', () => {
+    const xml = bodyXml(`
+      <w:p>
+        <w:r><w:t>Page </w:t></w:r>
+        <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+        <w:r><w:instrText xml:space="preserve"> PAGE \\* MERGEFORMAT </w:instrText></w:r>
+        <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+        <w:r><w:t>7</w:t></w:r>
+        <w:r><w:fldChar w:fldCharType="end"/></w:r>
+        <w:r><w:t> of 10</w:t></w:r>
+      </w:p>
+    `);
+    const doc = importDoc(xml);
+    const para = doc.firstChild!;
+    expect(para.textContent).toBe('Page 7 of 10');
+    para.descendants((node) => {
+      if (node.isText && node.text === '7') {
+        expect(node.marks.find((m) => m.type.name === 'link')).toBeUndefined();
+      }
+    });
+  });
+});
+
+describe('importer — special hyphen characters', () => {
+  it('imports w:noBreakHyphen as U+2011', () => {
+    const xml = bodyXml(`
+      <w:p>
+        <w:r><w:t xml:space="preserve">F</w:t><w:noBreakHyphen/><w:t xml:space="preserve">16</w:t></w:r>
+      </w:p>
+    `);
+    const doc = importDoc(xml);
+    expect(doc.firstChild!.textContent).toBe('F‑16');
+  });
+
+  it('imports w:softHyphen as U+00AD', () => {
+    const xml = bodyXml(`
+      <w:p>
+        <w:r><w:t xml:space="preserve">anti</w:t><w:softHyphen/><w:t xml:space="preserve">dis</w:t></w:r>
+      </w:p>
+    `);
+    const doc = importDoc(xml);
+    expect(doc.firstChild!.textContent).toBe('anti­dis');
+  });
+
+  it('round-trips U+2011 back to w:noBreakHyphen', () => {
+    const xml = bodyXml(`
+      <w:p>
+        <w:r><w:t xml:space="preserve">F</w:t><w:noBreakHyphen/><w:t xml:space="preserve">16</w:t></w:r>
+      </w:p>
+    `);
+    const original = importDoc(xml);
+    const { documentXml } = exportDoc(original);
+    expect(documentXml).toContain('<w:noBreakHyphen/>');
+    const reimported = importDoc(documentXml);
+    expect(reimported.firstChild!.textContent).toBe('F‑16');
+  });
+
+  it('round-trips U+00AD back to w:softHyphen', () => {
+    const xml = bodyXml(`
+      <w:p>
+        <w:r><w:t xml:space="preserve">anti</w:t><w:softHyphen/><w:t xml:space="preserve">dis</w:t></w:r>
+      </w:p>
+    `);
+    const original = importDoc(xml);
+    const { documentXml } = exportDoc(original);
+    expect(documentXml).toContain('<w:softHyphen/>');
+    const reimported = importDoc(documentXml);
+    expect(reimported.firstChild!.textContent).toBe('anti­dis');
+  });
 });
 
 describe('importer — multi-paragraph patterns', () => {

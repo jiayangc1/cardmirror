@@ -381,7 +381,32 @@ class DocxExporter {
     const linkMark = marks.find((m) => m.type.name === 'link');
     const otherMarks = linkMark ? marks.filter((m) => m !== linkMark) : marks;
 
-    const run = `<w:r>${this.rPrFromMarks(otherMarks)}<w:t xml:space="preserve">${escText(text)}</w:t></w:r>`;
+    // Split the text at characters that round-trip as dedicated OOXML
+    // run children rather than `<w:t>` content: U+2011 non-breaking
+    // hyphen → `<w:noBreakHyphen/>`, U+00AD soft hyphen →
+    // `<w:softHyphen/>`. Regular ASCII '-' stays inside `<w:t>`.
+    const runChildren: string[] = [];
+    let buf = '';
+    const flush = (): void => {
+      if (buf.length > 0) {
+        runChildren.push(`<w:t xml:space="preserve">${escText(buf)}</w:t>`);
+        buf = '';
+      }
+    };
+    for (const ch of text) {
+      if (ch === '‑') {
+        flush();
+        runChildren.push('<w:noBreakHyphen/>');
+      } else if (ch === '­') {
+        flush();
+        runChildren.push('<w:softHyphen/>');
+      } else {
+        buf += ch;
+      }
+    }
+    flush();
+
+    const run = `<w:r>${this.rPrFromMarks(otherMarks)}${runChildren.join('')}</w:r>`;
 
     if (linkMark) {
       const href = String(linkMark.attrs['href'] ?? '');
