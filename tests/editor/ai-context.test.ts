@@ -119,6 +119,7 @@ describe('formatExplainPrompt', () => {
   it('omits the surrounding-context block when nothing is provided', () => {
     const out = formatExplainPrompt('what does this mean?', {
       selection: 'some text',
+      paragraphs: [],
       tag: null,
       analytic: null,
       cites: [],
@@ -127,11 +128,13 @@ describe('formatExplainPrompt', () => {
     expect(out).toContain('Selected text:');
     expect(out).toContain('some text');
     expect(out).not.toContain('Surrounding context');
+    expect(out).not.toContain('Source paragraph');
   });
 
   it('includes tag / analytic / cite lines when present', () => {
     const out = formatExplainPrompt('why does this matter?', {
       selection: 'XXX',
+      paragraphs: [],
       tag: 'My Tag',
       analytic: 'My Analytic',
       cites: ['Cite A', 'Cite B'],
@@ -140,6 +143,38 @@ describe('formatExplainPrompt', () => {
     expect(out).toContain('Analytic: My Analytic');
     expect(out).toContain('Cite: Cite A');
     expect(out).toContain('Cite: Cite B');
+  });
+
+  it('includes the source paragraph block when paragraphs are supplied', () => {
+    const out = formatExplainPrompt('q', {
+      selection: 'half',
+      paragraphs: ['half a sentence inside a longer paragraph'],
+      tag: null,
+      analytic: null,
+      cites: [],
+    });
+    expect(out).toContain('Source paragraph(s):');
+    expect(out).toContain('half a sentence inside a longer paragraph');
+  });
+});
+
+describe('buildExplainContext — paragraphs touched by selection', () => {
+  it('captures the full paragraph even when only a fragment is selected', () => {
+    const doc = makeDoc(paragraph('The quick brown fox jumps over the lazy dog'));
+    const state = selectionAt(doc, 5, 14);
+    const ctx = buildExplainContext(state);
+    expect(ctx!.paragraphs).toEqual(['The quick brown fox jumps over the lazy dog']);
+  });
+
+  it('captures multiple paragraphs when the selection crosses boundaries', () => {
+    const doc = makeDoc(
+      paragraph('first paragraph'),
+      paragraph('second paragraph'),
+    );
+    // First-paragraph end: 1 + 15 + 1 = 17. Second-paragraph start: 18.
+    const state = selectionAt(doc, 10, 25);
+    const ctx = buildExplainContext(state);
+    expect(ctx!.paragraphs).toEqual(['first paragraph', 'second paragraph']);
   });
 });
 

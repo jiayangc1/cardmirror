@@ -73,10 +73,26 @@ export class CommentsColumn {
   /** Interval handle for the Clod-activity text-cycling tick.
    *  Null when no AI request is pending or Clod mode is off. */
   private activityTimer: number | null = null;
+  /** Thread the user is currently focused on — clicked on the card
+   *  or has the editor cursor inside its commented range. The
+   *  active card is the only one rendered in expanded form, and the
+   *  layout anchors it at its preferred Y, displacing neighbors
+   *  outward to make room. Null means no card is currently active. */
+  private activeThreadId: string | null = null;
 
   constructor(root: HTMLElement, getView: () => EditorView | null) {
     this.root = root;
     this.getView = getView;
+  }
+
+  /** Switch which thread is "active" — the expanded one whose card
+   *  anchors at its preferred Y position. Idempotent; bails out
+   *  silently when the value is unchanged so cursor-move handlers
+   *  can call freely. */
+  setActiveThread(id: string | null): void {
+    if (this.activeThreadId === id) return;
+    this.activeThreadId = id;
+    this.render();
   }
 
   /** Show/hide the entire column. The toggle button in the ribbon
@@ -139,9 +155,17 @@ export class CommentsColumn {
   }
 
   /** Position each thread card next to its anchored range using
-   *  `view.coordsAtPos`. Cards stack downward when their desired
-   *  positions would overlap (greedy left-to-right packing in the
-   *  one-column case). */
+   *  `view.coordsAtPos`. Layout has two modes:
+   *
+   *  - No active card: greedy top-down packing — cards anchor at
+   *    their desired Y, walking in order; each later card is
+   *    pushed down only if it would overlap the previous one.
+   *  - Active card set: the active card pins at its desired Y;
+   *    cards above are packed UPWARD from the active card's top
+   *    (each pushed up only as much as needed to clear), cards
+   *    below are packed DOWNWARD from the active card's bottom.
+   *    This is what makes clicking a thread bring it next to its
+   *    range, displacing neighbors out of the way. */
   private layoutCards(
     view: EditorView,
     ranges: Map<string, { from: number; to: number }>,
@@ -154,8 +178,14 @@ export class CommentsColumn {
     const columnRect = this.root.getBoundingClientRect();
     const minGap = 8; // px between adjacent cards
 
-    interface Layout { card: HTMLElement; desiredTop: number; height: number }
-    const layouts: Layout[] = [];
+    interface Layout {
+      card: HTMLElement;
+      id: string;
+      desiredTop: number;
+      height: number;
+      actualTop: number;
+    }
+    const items: Layout[] = [];
     for (const card of cards) {
       const id = card.dataset['threadId'] ?? '';
       const range = ranges.get(id);
@@ -168,53 +198,98 @@ export class CommentsColumn {
           // Range out of view / detached — leave at top.
         }
       }
-      layouts.push({ card, desiredTop, height: card.offsetHeight });
+      items.push({ card, id, desiredTop, height: card.offsetHeight, actualTop: 0 });
     }
-    layouts.sort((a, b) => a.desiredTop - b.desiredTop);
 
-    let cursor = 0;
-    for (const l of layouts) {
-      const actualTop = Math.max(l.desiredTop, cursor);
-      l.card.style.top = `${actualTop}px`;
+    const active = this.activeThreadId
+      ? items.find((it) => it.id === this.activeThreadId) ?? null
+      : null;
+
+    if (active) {
+      active.actualTop = active.desiredTop;
+      // Above active: cards whose desiredTop is ≤ active.desiredTop.
+      // Walk closest-to-active first, pushing each upward only as
+      // much as needed to clear the next card's actualTop.
+      const above = items
+        .filter((it) => it !== active && it.desiredTop <= active.desiredTop)
+        .sort((a, b) => b.desiredTop - a.desiredTop);
+      let prevTop = active.actualTop;
+      for (const it of above) {
+        const desiredBottom = it.desiredTop + it.height;
+        const cappedBottom = Math.min(desiredBottom, prevTop - minGap);
+        it.actualTop = Math.max(0, cappedBottom - it.height);
+        prevTop = it.actualTop;
+      }
+      // Below active: walk farthest-from-active last, pushing each
+      // downward only as much as needed to clear the previous card.
+      const below = items
+        .filter((it) => it !== active && it.desiredTop > active.desiredTop)
+        .sort((a, b) => a.desiredTop - b.desiredTop);
+      let prevBottom = active.actualTop + active.height;
+      for (const it of below) {
+        it.actualTop = Math.max(it.desiredTop, prevBottom + minGap);
+        prevBottom = it.actualTop + it.height;
+      }
+    } else {
+      // No active card — top-down greedy packing.
+      const sorted = [...items].sort((a, b) => a.desiredTop - b.desiredTop);
+      let cursor = 0;
+      for (const it of sorted) {
+        it.actualTop = Math.max(it.desiredTop, cursor);
+        cursor = it.actualTop + it.height + minGap;
+      }
+    }
+
+    let maxBottom = 0;
+    for (const it of items) {
+      it.card.style.top = `${it.actualTop}px`;
       // `pmd-laid-out` flips visibility to visible — until this
       // point the card was hidden so the brief top:0 default
       // before measurement didn't flash a visible card at the top
       // of the column on every doc edit.
-      l.card.classList.add('pmd-laid-out');
-      cursor = actualTop + l.height + minGap;
+      it.card.classList.add('pmd-laid-out');
+      maxBottom = Math.max(maxBottom, it.actualTop + it.height);
     }
-    // Ensure the column itself is tall enough to contain the last
-    // card. Without this, a card anchored near the bottom of a
-    // tall doc overflows the column's flex-stretched height and
-    // gets visually clipped against the page boundary.
-    this.root.style.minHeight = `${cursor}px`;
+    this.root.style.minHeight = `${maxBottom}px`;
   }
 
   private renderThread(thread: Thread, range: { from: number; to: number } | null): HTMLElement {
     const card = document.createElement('article');
     card.className = 'pmd-comment-thread';
     card.dataset['threadId'] = thread.id;
+    const isActive = this.activeThreadId === thread.id;
+    if (isActive) card.classList.add('pmd-comment-thread-active');
 
-    // Click → scroll editor to the range. We skip if the click
-    // landed inside an editable (reply input) — that's a typing
-    // event, not navigation.
+    // Click → make this thread active (expand it, anchor it to its
+    // range). We also move the editor cursor into the commented
+    // range so subsequent cursor-tracking logic agrees the right
+    // thread is active. Clicks inside an editable (reply input)
+    // bubble through normally so typing still works.
     card.addEventListener('click', (e) => {
       const target = e.target as HTMLElement | null;
       if (target && target.closest('textarea, input, button')) return;
-      if (!range) return;
-      this.scrollToRange(range);
+      this.setActiveThread(thread.id);
+      if (range) this.scrollToRange(range);
     });
 
     // A freshly-created thread starts as a single empty-text root.
     // Render it as a primary "add comment" input instead of an
     // existing comment + reply box, so the user can type their
     // first message naturally. First submit edits the root in
-    // place rather than creating a reply.
+    // place rather than creating a reply. (Always full-render —
+    // a half-typed comment isn't useful as a 1-line preview.)
     const root = thread.comments[0];
     const isEmptyRoot = thread.comments.length === 1 && root && root.text === '';
     if (isEmptyRoot) {
       card.appendChild(this.renderRootHeader(thread, root));
       card.appendChild(this.renderPrimaryInput(thread, root));
+      return card;
+    }
+
+    if (!isActive) {
+      // Collapsed preview: badge + author + short body excerpt.
+      // The whole card is the click target so anywhere expands it.
+      card.appendChild(this.renderThreadPreview(thread));
       return card;
     }
 
@@ -228,18 +303,49 @@ export class CommentsColumn {
     return card;
   }
 
+  /** One-line preview used when a thread is collapsed. Shows the
+   *  root comment's author badge, name, and a truncated body
+   *  excerpt — enough that the user can identify the thread at a
+   *  glance without it crowding the column. */
+  private renderThreadPreview(thread: Thread): HTMLElement {
+    const block = document.createElement('div');
+    block.className = 'pmd-comment-preview';
+    const root = thread.comments[0]!;
+    // Existing `.pmd-comment-ai .pmd-comment-initials` rule paints
+    // the badge purple when this class is on the parent block.
+    if (root.kind === 'ai') block.classList.add('pmd-comment-ai');
+    const badge = document.createElement('span');
+    badge.className = 'pmd-comment-initials';
+    fillBadge(badge, root.author, root.initials);
+    block.appendChild(badge);
+    const text = document.createElement('span');
+    text.className = 'pmd-comment-preview-text';
+    const body = root.text.replace(/\s+/g, ' ').trim();
+    const excerpt = body.length > 80 ? `${body.slice(0, 80).trimEnd()}…` : body;
+    text.textContent = excerpt || '(empty)';
+    block.appendChild(text);
+    if (thread.comments.length > 1) {
+      const count = document.createElement('span');
+      count.className = 'pmd-comment-preview-count';
+      count.textContent = `${thread.comments.length}`;
+      block.appendChild(count);
+    }
+    return block;
+  }
+
   private renderAiThinkingPlaceholder(): HTMLElement {
+    const useClod = settings.get('clodEnabled');
     const block = document.createElement('div');
     block.className = 'pmd-comment-reply pmd-comment-ai pmd-comment-ai-thinking';
     const header = document.createElement('header');
     header.className = 'pmd-comment-header';
     const badge = document.createElement('span');
     badge.className = 'pmd-comment-initials';
-    badge.textContent = 'AI';
+    badge.textContent = useClod ? 'CL' : 'AI';
     header.appendChild(badge);
     const name = document.createElement('span');
     name.className = 'pmd-comment-author';
-    name.textContent = 'AI';
+    name.textContent = useClod ? 'Clod' : 'AI';
     header.appendChild(name);
     block.appendChild(header);
     const body = document.createElement('div');
@@ -394,11 +500,13 @@ export class CommentsColumn {
 
     // AI auto-invoke flow: a thread created via the "Ask AI"
     // button carries a pending flag. The user's first text submit
-    // becomes the question; we fire the request and append the
-    // model's reply as a kind:'ai' comment in the same thread.
+    // becomes the root comment; we fire the request and append
+    // the model's reply as a kind:'ai' comment in the same thread.
+    // `invokeAi` reads the thread state for itself so we don't
+    // need to pass the just-committed text through.
     if (this.pendingAiFirst.has(threadId)) {
       this.pendingAiFirst.delete(threadId);
-      this.invokeAi(threadId, text);
+      this.invokeAi(threadId);
     }
   }
 
@@ -475,20 +583,29 @@ export class CommentsColumn {
     this.suppressBlurReset = false;
     view.focus();
 
-    // `@AI` mention in any reply re-invokes the model with the
-    // thread + range context. Only fires when AI features are
-    // enabled in settings.
-    if (settings.get('aiFeaturesEnabled') && hasAiMention(text)) {
-      this.invokeAi(threadId, text);
+    // AI re-invocation rules:
+    //   - If the thread already contains an AI comment (an AI
+    //     conversation in progress), every human reply re-invokes
+    //     the model with the full thread as message history.
+    //   - Otherwise, only an explicit `@AI` mention re-invokes
+    //     (turns a non-AI thread into one).
+    if (!settings.get('aiFeaturesEnabled')) return;
+    const updatedThread = getCommentsState(view.state).threads.get(threadId);
+    if (!updatedThread) return;
+    const hasAiHistory = updatedThread.comments.some((c) => c.kind === 'ai');
+    if (hasAiHistory || hasAiMention(text)) {
+      this.invokeAi(threadId);
     }
   }
 
-  /** Run the AI explainer against `threadId`. Uses the cached
-   *  context captured at thread creation; if none is cached
-   *  (re-invoked via @AI mention in a thread the user created
-   *  with `+`), rebuilds context from the thread's current
-   *  comment_range mark position. */
-  private invokeAi(threadId: string, question: string): void {
+  /** Run the AI explainer against `threadId`. Builds the message
+   *  list from the thread's full comment history (human turns →
+   *  `user`, AI turns → `assistant`), with the first user message
+   *  wrapped in the context-rich explainer prompt. The context is
+   *  cached at thread creation; if none is cached (e.g. an `@AI`
+   *  mention in a regular `+` thread, or a follow-up much later),
+   *  we rebuild from the thread's current comment_range position. */
+  private invokeAi(threadId: string): void {
     const view = this.getView();
     if (!view) return;
     if (!settings.get('aiFeaturesEnabled')) {
@@ -500,6 +617,8 @@ export class CommentsColumn {
       showToast('Set an Anthropic API key in Settings to use AI features.');
       return;
     }
+    const thread = getCommentsState(view.state).threads.get(threadId);
+    if (!thread) return;
 
     let ctx = this.aiContextByThread.get(threadId) ?? null;
     if (!ctx) ctx = this.contextFromCurrentRange(threadId);
@@ -508,6 +627,29 @@ export class CommentsColumn {
       return;
     }
     const promptCtx = ctx;
+    // Re-cache so subsequent multi-turn requests can reuse it
+    // without rebuilding (and so we know what context the AI saw
+    // originally even if the doc has shifted).
+    this.aiContextByThread.set(threadId, promptCtx);
+
+    // Build the multi-turn message list. First user turn carries
+    // the formatted prompt with the surrounding context; later
+    // turns are plain. Skip empty bodies defensively (e.g. an
+    // empty-root thread that was opened then closed).
+    const messages = thread.comments.flatMap((c, i): { role: 'user' | 'assistant'; content: string }[] => {
+      if (!c.text.trim()) return [];
+      if (c.kind === 'ai') {
+        return [{ role: 'assistant', content: c.text }];
+      }
+      const isFirstUserTurn = !thread.comments.slice(0, i).some((p) => p.kind === 'human' && p.text.trim());
+      const content = isFirstUserTurn ? formatExplainPrompt(c.text, promptCtx) : c.text;
+      return [{ role: 'user', content }];
+    });
+    if (messages.length === 0) return;
+
+    const useClod = settings.get('clodEnabled');
+    const aiAuthor = useClod ? 'Clod' : 'AI';
+    const aiInitials = useClod ? 'CL' : 'AI';
 
     this.aiInFlight.add(threadId);
     this.render();
@@ -518,12 +660,12 @@ export class CommentsColumn {
         const reply = await callAnthropic({
           apiKey,
           system: EXPLAIN_SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: formatExplainPrompt(question, promptCtx) }],
+          messages,
         });
         const aiComment: Comment = {
           id: newCommentId(),
-          author: 'AI',
-          initials: 'AI',
+          author: aiAuthor,
+          initials: aiInitials,
           date: new Date().toISOString(),
           text: reply.text.trim(),
           kind: 'ai',
@@ -540,7 +682,8 @@ export class CommentsColumn {
         }
       } finally {
         this.aiInFlight.delete(threadId);
-        this.aiContextByThread.delete(threadId);
+        // Keep aiContextByThread so future follow-ups (multi-turn)
+        // reuse the original surrounding context.
         if (this.aiInFlight.size === 0) this.stopActivityTicker();
         this.render();
       }
@@ -600,11 +743,29 @@ export class CommentsColumn {
   private scrollToRange(range: { from: number; to: number }): void {
     const view = this.getView();
     if (!view) return;
-    const dom = view.domAtPos(range.from);
-    if (!dom.node) return;
-    const el = dom.node instanceof Element ? dom.node : dom.node.parentElement;
-    if (el && 'scrollIntoView' in el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Move the editor cursor to the start of the range. The
+    // selection-watching dispatch handler in `editor/index.ts`
+    // then keeps the active thread in sync as the cursor moves
+    // — so clicking a card naturally lights up the right thread
+    // and any neighbor displacement follows.
+    const TextSelection = (view.state.selection.constructor as unknown) as {
+      create: (doc: PMNode, from: number, to?: number) => never;
+    };
+    try {
+      view.dispatch(
+        view.state.tr
+          .setSelection(TextSelection.create(view.state.doc, range.from))
+          .scrollIntoView(),
+      );
+    } catch {
+      // Cursor placement may fail if the position isn't inside an
+      // inline-content block (e.g. a table cell selection that
+      // wraps an entire block). Fall back to a DOM-level scroll.
+      const dom = view.domAtPos(range.from);
+      const el = dom?.node instanceof Element ? dom.node : dom?.node?.parentElement;
+      if (el && 'scrollIntoView' in el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     }
   }
 

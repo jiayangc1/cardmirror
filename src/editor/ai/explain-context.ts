@@ -16,6 +16,10 @@ export interface ExplainContext {
   /** The text the user selected (may span multiple paragraphs;
    *  paragraph breaks collapse to '\n'). */
   selection: string;
+  /** Full text of every paragraph-like textblock the selection
+   *  intersects, in document order. Gives the AI the surrounding
+   *  prose even when the user only highlighted a fragment. */
+  paragraphs: string[];
   /** Verbatim text of the containing card's tag, if any. */
   tag: string | null;
   /** Verbatim text of an in-card analytic paragraph or the
@@ -52,8 +56,26 @@ export function buildExplainContext(state: EditorState): ExplainContext | null {
     }
   }
 
+  // Collect the full text of every paragraph-like textblock the
+  // selection intersects. This gives the model the surrounding
+  // prose even when the user only highlighted a phrase. Skip
+  // empty / whitespace-only paragraphs so noise doesn't pile up.
+  const paragraphs: string[] = [];
+  const seen = new Set<string>();
+  state.doc.nodesBetween(from, to, (node) => {
+    if (node.isTextblock) {
+      const t = node.textContent.trim();
+      if (t && !seen.has(t)) {
+        paragraphs.push(t);
+        seen.add(t);
+      }
+      return false;
+    }
+    return true;
+  });
+
   if (!container) {
-    return { selection, tag: null, analytic: null, cites: [] };
+    return { selection, paragraphs, tag: null, analytic: null, cites: [] };
   }
 
   let tag: string | null = null;
@@ -69,7 +91,7 @@ export function buildExplainContext(state: EditorState): ExplainContext | null {
       if (t) cites.push(t);
     }
   });
-  return { selection, tag, analytic, cites };
+  return { selection, paragraphs, tag, analytic, cites };
 }
 
 /** Format the context into a single user-message string. The shape
@@ -87,6 +109,18 @@ export function formatExplainPrompt(
   parts.push('"""');
   parts.push(ctx.selection);
   parts.push('"""');
+  // Include the full paragraph(s) the selection sits inside so the
+  // model sees its broader context, even if the user only
+  // highlighted a fragment.
+  if (ctx.paragraphs.length > 0) {
+    parts.push('');
+    parts.push('Source paragraph(s):');
+    for (const p of ctx.paragraphs) {
+      parts.push('"""');
+      parts.push(p);
+      parts.push('"""');
+    }
+  }
   if (ctx.tag || ctx.analytic || ctx.cites.length > 0) {
     parts.push('');
     parts.push('Surrounding context (from the card this selection is part of):');
@@ -99,29 +133,26 @@ export function formatExplainPrompt(
 
 /** Default system prompt for the AI explainer.
  *
- * Pedagogical stance: this tool is meant to help the user *deepen
- * their own research*, not to be a final-answer oracle. Replies do
- * give a direct answer — but treat that answer as a starting point,
- * with a scaffolded search strategy so the user can read further
- * and verify / extend on their own.
+ * Pedagogical stance: rather than answering the substantive question
+ * outright, give the user background and situate the question within
+ * the relevant literature — what field handles it, who the central
+ * authors / schools are, where the question sits in the conversation.
+ * The user does the further research on their own (this is a study
+ * tool, not an oracle).
  */
 export const EXPLAIN_SYSTEM_PROMPT =
   "You are a research coach embedded in a competitive-debate document editor. " +
-  "The user has selected a passage from a debate card and asked a question about it. " +
-  "Your job is to give them a useful starting answer AND set them up to dig deeper " +
-  "on their own. Use the surrounding context (tag, analytic, cite) to ground your reply.\n\n" +
-  "Structure every reply in three short parts:\n" +
-  "1) Direct answer: a concise, substantive response to the question — enough that " +
-  "the user has a real foothold, not a brush-off. Treat this as a jumping-off point, " +
-  "not the last word.\n" +
-  "2) Search terms: a short list of specific phrases / keywords / author names / " +
-  "Boolean queries that are likely to surface deeper or more authoritative sources.\n" +
-  "3) Where to look: name specific places — academic databases (Google Scholar, " +
-  "JSTOR, SSRN, the user's library), domain-specific sites (think-tank archives, " +
-  "primary government sources, journalist-of-record beats, debate-camp evidence " +
-  "repositories), or particular authors / journals that own the literature. " +
-  "Prefer concrete venues over generic 'search the web'.\n\n" +
-  "Keep the whole reply tight enough to read in a side-panel comment.";
+  "A user has selected a passage from a debate card and asked a question about it. " +
+  "Use the surrounding context (tag, analytic, cite) to interpret the selection.\n\n" +
+  "Reply in 4–5 sentences of plain prose. Don't aim to answer the question directly " +
+  "— prioritize giving the user enough background to situate the question within the " +
+  "relevant scholarly or policy literature. What field handles this topic? Who are the " +
+  "central authors / schools of thought? Where does the question sit relative to the " +
+  "major positions? Point the user toward concrete places to read further (specific " +
+  "authors, journals, think-tank archives, debate-camp evidence repos) so they can " +
+  "dig in on their own.\n\n" +
+  "Reply in plain text only — no markdown, no bullet lists, no headings. The comment " +
+  "surface renders raw text; any formatting characters will appear literally.";
 
 /** Matches an `@AI` mention anywhere in a reply, case-insensitive,
  *  bounded by non-word chars or string ends. Used by the comments

@@ -434,6 +434,23 @@ function refreshAiButtonVisibility(): void {
 refreshAiButtonVisibility();
 settings.subscribe(() => refreshAiButtonVisibility());
 
+/** Find the threadId of a comment_range mark at the current cursor
+ *  position. Returns null when the cursor isn't inside one. Looks
+ *  at both `$from.marks()` and `$to.marks()` so a non-collapsed
+ *  selection that started inside a comment still counts. */
+function threadIdAtCursor(state: EditorState): string | null {
+  const sel = state.selection;
+  for (const $pos of [sel.$from, sel.$to]) {
+    for (const mark of $pos.marks()) {
+      if (mark.type.name === 'comment_range') {
+        const id = String(mark.attrs['threadId'] ?? '');
+        if (id) return id;
+      }
+    }
+  }
+  return null;
+}
+
 // Zoom controls.
 zoomOutBtn.addEventListener('click', () => setZoom(settings.get('zoomPct') - 10));
 zoomInBtn.addEventListener('click', () => setZoom(settings.get('zoomPct') + 10));
@@ -1145,7 +1162,8 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
     editable: () => !settings.get('readMode'),
     dispatchTransaction(tx) {
       if (!view) return;
-      const prevCommentsState = commentsKey.getState(view.state);
+      const prevState = view.state;
+      const prevCommentsState = commentsKey.getState(prevState);
       const next = view.state.apply(tx);
       view.updateState(next);
       if (tx.docChanged) {
@@ -1162,6 +1180,16 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
       // (which holds comment_range positions) actually changed.
       if (commentsColumn && (tx.docChanged || commentsKey.getState(next) !== prevCommentsState)) {
         commentsColumn.render();
+      }
+      // Cursor → active-thread tracking. When the editor's cursor
+      // sits inside a comment_range mark, light up that thread in
+      // the side column (anchor it next to the range, expand it).
+      // Selection changes are cheap enough to check unconditionally
+      // — comment_range is a low-frequency mark so the early-out
+      // `marks()` walk usually finds nothing to do.
+      if (commentsColumn && (prevState.selection !== next.selection || tx.docChanged)) {
+        const id = threadIdAtCursor(next);
+        commentsColumn.setActiveThread(id);
       }
     },
   });

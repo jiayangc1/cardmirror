@@ -2594,29 +2594,59 @@ body.pmd-nav-resize-active {
      don't kiss the column border. */
   left: 0.6rem;
   right: 0.6rem;
-  /* `top` is set inline by `CommentsColumn.layoutCards` after each
-     render. No CSS transition — every render rebuilds card DOM
-     from scratch (top defaults to 0 until the JS measurement
-     pass runs), so a transition produces an animated fly-in from
-     the top on every doc edit. We accept the one-frame flash of
-     top:0 before the rAF measurement writes the final top.
-     `visibility: hidden` until that pass runs hides the flash. */
+  /* `top` is set by layoutCards. */
   top: 0;
   background: var(--pmd-c-bg, #fff);
   border: 1px solid var(--pmd-c-border-soft, rgba(0, 0, 0, 0.12));
   border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  visibility: hidden;
+  box-sizing: border-box;
+}
+.pmd-comment-thread.pmd-laid-out { visibility: visible; }
+
+/* Active card: expanded, slight highlight + accent border so the
+   user can see which thread is anchored to their selection. */
+.pmd-comment-thread-active {
+  border-color: var(--pmd-c-accent, #4a90e2);
+  box-shadow: 0 1px 4px rgba(74, 144, 226, 0.18);
   padding: 0.55rem 0.65rem;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  cursor: pointer;
-  visibility: hidden;
 }
-.pmd-comment-thread.pmd-laid-out {
-  visibility: visible;
+
+/* Collapsed preview row: badge + truncated body + (optional) count. */
+.pmd-comment-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
 }
+.pmd-comment-preview-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: var(--pmd-c-text);
+}
+.pmd-comment-preview-count {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  background: var(--pmd-c-border-soft, rgba(0, 0, 0, 0.08));
+  color: var(--pmd-c-text-muted);
+  padding: 0.05rem 0.4rem;
+  border-radius: 8px;
+}
+
 .pmd-comment-thread:hover {
   border-color: var(--pmd-c-border, #888);
+}
+.pmd-comment-thread-active:hover {
+  border-color: var(--pmd-c-accent, #4a90e2);
 }
 
 .pmd-comment-root,
