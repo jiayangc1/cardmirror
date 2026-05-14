@@ -2853,36 +2853,10 @@ body.pmd-nav-resize-active {
   cursor: help;
 }
 
-/* Comments panel — same 2-row vertical rhythm as the other ops
-   panels, but the bottom row holds two side-by-side buttons (+ and
-   🤖) so the AI affordance fits without making the panel three
-   rows tall. The toggle button (💬) spans both columns of the top
-   row. */
-.ribbon-comments-ops-panel {
-  display: grid;
-  /* `auto-flow: column` would mis-shape the layout once we get the
-     toggle + the row-2 children. Use 2 fixed auto columns and have
-     the toggle span both. When the AI button is hidden, its grid
-     cell collapses (`hidden` → `display: none`) and the column
-     width follows. */
-  grid-template-columns: auto auto;
-  grid-template-rows: 1.45rem 1.45rem;
-  align-content: center;
-  gap: 2px 3px;
-  padding-left: 0.5rem;
-  margin-left: 0.25rem;
-  border-left: 1px solid var(--pmd-c-border-soft);
-}
-.ribbon-comments-ops-panel .ribbon-comments-toggle {
-  grid-column: 1 / span 2;
-}
-/* Belt-and-suspenders for the AI button's hidden state. Some
-   browsers and CSS resets weaken the implicit `display: none` from
-   the `hidden` attribute; explicitly force it here so a stray rule
-   can't sneak the button back into view. */
-#comments-ai-btn[hidden] {
-  display: none !important;
-}
+/* Comments panel reuses the standard 2-row ops-panel rhythm now
+   that the AI button has moved off-ribbon and only 💬 + + live
+   here. (No bespoke selector needed — the panel uses
+   `.ribbon-doc-ops-panel`.) */
 
 /* ---------------------------------------------- Activity cycler */
 

@@ -86,7 +86,6 @@ const readModeBtn = document.getElementById('read-mode-btn') as HTMLButtonElemen
 const wordCountBtn = document.getElementById('word-count-btn') as HTMLButtonElement;
 const commentsToggleBtn = document.getElementById('comments-toggle-btn') as HTMLButtonElement | null;
 const commentsAddBtn = document.getElementById('comments-add-btn') as HTMLButtonElement | null;
-const commentsAiBtn = document.getElementById('comments-ai-btn') as HTMLButtonElement | null;
 const commentsColumnEl = document.getElementById('comments-column') as HTMLElement | null;
 const wordCountText = document.getElementById('word-count-text')!;
 const plainPasteToggleBtn = document.getElementById('plain-paste-toggle-btn') as HTMLButtonElement | null;
@@ -414,37 +413,10 @@ if (commentsAddBtn && commentsColumn) {
     commentsColumn.focusReplyForThread(newId);
   });
 }
-if (commentsAiBtn && commentsColumn) {
-  commentsAiBtn.addEventListener('mousedown', (e) => e.preventDefault());
-  commentsAiBtn.addEventListener('click', () => {
-    if (!view) return;
-    const newId = commentsColumn.addAiThreadFromSelection(view);
-    if (!newId) return;
-    if (commentsColumnEl?.hidden) {
-      commentsColumn.setVisible(true);
-      commentsToggleBtn?.setAttribute('aria-pressed', 'true');
-    }
-    commentsColumn.render();
-    commentsColumn.focusReplyForThread(newId);
-  });
-}
-// Sync the AI button's visibility with the master toggle. The
-// button is hidden when AI features are off so users without a
-// key never see a button that would silently fail.
-function refreshAiButtonVisibility(): void {
-  if (!commentsAiBtn) return;
-  const enabled = settings.get('aiFeaturesEnabled');
-  commentsAiBtn.hidden = !enabled;
-  // When Clod mode is on, the tooltip uses the configured persona
-  // name ("Ask Clod"). Otherwise it falls back to "Ask AI".
-  const personaName = settings.get('clodEnabled')
-    ? (settings.get('aiPersonaName') || 'Clod')
-    : 'AI';
-  commentsAiBtn.title = `Ask ${personaName} about the selection`;
-  commentsAiBtn.setAttribute('aria-label', `Ask ${personaName} about selection`);
-}
-refreshAiButtonVisibility();
-settings.subscribe(() => refreshAiButtonVisibility());
+// The "Ask AI about selection" affordance lives only on the
+// keyboard now (Mod-Shift-Q by default, rebindable in the
+// keybinding editor). The button used to be next to + in the
+// comments panel but the user prefers the panel clean.
 
 /** Find the threadId of a comment_range mark at the current cursor
  *  position. Returns null when the cursor isn't inside or touching

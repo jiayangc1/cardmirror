@@ -3012,7 +3012,7 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   toggleReadMode: '',
   toggleCommentsVisible: '',
   addCommentToSelection: '',
-  aiAskAboutSelection: '',
+  aiAskAboutSelection: 'Mod-Shift-q',
   aiCreateCite: 'Mod-Shift-x',
   wordCountSelection: '',
   openShortcutsReference: '',

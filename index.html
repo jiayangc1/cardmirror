@@ -128,17 +128,15 @@
           <button id="word-count-btn" class="ribbon-doc-ops-btn" type="button"
                   title="Word Count Selection" aria-label="Word count">Σ</button>
         </div>
-        <div id="comments-ops-panel" class="ribbon-comments-ops-panel" role="group" aria-label="Comments">
-          <!-- Comments tools: 💬 toggles the side column (full row),
-               then + and 🤖 share the bottom row side-by-side so the
-               panel stays the same two-row height as its neighbors.
-               🤖 is hidden until AI features are enabled. -->
-          <button id="comments-toggle-btn" class="ribbon-doc-ops-btn ribbon-comments-toggle" type="button"
+        <div id="comments-ops-panel" class="ribbon-doc-ops-panel" role="group" aria-label="Comments">
+          <!-- 💬 toggles the side column, + adds a comment to the
+               selection. The AI explainer used to live next to + as
+               a 🤖 button; it's now keyboard-only (Mod-Shift-Q by
+               default, rebindable). -->
+          <button id="comments-toggle-btn" class="ribbon-doc-ops-btn" type="button"
                   aria-pressed="false" title="Show/hide comments" aria-label="Show or hide comments">💬</button>
           <button id="comments-add-btn" class="ribbon-doc-ops-btn" type="button"
                   title="Add a comment on the selection" aria-label="Add comment">+</button>
-          <button id="comments-ai-btn" class="ribbon-doc-ops-btn" type="button"
-                  title="Ask AI about the selection" aria-label="Ask AI about selection" hidden>🤖</button>
         </div>
       </div>
       <div class="ribbon-section ribbon-center"></div>
