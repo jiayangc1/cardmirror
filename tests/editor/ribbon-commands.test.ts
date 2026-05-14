@@ -3380,6 +3380,34 @@ describe('fixFormattingGaps', () => {
     expect(barColor).toBe('green');
   });
 
+  it('bridges both gaps in `<emp>foo</emp> <u>a</u> <emp>bar</emp> (single-char interior word)`', () => {
+    // With consumed-bookend `/g` semantics, "foo a" matches first,
+    // consumes through the "a", and the regex resumes after — so the
+    // second gap (between "a" and "bar") never gets a chance. The
+    // lookahead-based regex fixes this: only the first bookend +
+    // gap are consumed; the second bookend stays available to start
+    // the next match. So both gaps should bridge.
+    const u = schema.marks['underline_mark']!.create();
+    const e = schema.marks['emphasis_mark']!.create();
+    const doc = makeDoc(p(
+      schema.text('foo', [e]),
+      schema.text(' '),
+      schema.text('a', [u]),
+      schema.text(' '),
+      schema.text('bar', [e]),
+    ));
+    const state = EditorState.create({ doc, schema });
+    let next: EditorState | null = null;
+    fixFormattingGaps()(state, (tr) => { next = state.apply(tr); });
+    expect(next).not.toBeNull();
+    const chars = marksByChar(next!.doc);
+    // Positions: foo(0..2), gap1(3), a(4), gap2(5), bar(6..8).
+    // Both gaps should carry underline_mark (mixed bookends bridge
+    // to underline; same-mark bookends are still bridged).
+    expect(chars[3]!.marks.has('underline_mark')).toBe(true);
+    expect(chars[5]!.marks.has('underline_mark')).toBe(true);
+  });
+
   it('bridges across gaps where a bookend is a curly quote', () => {
     // Verbatim docs frequently quote-wrap argument text. The opening
     // curly quote is usually the start of the next styled run, so

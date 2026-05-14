@@ -2076,7 +2076,16 @@ export function fixFormattingGaps(): Command {
     // a gap adjacent to a quoted run still bridges (e.g.,
     // `must supply " reasoned explanation"`, where the bookend on
     // one side is the curly quote).
-    const gapRegex = /[A-Za-z0-9'"‘’“”][.,;:?()\-! ]+[A-Za-z0-9'"‘’“”]/g;
+    //
+    // The right bookend is matched via lookahead so it ISN'T
+    // consumed by `/g`'s lastIndex advance. Without the lookahead,
+    // a sequence like "...word a word..." would lose the second gap
+    // entirely — the regex would consume "...d a", advance past the
+    // "a", and then can't start a new match at the following space
+    // (not a bookend char). With the lookahead, the consumed match
+    // is "...d " only; the next iteration can start at "a" and
+    // match "a " for the second gap.
+    const gapRegex = /[A-Za-z0-9'"‘’“”][.,;:?()\-! ]+(?=[A-Za-z0-9'"‘’“”])/g;
 
     type Add = {
       from: number;
@@ -2121,24 +2130,32 @@ export function fixFormattingGaps(): Command {
       gapRegex.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = gapRegex.exec(text)) !== null) {
-        if (m[0].length < 3) continue; // need at least 1 gap char between bookends
-        const firstIdx = m.index;
-        const lastIdx = firstIdx + m[0].length - 1;
-        const fromPos = charDocPos[firstIdx];
-        const toPos = charDocPos[lastIdx];
-        const firstNode = charNode[firstIdx];
-        const lastNode = charNode[lastIdx];
-        if (fromPos == null || toPos == null || !firstNode || !lastNode) continue;
+        // Match shape (left-bookend + gap chars consumed; right
+        // bookend is the lookahead):
+        //   firstBookendIdx  = m.index
+        //   gapStartIdx      = m.index + 1   (first gap char)
+        //   gapEndIdx        = m.index + m[0].length - 1
+        //   secondBookendIdx = m.index + m[0].length   (lookahead)
+        const firstBookendIdx = m.index;
+        const gapStartIdx = firstBookendIdx + 1;
+        const gapEndIdx = firstBookendIdx + m[0].length - 1;
+        const secondBookendIdx = firstBookendIdx + m[0].length;
+        if (gapStartIdx > gapEndIdx) continue;
+        const gapFromPos = charDocPos[gapStartIdx];
+        const gapEndPos = charDocPos[gapEndIdx];
+        if (gapFromPos == null || gapEndPos == null) continue;
+        const firstNode = charNode[firstBookendIdx];
+        const lastNode = charNode[secondBookendIdx];
+        if (!firstNode || !lastNode) continue;
 
-        // Gap-only range: just the chars BETWEEN the bookends, never
-        // the bookends themselves. This both matches the user's
-        // "equivalent to selecting the space and pressing F9" mental
-        // model AND avoids the schema's `excludes` rule kicking in
-        // on a mixed-bookend bridge (otherwise applying underline_mark
-        // across an emphasized last bookend would strip its emphasis).
-        const gapFrom = fromPos + 1;
-        const gapTo = toPos;
-        if (gapFrom >= gapTo) continue;
+        // Gap-only doc range: just the chars BETWEEN the bookends,
+        // never the bookends themselves. Matches the user's "F9 on
+        // the blank space" mental model and avoids the schema's
+        // `excludes` rule kicking in on a mixed-bookend bridge
+        // (otherwise applying underline_mark across an emphasized
+        // last bookend would strip its emphasis).
+        const gapFrom = gapFromPos;
+        const gapTo = gapEndPos + 1;
 
         const fm = firstNode.marks;
         const lm = lastNode.marks;
@@ -2201,7 +2218,7 @@ export function fixFormattingGaps(): Command {
         // the gap standing out at the larger size. (Only acts on
         // qualifying gaps per the gate above.)
         let gapHasFontSize = false;
-        for (let i = firstIdx + 1; i < lastIdx; i++) {
+        for (let i = gapStartIdx; i <= gapEndIdx; i++) {
           const gn = charNode[i];
           if (gn && gn.marks.some((mk) => mk.type === fontSizeType)) {
             gapHasFontSize = true;
