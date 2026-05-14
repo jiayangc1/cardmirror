@@ -1028,6 +1028,23 @@ code {
 /* ProseMirror selection visibility */
 .ProseMirror:focus { outline: none; }
 
+/* Preserve user-typed whitespace inside the editor so tab characters
+   (inserted by the Tab keybinding when the cursor is collapsed, or
+   imported from `<w:tab/>`) render as actual gaps rather than being
+   collapsed by the default `white-space: normal`. `tab-size: 4` gives
+   each tab a 4-character-wide stop, matching Word's basic feel. We
+   reset to `normal` inside read mode — that pipeline composes
+   visible text from `pmd-rm-keep` spans + `::after { content: ' ' }`
+   and relies on whitespace collapsing to fold those separators into
+   a single space between chunks. */
+#editor .ProseMirror {
+  white-space: pre-wrap;
+  tab-size: 4;
+}
+#editor.pmd-read-mode .ProseMirror {
+  white-space: normal;
+}
+
 /* ---------------------------------------------- Navigation panel */
 
 .pmd-nav-panel {

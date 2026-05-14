@@ -65,11 +65,15 @@ describe('indentParagraph (Tab)', () => {
     expect(next!.doc.firstChild!.attrs['indent']).toBe(INDENT_STEP_DXA);
   });
 
-  it('with a partial selection inside one paragraph: defers (returns false)', () => {
+  it('with a partial selection inside one paragraph: replaces it with a tab character', () => {
     const doc = makeDoc([paragraph('hello world')]);
     // Select just "hello" (positions 1..6, paragraph ends at 12).
     const state = selectionAt(doc, 1, 6);
-    expect(apply(state, indentParagraph)).toBeNull();
+    const next = apply(state, indentParagraph);
+    expect(next).not.toBeNull();
+    expect(next!.doc.firstChild!.textContent).toBe('\t world');
+    // No indent was applied — the paragraph itself stays at 0.
+    expect(next!.doc.firstChild!.attrs['indent']).toBe(0);
   });
 
   it('with a multi-paragraph selection: indents every touched paragraph', () => {

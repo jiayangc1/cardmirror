@@ -77,10 +77,7 @@ export const indentParagraph: Command = (state, dispatch) => {
   const sel = state.selection;
 
   if (sel.empty) {
-    // Collapsed cursor: insert a literal tab character. We do this
-    // ourselves rather than falling through because PM's baseKeymap
-    // doesn't bind Tab, and we don't want the browser's default
-    // focus-traversal behavior.
+    // Collapsed cursor: insert a literal tab character.
     if (dispatch) dispatch(state.tr.insertText('\t').scrollIntoView());
     return true;
   }
@@ -89,10 +86,12 @@ export const indentParagraph: Command = (state, dispatch) => {
   const { hits, anyFullyEnclosed } = collectTouchedBlocks(state.doc, from, to);
 
   if (!anyFullyEnclosed) {
-    // Selection sits entirely inside one paragraph without covering
-    // the whole thing — fall through so the default "replace
-    // selection with tab" behavior runs.
-    return false;
+    // Partial selection within a single paragraph: replace the
+    // selection with a tab character. We always handle Tab so the
+    // browser doesn't take over (its default is focus-traversal,
+    // which would move keyboard focus out of the editor entirely).
+    if (dispatch) dispatch(state.tr.insertText('\t').scrollIntoView());
+    return true;
   }
 
   if (!dispatch) return true;
