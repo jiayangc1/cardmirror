@@ -523,6 +523,9 @@ export interface SettingMeta {
     | 'password'
     | 'clod'
     | 'aiCitePrompt';
+  /** Setting depends on the AI master toggle — greyed out and
+   *  disabled in the UI when `aiFeaturesEnabled` is false. */
+  aiOnly?: boolean;
 }
 
 export const SETTING_METADATA: SettingMeta[] = [
@@ -689,6 +692,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     description:
       'Used only when AI features are enabled. Stored locally in browser settings; sent only to api.anthropic.com.',
     kind: 'password',
+    aiOnly: true,
   },
   {
     key: 'clodEnabled',
@@ -696,6 +700,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     description:
       'When the AI is composing a reply, the in-flight placeholder cycles through time-of-day Clod activities ("Clod is making toast…") instead of plain "Thinking…".',
     kind: 'clod',
+    aiOnly: true,
   },
   {
     key: 'aiCitePrompt',
@@ -703,6 +708,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     description:
       'System prompt the cite-creator hands to the model. Click "Edit prompt" to open a full-size editor. Leave blank to use the built-in default.',
     kind: 'aiCitePrompt',
+    aiOnly: true,
   },
 ];
 

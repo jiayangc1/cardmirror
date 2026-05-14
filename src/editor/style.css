@@ -1654,6 +1654,26 @@ body.pmd-nav-resize-active {
   border-bottom: none;
 }
 
+/* Greyed-out row state for AI-dependent settings when the AI master
+ * toggle is off. Inputs inside the row are also `disabled` (set in JS),
+ * so this is purely visual feedback. `cursor: not-allowed` on the
+ * row label hints that clicking won't do anything. */
+.pmd-settings-row-disabled .pmd-settings-row-title,
+.pmd-settings-row-disabled .pmd-settings-row-desc {
+  color: var(--pmd-c-text-muted);
+  opacity: 0.55;
+}
+.pmd-settings-row-disabled .pmd-settings-row-label {
+  cursor: not-allowed;
+}
+.pmd-settings-row-disabled input,
+.pmd-settings-row-disabled button,
+.pmd-settings-row-disabled textarea,
+.pmd-settings-row-disabled select {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .pmd-settings-row-label {
   display: flex;
   align-items: flex-start;

@@ -1894,6 +1894,14 @@ syncs on toggle), AI commands no-op with a toast, and `@AI`
 mentions are ignored. Users can keep their key saved but go
 offline ad-hoc by flipping the switch.
 
+Inside the settings dialog, every AI-dependent setting (Anthropic
+API key, Clod mode toggle, AI cite-creator prompt button) carries
+`aiOnly: true` in its `SettingMeta`. The dialog subscribes to
+settings on open and re-applies a `.pmd-settings-row-disabled`
+class plus `disabled` on inputs/buttons whenever the master
+toggle changes — toggling AI off greys those rows live, without
+needing a re-open.
+
 ## 2026-05-13: Comments — round-trip + side column + AI groundwork
 
 Comments are now a first-class feature. Three concerns:

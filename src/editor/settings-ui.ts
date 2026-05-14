@@ -74,6 +74,13 @@ const DISPLAY_SIZE_LABELS: Record<keyof DisplaySizes, string> = {
 class SettingsModal {
   private overlay: HTMLDivElement;
   private dialog: HTMLDivElement;
+  /** Set of currently-rendered rows that are gated on the AI
+   *  master toggle. Updated each open() via the renderEntry
+   *  bookkeeping; consumed by `refreshAiDependents`. */
+  private aiDependentRows: HTMLElement[] = [];
+  /** Unsubscribe handle returned by `settings.subscribe` while the
+   *  dialog is open. Cleared on close. */
+  private aiToggleUnsubscribe: (() => void) | null = null;
 
   constructor() {
     this.overlay = document.createElement('div');
@@ -102,9 +109,17 @@ class SettingsModal {
   open(): void {
     this.render();
     this.overlay.style.display = '';
+    // Subscribe so toggling the AI master switch greys / un-greys
+    // the dependent rows live without needing a re-open.
+    this.aiToggleUnsubscribe = settings.subscribe(() => this.refreshAiDependents());
+    this.refreshAiDependents();
   }
 
   close(): void {
+    if (this.aiToggleUnsubscribe) {
+      this.aiToggleUnsubscribe();
+      this.aiToggleUnsubscribe = null;
+    }
     this.overlay.style.display = 'none';
   }
 
@@ -125,10 +140,13 @@ class SettingsModal {
     header.appendChild(closeBtn);
     this.dialog.appendChild(header);
 
+    this.aiDependentRows = [];
     const list = document.createElement('div');
     list.className = 'pmd-settings-list';
     for (const meta of SETTING_METADATA) {
-      list.appendChild(this.renderEntry(meta));
+      const row = this.renderEntry(meta);
+      if (meta.aiOnly) this.aiDependentRows.push(row);
+      list.appendChild(row);
     }
     if (SETTING_METADATA.length === 0) {
       const empty = document.createElement('p');
@@ -137,6 +155,21 @@ class SettingsModal {
       list.appendChild(empty);
     }
     this.dialog.appendChild(list);
+  }
+
+  /** Toggle the `pmd-settings-row-disabled` class on every AI-only
+   *  row whenever `aiFeaturesEnabled` changes. Also disables every
+   *  input / button inside those rows so the controls don't fire
+   *  events while the row reads as "off". */
+  private refreshAiDependents(): void {
+    const enabled = settings.get('aiFeaturesEnabled');
+    for (const row of this.aiDependentRows) {
+      row.classList.toggle('pmd-settings-row-disabled', !enabled);
+      const controls = row.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLTextAreaElement | HTMLSelectElement>(
+        'input, button, textarea, select',
+      );
+      for (const c of controls) c.disabled = !enabled;
+    }
   }
 
   private renderEntry(meta: SettingMeta): HTMLElement {
