@@ -217,11 +217,30 @@ class DocxExporter {
         '<w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/>' +
         '</w:tblPr>',
     );
-    // Minimal grid: even-width columns, summing to a default
-    // total. Word recomputes widths on open if it likes.
-    const colWidth = Math.floor(9350 / colCount);
+    // Build per-column dxa widths from each cell's `colwidth` array
+    // (CSS px). Convert px → dxa: 1 px = 15 dxa at 96 DPI. Walk every
+    // cell so a wider row can fill in widths for columns the first
+    // row spanned over. Fall back to an even split when nothing was
+    // recorded (e.g. imports from sources that didn't set widths).
+    const colDxa: (number | null)[] = new Array(colCount).fill(null);
+    rows.forEach((rowCells) => {
+      for (const c of rowCells) {
+        const widths = c.node.attrs['colwidth'] as number[] | null;
+        if (!widths || widths.length === 0) continue;
+        const cs = Number(c.node.attrs['colspan'] ?? 1);
+        for (let i = 0; i < cs && i < widths.length; i++) {
+          const w = widths[i];
+          if (typeof w === 'number' && w > 0 && colDxa[c.col + i] == null) {
+            colDxa[c.col + i] = Math.round(w * 15);
+          }
+        }
+      }
+    });
+    const defaultColDxa = Math.floor(9350 / colCount);
     let grid = '<w:tblGrid>';
-    for (let i = 0; i < colCount; i++) grid += `<w:gridCol w:w="${colWidth}"/>`;
+    for (let i = 0; i < colCount; i++) {
+      grid += `<w:gridCol w:w="${colDxa[i] ?? defaultColDxa}"/>`;
+    }
     grid += '</w:tblGrid>';
     this.parts.push(grid);
 
@@ -239,6 +258,11 @@ class DocxExporter {
       }
       entries.sort((a, b) => a.col - b.col);
 
+      const cellDxa = (col: number, span: number): number => {
+        let sum = 0;
+        for (let i = 0; i < span; i++) sum += colDxa[col + i] ?? defaultColDxa;
+        return sum;
+      };
       for (const e of entries) {
         if (e.kind === 'real') {
           const cs = Number(e.node.attrs['colspan'] ?? 1);
@@ -247,7 +271,7 @@ class DocxExporter {
           let tcPr = '';
           if (cs > 1) tcPr += `<w:gridSpan w:val="${cs}"/>`;
           if (rs > 1) tcPr += '<w:vMerge w:val="restart"/>';
-          this.parts.push(`<w:tcPr><w:tcW w:w="${colWidth * cs}" w:type="dxa"/>${tcPr}</w:tcPr>`);
+          this.parts.push(`<w:tcPr><w:tcW w:w="${cellDxa(e.col, cs)}" w:type="dxa"/>${tcPr}</w:tcPr>`);
           e.node.forEach((child) => {
             if (child.type.name === 'paragraph') {
               this.emitParagraph(child);
@@ -262,7 +286,7 @@ class DocxExporter {
           let tcPr = '';
           if (e.colspan > 1) tcPr += `<w:gridSpan w:val="${e.colspan}"/>`;
           tcPr += '<w:vMerge/>';
-          this.parts.push(`<w:tcPr><w:tcW w:w="${colWidth * e.colspan}" w:type="dxa"/>${tcPr}</w:tcPr>`);
+          this.parts.push(`<w:tcPr><w:tcW w:w="${cellDxa(e.col, e.colspan)}" w:type="dxa"/>${tcPr}</w:tcPr>`);
           this.parts.push('<w:p/>');
           this.parts.push('</w:tc>');
         }

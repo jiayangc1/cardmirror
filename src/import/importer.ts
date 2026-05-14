@@ -186,10 +186,29 @@ function parseTable(tblNode: XmlNode, ctx: ImportContext): PMNode | null {
   type CellData = {
     colspan: number;
     rowspan: number;
+    colPos: number;
     content: PMNode[];
   };
   const rowCells: CellData[][] = [];
   const vmergeRestarts: Map<number, CellData> = new Map();
+
+  // Parse <w:tblGrid><w:gridCol w:w="…"/> column widths so the
+  // rendered table reflects Word's actual column sizing. OOXML width
+  // is in dxa (twentieths of a point); convert to CSS px at 96 DPI:
+  // 1 inch = 1440 dxa = 96 px, so px = dxa / 15.
+  const gridColWidthsPx: number[] = [];
+  const tblGrid = findChild(childrenOf(tblNode, 'w:tbl'), 'w:tblGrid');
+  if (tblGrid) {
+    for (const gc of childrenOf(tblGrid, 'w:tblGrid')) {
+      if (!('w:gridCol' in gc)) continue;
+      const w = Number(attrsOf(gc)['w:w']);
+      if (Number.isFinite(w) && w > 0) {
+        gridColWidthsPx.push(Math.round(w / 15));
+      } else {
+        gridColWidthsPx.push(0);
+      }
+    }
+  }
 
   for (const child of childrenOf(tblNode, 'w:tbl')) {
     if (!('w:tr' in child)) continue;
@@ -229,7 +248,7 @@ function parseTable(tblNode: XmlNode, ctx: ImportContext): PMNode | null {
         const fallback = schema.nodes['paragraph']!.createAndFill();
         if (fallback) cellParas.push(fallback);
       }
-      const data: CellData = { colspan, rowspan: 1, content: cellParas };
+      const data: CellData = { colspan, rowspan: 1, colPos, content: cellParas };
       cells.push(data);
       if (vMergeMode === 'restart') {
         vmergeRestarts.set(colPos, data);
@@ -251,12 +270,23 @@ function parseTable(tblNode: XmlNode, ctx: ImportContext): PMNode | null {
   const rows = rowCells.map((cells) =>
     rowType.create(
       null,
-      cells.map((c) =>
-        cellType.create(
-          { colspan: c.colspan, rowspan: c.rowspan, colwidth: null },
+      cells.map((c) => {
+        // Slice the gridCol widths covered by this cell. If any width
+        // in the slice is missing/zero we drop the whole array so PM-
+        // tables falls back to default sizing rather than rendering
+        // a half-sized column.
+        let colwidth: number[] | null = null;
+        if (gridColWidthsPx.length > 0) {
+          const slice = gridColWidthsPx.slice(c.colPos, c.colPos + c.colspan);
+          if (slice.length === c.colspan && slice.every((w) => w > 0)) {
+            colwidth = slice;
+          }
+        }
+        return cellType.create(
+          { colspan: c.colspan, rowspan: c.rowspan, colwidth },
           c.content,
-        ),
-      ),
+        );
+      }),
     ),
   );
   return tableType.create(null, rows);
