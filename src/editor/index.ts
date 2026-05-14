@@ -35,6 +35,7 @@ import {
 } from './settings.js';
 import { openSaveAs } from './save-as-ui.js';
 import { commentsPlugin, commentsKey, loadThreads, getCommentsState, gcOrphanThreads } from './comments-plugin.js';
+import { scheduleIdle, cancelIdle, type IdleHandle } from './idle-scheduler.js';
 import { CommentsColumn, addCommentToSelection } from './comments-ui.js';
 import { runAiCreateCite } from './ai/cite-creator.js';
 import { readModePlugin, PMD_READ_MODE_TOGGLE } from './read-mode-plugin.js';
@@ -1394,7 +1395,7 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
   refreshFontSizeDisplay();
 }
 
-let pendingHeavyUpdate: ReturnType<typeof setTimeout> | null = null;
+let pendingHeavyUpdate: IdleHandle | null = null;
 const HEAVY_UPDATE_DELAY_MS = 200;
 
 /** Set when a doc-changing transaction has fired since the last
@@ -1405,8 +1406,15 @@ const HEAVY_UPDATE_DELAY_MS = 200;
 let needsCommentsGC = false;
 
 function scheduleHeavyUpdate(): void {
-  if (pendingHeavyUpdate !== null) clearTimeout(pendingHeavyUpdate);
-  pendingHeavyUpdate = setTimeout(() => {
+  if (pendingHeavyUpdate !== null) cancelIdle(pendingHeavyUpdate);
+  // Schedule via requestIdleCallback (setTimeout fallback) so the
+  // nav / word-count / GC burst runs only when the browser has frame
+  // budget to spare. Previously this fired after a fixed 200ms
+  // setTimeout — for short docs that produced a visible spike every
+  // pause-and-resume since the timer fired regardless of whether
+  // the browser was busy. Idle-callback dispatch eliminates the
+  // collision with paint frames.
+  pendingHeavyUpdate = scheduleIdle(() => {
     pendingHeavyUpdate = null;
     if (!view) return;
     navPanel.update(view.state.doc);

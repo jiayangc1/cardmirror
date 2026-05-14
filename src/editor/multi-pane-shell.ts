@@ -32,6 +32,7 @@ import { NavigationPanel } from './nav-panel.js';
 import { EditorDragSurface } from './drag-editor-surface.js';
 import { dragController } from './drag-controller.js';
 import { countReadAloudWords, formatReadTime, formatNumber } from './word-count.js';
+import { scheduleIdle, cancelIdle, type IdleHandle } from './idle-scheduler.js';
 import {
   buildEditorPlugins,
   enableMultiDocMode,
@@ -76,7 +77,7 @@ interface DocRecord {
    *  list replaces every `<li>` element, which would invalidate a
    *  dblclick in progress unless the rebuild waits for a typing
    *  pause. */
-  heavyUpdateTimer: ReturnType<typeof setTimeout> | null;
+  heavyUpdateTimer: IdleHandle | null;
 }
 
 class Slot {
@@ -222,7 +223,7 @@ class Slot {
     const closing = this.stack[idx]!;
     this.detachVisible();
     if (closing.heavyUpdateTimer !== null) {
-      clearTimeout(closing.heavyUpdateTimer);
+      cancelIdle(closing.heavyUpdateTimer);
       closing.heavyUpdateTimer = null;
     }
     closing.view.destroy();
@@ -357,7 +358,7 @@ class Slot {
       return;
     }
     if (rec.heavyUpdateTimer !== null) {
-      clearTimeout(rec.heavyUpdateTimer);
+      cancelIdle(rec.heavyUpdateTimer);
       rec.heavyUpdateTimer = null;
     }
     rec.view.destroy();
@@ -465,7 +466,7 @@ class MultiPaneShell {
             // against the post-drop doc and the new IDs are visible.
             const rec = targetSlot.visible;
             if (rec.heavyUpdateTimer !== null) {
-              clearTimeout(rec.heavyUpdateTimer);
+              cancelIdle(rec.heavyUpdateTimer);
               rec.heavyUpdateTimer = null;
             }
             rec.navPanel.applyMaxLevelToNewHeadings();
@@ -714,9 +715,9 @@ function buildDocRecord(filename: string, doc: PMNode, slot: Slot): DocRecord {
       // docs O(N) per keystroke. The 200ms timer matches the
       // single-doc `scheduleHeavyUpdate` cadence.
       if (record.heavyUpdateTimer !== null) {
-        clearTimeout(record.heavyUpdateTimer);
+        cancelIdle(record.heavyUpdateTimer);
       }
-      record.heavyUpdateTimer = setTimeout(() => {
+      record.heavyUpdateTimer = scheduleIdle(() => {
         record.heavyUpdateTimer = null;
         record.navPanel.update(view.state.doc);
         slot.refreshWordCount();

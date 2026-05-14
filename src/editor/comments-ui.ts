@@ -37,6 +37,7 @@ import {
 } from './ai/clod.js';
 import { makeActivityStage, cycleActivityText } from './ai/activity-cycler.js';
 import { showToast } from './toast.js';
+import { scheduleIdle, cancelIdle, type IdleHandle } from './idle-scheduler.js';
 
 /** Resolve the configured AI persona (name + pronouns) from
  *  settings. Centralized here so every consumer (invokeAi,
@@ -212,18 +213,21 @@ export class CommentsColumn {
    *  default at this point), then `layoutCards` measures each card's
    *  natural height and assigns a `top` aligned with the start of
    *  its anchored range. */
-  /** Debounce handle for `scheduleRender`. */
-  private renderTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Idle-callback handle for `scheduleRender`. */
+  private renderTimer: IdleHandle | null = null;
 
   /** Debounced variant of `render()` — used by callers driven by
    *  `dispatchTransaction` (cursor moves, doc edits) so the O(doc)
    *  `collectRanges` walk inside render doesn't fire on every
-   *  keystroke. 200ms matches `scheduleHeavyUpdate`'s cadence. Direct
-   *  user actions (toggle, add comment, click a card) call `render`
-   *  immediately for snappy feedback. */
+   *  keystroke. Dispatched via `requestIdleCallback` (with a 200ms
+   *  timeout cap and a `setTimeout` fallback) so it only runs when
+   *  the browser has frame budget to spare — no mid-pause spike
+   *  when the user briefly stops typing. Direct user actions
+   *  (toggle, add comment, click a card) call `render` immediately
+   *  for snappy feedback. */
   scheduleRender(): void {
-    if (this.renderTimer !== null) clearTimeout(this.renderTimer);
-    this.renderTimer = setTimeout(() => {
+    if (this.renderTimer !== null) cancelIdle(this.renderTimer);
+    this.renderTimer = scheduleIdle(() => {
       this.renderTimer = null;
       this.render();
     }, 200);
@@ -233,7 +237,7 @@ export class CommentsColumn {
     // Cancel any pending scheduled render — a direct render() call
     // supersedes it and we don't want a stale follow-up.
     if (this.renderTimer !== null) {
-      clearTimeout(this.renderTimer);
+      cancelIdle(this.renderTimer);
       this.renderTimer = null;
     }
     const view = this.getView();
