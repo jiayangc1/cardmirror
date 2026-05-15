@@ -2,11 +2,12 @@ CardMirror is licensed under the **PolyForm Noncommercial License
 1.0.0**. The full license text follows below; the canonical version
 lives at <https://polyformproject.org/licenses/noncommercial/1.0.0/>.
 
-Required Notice: Copyright (c) 2026 ant981228. CardMirror is built on
-ProseMirror (<https://prosemirror.net/>), the rich-text editor
-framework by Marijn Haverbeke (<https://marijnhaverbeke.nl/>), used
-under the MIT License. ProseMirror's copyright notices are preserved
-in the project's `node_modules/` and acknowledged in the README.
+Required Notice: Copyright (c) 2026 Anthony Trufanov. CardMirror is
+built on ProseMirror (<https://prosemirror.net/>), the rich-text
+editor framework by Marijn Haverbeke (<https://marijnhaverbeke.nl/>),
+used under the MIT License. ProseMirror's copyright notices are
+preserved in the project's `node_modules/` and acknowledged in the
+README.
 
 ----
 
