@@ -115,13 +115,14 @@ describe('font-size-class plugin — line-height-only shrink', () => {
     expect(shrunk!.style).not.toMatch(/font-size/);
   });
 
-  it('shrinks paragraph AND emits inline line-height decoration for EVERY text run', () => {
-    // Paragraph decoration sets the shrunken strut for empty lines;
-    // every text run gets an inline `max(var(--pmd-line-height), 1.2)`
-    // so each run's effective line-height is at least 1.2 × its own
-    // font-size — preventing 8pt-only lines from drawing into adjacent
-    // lines when the body knob is small (CSS line-height absolute
-    // shorter than the font's natural ascender+descender extent).
+  it('emits inline line-height decoration for BARE text runs only', () => {
+    // Bare (mark-less) text runs get an inline line-height-floor
+    // decoration so PM wraps them in a span the floor can apply to.
+    // Marked text runs are covered by the CSS rule
+    //   `.pmd-fs-shrunk > * { line-height: max(...) }`
+    // which targets the mark's own `<span>` wrapper — no decoration
+    // needed. This reduces per-keystroke decoration count from O(text
+    // runs in shrunken paras) to O(bare runs in shrunken paras).
     const p = bodyPara(
       schema.text('plain bare text '),
       schema.text('shrunk piece', [fontSize(HP_8PT)]),
@@ -132,17 +133,18 @@ describe('font-size-class plugin — line-height-only shrink', () => {
     expect(shrunk!.style).toContain(
       'line-height: calc(8pt * (1 + 0.4 * (var(--pmd-line-height) - 1)))',
     );
-    // Inline decorations: one per text run.
+    // One inline decoration: the bare text run. The font_size-marked
+    // run is handled by the CSS rule, not a decoration.
     const inlineRuns = decos.filter(
       (d) => d.style === 'line-height: max(var(--pmd-line-height), 1.2)',
     );
-    expect(inlineRuns).toHaveLength(2);
+    expect(inlineRuns).toHaveLength(1);
   });
 
-  it('emits inline line-height decoration for font_size-marked text too', () => {
-    // Uniform 8pt-marked paragraph: paragraph decoration + one inline
-    // decoration for the single text run (no longer skipped just
-    // because it carries a font_size mark).
+  it('does NOT emit an inline decoration for a font_size-marked text run', () => {
+    // Uniform 8pt-marked paragraph: paragraph decoration only — the
+    // 8pt run lives inside a `<span>` (from the font_size mark) so the
+    // CSS rule covers it. No per-run inline decoration is needed.
     const p = bodyPara(
       schema.text('all 8pt', [fontSize(HP_8PT)]),
     );
@@ -150,12 +152,13 @@ describe('font-size-class plugin — line-height-only shrink', () => {
     expect(decos.find((d) => d.class === 'pmd-fs-shrunk')).toBeDefined();
     expect(
       decos.find((d) => d.style === 'line-height: max(var(--pmd-line-height), 1.2)'),
-    ).toBeDefined();
+    ).toBeUndefined();
   });
 
-  it('emits inline line-height decoration for named-style marks too (e.g., cite_mark)', () => {
-    // Same as bare runs — named-style spans (.pmd-cite, etc.) are
-    // covered by the same uniform inline decoration.
+  it('does NOT emit inline decorations for named-style-marked text runs (e.g., cite_mark)', () => {
+    // Named-style marks render as `.pmd-cite` (etc.) spans; the CSS
+    // rule `.pmd-fs-shrunk > * { line-height: ... }` applies the
+    // floor to them. No inline decoration.
     const citeMark = schema.marks['cite_mark']!.create();
     const p = bodyPara(
       schema.text('cite ', [citeMark]),
@@ -165,7 +168,7 @@ describe('font-size-class plugin — line-height-only shrink', () => {
     expect(decos.find((d) => d.class === 'pmd-fs-shrunk')).toBeDefined();
     expect(
       decos.find((d) => d.style === 'line-height: max(var(--pmd-line-height), 1.2)'),
-    ).toBeDefined();
+    ).toBeUndefined();
   });
 
   it('does NOT apply pmd-fs-shrunk for a fully-bare default-size paragraph (no marks)', () => {

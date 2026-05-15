@@ -947,6 +947,20 @@ code {
   font-weight: bold;
 }
 
+/* font-size-class-plugin: per-text-run line-height floor for shrunken
+ * paragraphs (those whose smallest font_size < 11pt). The paragraph's
+ * own line-height is an absolute pt value (collapses the strut so
+ * small-font-only lines pack tight); descendants would otherwise
+ * inherit that small length and risk overlap. This rule provides the
+ * floor for any inline element inside a shrunken paragraph — mark
+ * spans, mark-span chains, widget elements, etc. — without the
+ * plugin needing to emit one inline decoration per text run. Bare
+ * (mark-less) text runs still get an inline decoration from the
+ * plugin because CSS can't target text nodes directly. */
+.pmd-fs-shrunk > * {
+  line-height: max(var(--pmd-line-height), 1.2);
+}
+
 /* Pilcrow marker — small ¶ between paragraphs that Branch B condense
    inserts. Non-inclusive mark (see marks.ts) so adjacent typing isn't
    affected. Sized to 6pt to mirror Verbatim's encoding. */
