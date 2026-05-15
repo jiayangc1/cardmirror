@@ -23,6 +23,7 @@
  */
 
 import { EditorState, TextSelection } from 'prosemirror-state';
+import { closeHistory } from 'prosemirror-history';
 import { EditorView } from 'prosemirror-view';
 import { Node as PMNode } from 'prosemirror-model';
 import { schema, newHeadingId } from '../schema/index.js';
@@ -637,6 +638,23 @@ class MultiPaneShell {
     return null;
   }
 
+  /** Walk every slot's stack — visible AND background — to find
+   *  the record that owns the given view. Used by send-to-speech
+   *  so it can re-mount the speech record in its slot if a
+   *  different record from the same stack is currently visible
+   *  (otherwise the dispatch lands in a detached editor, focus
+   *  doesn't transfer, and Ctrl-Z reaches the source pane's
+   *  empty history instead of the speech doc's). */
+  private findRecordForView(view: EditorView): { slot: Slot; record: DocRecord } | null {
+    for (const id of SLOT_IDS) {
+      const slot = this.slots[id];
+      for (const rec of slot.stack) {
+        if (rec.view === view) return { slot, record: rec };
+      }
+    }
+    return null;
+  }
+
   /** Refresh the data-attribute count on the row, used by CSS to
    *  size each pane based on how many slots are active. */
   refreshLayout(): void {
@@ -976,10 +994,19 @@ class MultiPaneShell {
     const sliceFromSource = resolveSendSlice(sourceRec.view);
     if (!sliceFromSource) return;
 
-    // Cross-view insertion: rewrite heading ids so the destination
-    // doesn't collide with the source's, then drop the slice in.
-    // Same path the drag controller uses for cross-view drops.
-    const rewritten = rewriteHeadingIds(sliceFromSource);
+    // Locate the speech doc's slot + record. The view might be
+    // BACKGROUND in its slot's stack (user swapped to another
+    // record); dispatching on a detached view leaves the changes
+    // invisible AND uncatchable by Ctrl-Z because focus never
+    // transfers off the source pane. Make the speech record
+    // visible before doing anything else so the user lands in
+    // a doc whose history actually has the new event.
+    const located = this.findRecordForView(speechView);
+    if (!located) return;
+    if (located.slot.visible?.view !== speechView) {
+      located.slot.showRecord(located.record);
+    }
+
     const state = speechView.state;
 
     // Resolve the destination range. Two refinements over a naive
@@ -995,11 +1022,14 @@ class MultiPaneShell {
     //      collapsing the empty block into the insertion range.
     let from: number;
     let to: number;
+    let inBlankLine = false;
+    let midText = false;
     if (atEnd) {
       const lastChild = state.doc.lastChild;
       if (lastChild && lastChild.isTextblock && lastChild.content.size === 0) {
         to = state.doc.content.size;
         from = to - lastChild.nodeSize;
+        inBlankLine = true;
       } else {
         from = state.doc.content.size;
         to = from;
@@ -1007,7 +1037,7 @@ class MultiPaneShell {
     } else {
       const $from = state.selection.$from;
       const isEmpty = state.selection.empty;
-      const inBlankLine =
+      inBlankLine =
         isEmpty &&
         $from.depth >= 1 &&
         $from.parent.isTextblock &&
@@ -1018,38 +1048,95 @@ class MultiPaneShell {
       } else {
         from = state.selection.from;
         to = state.selection.from;
+        // Mid-text warning: Verbatim asks for confirmation when
+        // the user sends to a position that isn't at the start of
+        // a paragraph. Empty-selection cursor strictly inside a
+        // textblock (parentOffset > 0) is the same condition. The
+        // blank-line-replace branch doesn't need to warn — it's
+        // BY DEFINITION at the start of an empty block.
+        if (isEmpty && $from.parentOffset > 0) midText = true;
       }
     }
 
-    const tr = state.tr;
-    // `replaceRange` (vs `replaceWith`) handles slices with open
-    // boundaries — non-empty text selections inside a card body
-    // produce slices with `openStart`/`openEnd` > 0, and
-    // replaceRange wraps / fits them into the destination schema.
-    tr.replaceRange(from, to, rewritten);
+    if (midText) {
+      const ok = window.confirm(
+        'Sending to the middle of text in the speech doc. Are you sure?',
+      );
+      if (!ok) return;
+    }
 
-    // Append a trailing empty paragraph after the inserted content
-    // so the next send has a fresh blank line to land into — and
-    // so this send's cursor can land THERE, satisfying the
-    // "consecutive sends accumulate in order" invariant. Without
-    // the trailer, the cursor would have to land inside the last
-    // text node of the inserted slice (the only valid text
-    // position after the insert), which would cause the next
-    // send to interleave INSIDE that node instead of after it.
-    const sliceEndPos = tr.mapping.map(to);
-    const trailer = schema.nodes['paragraph']!.create();
-    tr.insert(sliceEndPos, trailer);
-    // Cursor inside the trailer (position is just past the
-    // trailer's opening boundary token).
-    tr.setSelection(TextSelection.create(tr.doc, sliceEndPos + 1));
+    // Defer the actual dispatch to the next tick so the source
+    // pane's keydown handler unwinds first. Dispatching on
+    // speechView synchronously inside the source's PM keymap
+    // dispatch chain was causing the speech view's history to
+    // record the new event but Ctrl-Z still not undo — best guess
+    // is the cross-view dispatch was getting marked as appended
+    // / non-event by PM's history logic because of the
+    // surrounding keydown context. Breaking out of that context
+    // with a setTimeout gives speechView's history a clean event
+    // boundary.
+    const sourceSlice = sliceFromSource;
+    setTimeout(() => {
+      const liveState = speechView.state;
+      // Re-resolve `from` / `to` against the LIVE state — the
+      // values we computed above were against `state` (captured
+      // before the setTimeout); nothing should have changed in
+      // practice but recomputing keeps the math honest. The
+      // mid-text confirmation already happened synchronously
+      // above so the user can't have re-positioned the cursor.
+      let liveFrom: number;
+      let liveTo: number;
+      if (atEnd) {
+        const lastChild = liveState.doc.lastChild;
+        if (lastChild && lastChild.isTextblock && lastChild.content.size === 0) {
+          liveTo = liveState.doc.content.size;
+          liveFrom = liveTo - lastChild.nodeSize;
+        } else {
+          liveFrom = liveState.doc.content.size;
+          liveTo = liveFrom;
+        }
+      } else {
+        const $from = liveState.selection.$from;
+        const isEmpty = liveState.selection.empty;
+        const inBlank =
+          isEmpty &&
+          $from.depth >= 1 &&
+          $from.parent.isTextblock &&
+          $from.parent.content.size === 0;
+        if (inBlank) {
+          liveFrom = $from.before($from.depth);
+          liveTo = $from.after($from.depth);
+        } else {
+          liveFrom = liveState.selection.from;
+          liveTo = liveState.selection.from;
+        }
+      }
+      const rewritten = rewriteHeadingIds(sourceSlice);
+      let tr = liveState.tr;
+      tr.replaceRange(liveFrom, liveTo, rewritten);
+      const sliceEndPos = tr.mapping.map(liveTo);
+      const trailer = schema.nodes['paragraph']!.create();
+      tr.insert(sliceEndPos, trailer);
+      tr.setSelection(TextSelection.create(tr.doc, sliceEndPos + 1));
+      // `closeHistory` forces a fresh history event boundary for
+      // this transaction — defends against PM's time-based
+      // grouping logic merging the send into some adjacent
+      // event (or refusing to count it as a new event entirely).
+      tr = closeHistory(tr);
+      // Belt-and-suspenders: spell out that this IS a history
+      // event, in case some upstream meta has set
+      // `addToHistory: false`.
+      tr.setMeta('addToHistory', true);
 
-    speechView.dispatch(tr.scrollIntoView());
-    // Route focus to the speech doc so subsequent ` keystrokes
-    // either insert markers (when we add them) or send the next
-    // slice — same flow Verbatim users expect.
-    speechView.focus();
-    const speechSlot = this.findSlotByView(speechView);
-    if (speechSlot) this.focusSlot(speechSlot);
+      speechView.dispatch(tr.scrollIntoView());
+      speechView.focus();
+      this.focusSlot(located.slot);
+      if (located.record.heavyUpdateTimer !== null) {
+        cancelIdle(located.record.heavyUpdateTimer);
+        located.record.heavyUpdateTimer = null;
+      }
+      located.record.navPanel.applyMaxLevelToNewHeadings();
+    }, 0);
   }
 
   /** Sync the visual speech indicator on every slot's chip with
