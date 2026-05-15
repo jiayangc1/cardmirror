@@ -188,6 +188,25 @@ npm run test:bench  # performance benchmarks
 npm run typecheck   # strict TypeScript check
 ```
 
+### Testing round-trip against your own .docx files
+
+The round-trip test suite and the round-trip benchmark both walk a
+folder of `.docx` fixtures and run universal preservation checks on
+each one (text length, heading IDs, mark counts, indent / spacing
+multisets, etc.). Point them at any folder by setting
+`CARDMIRROR_DOCS_DIR`:
+
+```
+CARDMIRROR_DOCS_DIR="/path/to/your/docx/files" npm test
+CARDMIRROR_DOCS_DIR="/path/to/your/docx/files" npm run test:bench
+```
+
+When the variable isn't set, the suite looks under
+`reference-docs/example docs/` (the project owner's local corpus).
+When that folder doesn't exist either — the default state on a fresh
+clone — the file-dependent tests skip cleanly and the rest of the
+suite still runs.
+
 ## Round-trip a docx
 
 The CLI imports a Verbatim/Advanced-Verbatim docx, normalizes it through

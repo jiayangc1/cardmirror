@@ -2,27 +2,28 @@
  * Round-trip tests against real Verbatim documents.
  *
  * Strategy:
- *   1. Import the example .docx file from reference-docs/example docs/.
- *   2. Verify the resulting schema doc has expected high-level structure.
- *   3. Re-export to .docx and re-import.
- *   4. Verify the round-tripped doc has the same structure as the first import.
+ *   1. Discover every `.docx` in the configured fixtures directory
+ *      (see `_fixtures.ts` for the env-var override).
+ *   2. For each file, import → re-export → re-import.
+ *   3. Assert round-trip invariants that hold for *any* valid input:
+ *      text length, heading IDs, paragraph counts, image counts, the
+ *      indent / spacing multisets, etc.
  *
  * Per ARCHITECTURE.md §3, lossless round-trip means semantic equivalence
  * for everything Verbatim and Advanced Verbatim treat as semantic. We
  * don't promise byte equivalence (rsids, generation timestamps, etc.).
+ *
+ * The suite is silent (no failures, no assertions) when the fixtures
+ * directory is missing or empty — that's the expected state on a
+ * fresh clone.
  */
 
 import { describe, expect, it, beforeAll } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { fromDocx } from '../../src/import/index.js';
 import { toDocx } from '../../src/export/index.js';
 import type { Node as PMNode } from 'prosemirror-model';
-
-const EXAMPLE_DOCS_DIR = path.resolve(
-  process.cwd(),
-  'reference-docs/example docs',
-);
+import { discoverDocxFixtures, resolveDocsDir } from './_fixtures.js';
 
 interface NodeCounts {
   pocket: number;
@@ -76,70 +77,29 @@ function countNodes(doc: PMNode): NodeCounts {
   return counts as unknown as NodeCounts;
 }
 
-interface DocFixture {
-  filename: string;
-  expected: Partial<NodeCounts>;
-}
+const fixtures = discoverDocxFixtures();
 
-const FIXTURES: DocFixture[] = [
-  {
-    filename: 'Aff - Merp!.docx',
-    // From the real-doc survey (NOTES-verbatim.md §6):
-    // Pockets 7, Hats 29, Blocks 162, Tags 362, Analytics 38, Undertags 1
-    // Paragraphs 3244, Words 242,634
-    expected: {
-      pocket: 7,
-      hat: 29,
-      block: 162,
-      // card count ≈ tag count from survey
-      card: 362,
-      // analytic count includes both standalone and in-card
-      // (the survey number is total occurrences)
-    },
-  },
-  {
-    filename: 'DA - Reconciliation.docx',
-    expected: {
-      pocket: 6,
-      hat: 21,
-      block: 136,
-      card: 321,
-    },
-  },
-  {
-    filename: 'CP - Bifurcation PIC vs Fed Workers.docx',
-    expected: {
-      pocket: 0, // CP has no Heading1 paragraphs
-      hat: 2,
-      block: 26,
-      card: 50,
-    },
-  },
-  {
-    // Has 4 tables, 28 rows, 103 cells (after vMerge collapse).
-    filename: 'Retrenchment TAP - 26-27.docx',
-    expected: {
-      table: 4,
-      table_row: 28,
-      table_cell: 103,
-    },
-  },
-];
-
-describe('round-trip: real example docs', () => {
-  for (const fixture of FIXTURES) {
+describe.skipIf(fixtures.length === 0)('round-trip: real example docs', () => {
+  if (fixtures.length === 0) {
+    // Vitest still evaluates the describe body, even when skipping the
+    // suite. Log once so users running the tests with no fixtures know
+    // why this suite reported zero tests.
+    console.log(
+      `[round-trip] no .docx files found in ${resolveDocsDir()}; ` +
+        `set CARDMIRROR_DOCS_DIR to a folder of .docx fixtures to run real-doc tests.`,
+    );
+  }
+  for (const fixture of fixtures) {
     describe(fixture.filename, () => {
-      let originalBytes: Uint8Array;
       let imported: PMNode;
       let importCounts: NodeCounts;
       let roundTripped: PMNode;
       let roundTripCounts: NodeCounts;
 
       beforeAll(async () => {
-        const filePath = path.join(EXAMPLE_DOCS_DIR, fixture.filename);
-        const buf = await readFile(filePath);
-        originalBytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-        imported = await fromDocx(originalBytes);
+        const buf = await readFile(fixture.fullPath);
+        const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+        imported = await fromDocx(bytes);
         importCounts = countNodes(imported);
         const exportedBytes = await toDocx(imported);
         roundTripped = await fromDocx(exportedBytes);
@@ -149,15 +109,6 @@ describe('round-trip: real example docs', () => {
       it('imports without error', () => {
         expect(imported.type.name).toBe('doc');
         expect(importCounts.totalParagraphs).toBeGreaterThan(0);
-      });
-
-      it('matches expected structural counts from the survey', () => {
-        const counts = importCounts as unknown as Record<string, number>;
-        for (const [k, v] of Object.entries(fixture.expected)) {
-          if (typeof v === 'number') {
-            expect(counts[k], `${k} count for ${fixture.filename}`).toBe(v);
-          }
-        }
       });
 
       it('preserves text length through round-trip', () => {
@@ -187,6 +138,12 @@ describe('round-trip: real example docs', () => {
 
       it('preserves image count through round-trip', () => {
         expect(roundTripCounts.image).toBe(importCounts.image);
+      });
+
+      it('preserves table structure through round-trip', () => {
+        expect(roundTripCounts.table).toBe(importCounts.table);
+        expect(roundTripCounts.table_row).toBe(importCounts.table_row);
+        expect(roundTripCounts.table_cell).toBe(importCounts.table_cell);
       });
 
       it('preserves paragraph indent values through round-trip', () => {

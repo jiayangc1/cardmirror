@@ -5,14 +5,14 @@
 
 import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import JSZip from 'jszip';
 import { fromDocx } from '../../src/import/index.js';
 import { toDocx } from '../../src/export/index.js';
 import { schema, newHeadingId } from '../../src/schema/index.js';
 import { parseXml } from '../../src/ooxml/parse.js';
+import { discoverDocxFixtures } from './_fixtures.js';
 
-const DOCS_DIR = path.resolve(process.cwd(), 'reference-docs/example docs');
+const fixtures = discoverDocxFixtures();
 
 describe('exported docx structural validity', () => {
   it('produces a valid zip with all required parts', async () => {
@@ -56,21 +56,27 @@ describe('exported docx structural validity', () => {
     expect(() => parseXml(docXml)).not.toThrow();
   });
 
-  it('round-tripping a real doc still produces well-formed XML', async () => {
-    const buf = await readFile(path.join(DOCS_DIR, 'CP - Bifurcation PIC vs Fed Workers.docx'));
-    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-    const imported = await fromDocx(bytes);
-    const reExported = await toDocx(imported);
-    const zip = await JSZip.loadAsync(reExported);
-    const docXml = await zip.file('word/document.xml')!.async('string');
-    expect(() => parseXml(docXml)).not.toThrow();
+  it.skipIf(fixtures.length === 0)(
+    'round-tripping a real doc still produces well-formed XML',
+    async () => {
+      // Smallest fixture by file size is the cheapest smoke check;
+      // any one of the available fixtures works.
+      const fixture = fixtures[0]!;
+      const buf = await readFile(fixture.fullPath);
+      const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+      const imported = await fromDocx(bytes);
+      const reExported = await toDocx(imported);
+      const zip = await JSZip.loadAsync(reExported);
+      const docXml = await zip.file('word/document.xml')!.async('string');
+      expect(() => parseXml(docXml)).not.toThrow();
 
-    const stylesXml = await zip.file('word/styles.xml')!.async('string');
-    expect(() => parseXml(stylesXml)).not.toThrow();
+      const stylesXml = await zip.file('word/styles.xml')!.async('string');
+      expect(() => parseXml(stylesXml)).not.toThrow();
 
-    const relsXml = await zip.file('word/_rels/document.xml.rels')!.async('string');
-    expect(() => parseXml(relsXml)).not.toThrow();
-  });
+      const relsXml = await zip.file('word/_rels/document.xml.rels')!.async('string');
+      expect(() => parseXml(relsXml)).not.toThrow();
+    },
+  );
 
   it('exported styles.xml contains all canonical style ids', async () => {
     const doc = schema.nodes['doc']!.createChecked(null, [
