@@ -23,17 +23,8 @@ import type { EditorView } from 'prosemirror-view';
 import { schema } from '../../schema/index.js';
 import { settings } from '../settings.js';
 import { callAnthropic, AnthropicError } from './anthropic.js';
-import {
-  activitiesForNow,
-  pickRandomActivity,
-  personalizeActivity,
-} from './clod.js';
-import { makeActivityStage, cycleActivityText } from './activity-cycler.js';
-import { getAiPersona } from '../comments-ui.js';
+import { ThinkingTooltip } from './thinking-tooltip.js';
 import { showToast } from '../toast.js';
-
-/** Cycle interval for the in-flight tooltip's activity text. */
-const ACTIVITY_TICK_MS = 4000;
 
 /** Today's-date placeholder substituted into the prompt at run
  *  time. Putting it in the prompt rather than the user message
@@ -217,61 +208,7 @@ export function applyCiteToSelection(
   return true;
 }
 
-// --------------------------- tooltip ----------------------------
-
-/** Floating in-flight indicator pinned near the cursor. Used
- *  instead of the side-panel placeholder because the cite creator
- *  doesn't open a comment thread. Shows a single line of text
- *  that cycles through Clod activities when Clod mode is on, or
- *  reads "Thinking…" otherwise. */
-class CiteTooltip {
-  private el: HTMLDivElement | null = null;
-  private ticker: number | null = null;
-
-  show(anchor: { left: number; top: number; bottom: number }): void {
-    if (this.el) return;
-    const el = document.createElement('div');
-    el.className = 'pmd-ai-cite-tooltip';
-    // Position absolute to the page so we don't depend on a
-    // particular ancestor's positioning. `coordsAtPos` returns
-    // viewport coords, so add scroll offsets.
-    const top = anchor.bottom + window.scrollY + 6;
-    const left = anchor.left + window.scrollX;
-    el.style.top = `${top}px`;
-    el.style.left = `${left}px`;
-    el.appendChild(makeActivityStage(this.currentText()));
-    document.body.appendChild(el);
-    this.el = el;
-
-    this.ticker = window.setInterval(() => {
-      if (!this.el) return;
-      const stage = this.el.querySelector<HTMLElement>('.pmd-activity-stage');
-      if (stage) cycleActivityText(stage, this.currentText());
-    }, ACTIVITY_TICK_MS);
-  }
-
-  hide(): void {
-    if (this.ticker !== null) {
-      window.clearInterval(this.ticker);
-      this.ticker = null;
-    }
-    if (this.el) {
-      this.el.remove();
-      this.el = null;
-    }
-  }
-
-  private currentText(): string {
-    if (!settings.get('clodEnabled')) return 'Thinking…';
-    const pool = activitiesForNow({
-      customByTime: settings.get('clodActivitiesByTime'),
-      ranges: settings.get('clodTimePeriods'),
-    });
-    return personalizeActivity(pickRandomActivity(pool), getAiPersona());
-  }
-}
-
-let activeTooltip: CiteTooltip | null = null;
+let activeTooltip: ThinkingTooltip | null = null;
 
 // --------------------------- command ----------------------------
 
@@ -307,7 +244,7 @@ export function runAiCreateCite(view: EditorView): void {
 
   // Pin the tooltip below the selection's start coords.
   if (activeTooltip) activeTooltip.hide();
-  activeTooltip = new CiteTooltip();
+  activeTooltip = new ThinkingTooltip();
   try {
     const coords = view.coordsAtPos(sel.from);
     activeTooltip.show({ left: coords.left, top: coords.top, bottom: coords.bottom });

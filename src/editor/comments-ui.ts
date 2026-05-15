@@ -37,6 +37,7 @@ import {
 } from './ai/clod.js';
 import { makeActivityStage, cycleActivityText } from './ai/activity-cycler.js';
 import { showToast } from './toast.js';
+import { scheduleIdle, cancelIdle, type IdleHandle } from './idle-scheduler.js';
 
 /** Resolve the configured AI persona (name + pronouns) from
  *  settings. Centralized here so every consumer (invokeAi,
@@ -142,7 +143,13 @@ export class CommentsColumn {
     this.activeBy = id ? by : null;
     if (id) this.lastActiveThreadId = id;
     this.refreshStickyDismissListener();
-    this.render();
+    // Cursor-driven calls come from the editor's `dispatchTransaction`
+    // (every keystroke, every cursor move). Debounce the render so
+    // typing in a long doc isn't paying an O(doc) `collectRanges`
+    // walk per keystroke. Click-driven calls come from a user
+    // clicking a thread card; render immediately for snappy feedback.
+    if (by === 'cursor') this.scheduleRender();
+    else this.render();
   }
 
   /** Manual dismiss path — used by the global mousedown listener
@@ -206,7 +213,33 @@ export class CommentsColumn {
    *  default at this point), then `layoutCards` measures each card's
    *  natural height and assigns a `top` aligned with the start of
    *  its anchored range. */
+  /** Idle-callback handle for `scheduleRender`. */
+  private renderTimer: IdleHandle | null = null;
+
+  /** Debounced variant of `render()` — used by callers driven by
+   *  `dispatchTransaction` (cursor moves, doc edits) so the O(doc)
+   *  `collectRanges` walk inside render doesn't fire on every
+   *  keystroke. Dispatched via `requestIdleCallback` (with a 200ms
+   *  timeout cap and a `setTimeout` fallback) so it only runs when
+   *  the browser has frame budget to spare — no mid-pause spike
+   *  when the user briefly stops typing. Direct user actions
+   *  (toggle, add comment, click a card) call `render` immediately
+   *  for snappy feedback. */
+  scheduleRender(): void {
+    if (this.renderTimer !== null) cancelIdle(this.renderTimer);
+    this.renderTimer = scheduleIdle(() => {
+      this.renderTimer = null;
+      this.render();
+    }, 200);
+  }
+
   render(): void {
+    // Cancel any pending scheduled render — a direct render() call
+    // supersedes it and we don't want a stale follow-up.
+    if (this.renderTimer !== null) {
+      cancelIdle(this.renderTimer);
+      this.renderTimer = null;
+    }
     const view = this.getView();
     if (!view) {
       this.root.innerHTML = '';
@@ -214,11 +247,24 @@ export class CommentsColumn {
       this.root.style.minHeight = '';
       return;
     }
+    // Bail when the column is hidden. render() fires from
+    // `dispatchTransaction` on every doc-changing keystroke; if the
+    // user has the comments toggle off, there's nothing visible to
+    // paint and the O(doc) `collectRanges` walk below (plus all the
+    // DOM construction) is wasted work. The toggle handler in
+    // `editor/index.ts` calls `render()` explicitly when the column
+    // is shown, so the column repopulates from the current state at
+    // that moment with no lost data.
+    if (this.root.hidden) return;
     const state = getCommentsState(view.state);
-    const ranges = collectRanges(view.state.doc);
 
     this.root.innerHTML = '';
     if (state.threads.size === 0) {
+      // Empty-comments early-bail BEFORE the O(doc) `collectRanges`
+      // walk: this render fires from `dispatchTransaction` on every
+      // doc-changing keystroke, so docs with no comments would
+      // otherwise pay a full-doc walk per keystroke just to populate
+      // an empty-state placeholder.
       this.root.classList.add('pmd-comments-empty-state');
       const empty = document.createElement('div');
       empty.className = 'pmd-comments-empty';
@@ -228,6 +274,7 @@ export class CommentsColumn {
       return;
     }
     this.root.classList.remove('pmd-comments-empty-state');
+    const ranges = collectRanges(view.state.doc);
 
     // Iterate threads in document order so the column matches the
     // top-to-bottom flow of the editor. Orphans (mark removed but
@@ -479,6 +526,11 @@ export class CommentsColumn {
     const line = document.createElement('p');
     line.className = 'pmd-comment-ai-thinking-dots';
     const stage = makeActivityStage(this.inFlightActivityText());
+    // The comments column already constrains the placeholder's
+    // width; opt out of the activity-cycler's auto-width so
+    // long activity strings wrap inside the column instead of
+    // making the stage push past it.
+    stage.classList.add('pmd-activity-stage-fixed-width');
     line.appendChild(stage);
     body.appendChild(line);
     block.appendChild(body);

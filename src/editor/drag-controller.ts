@@ -63,9 +63,12 @@ type Listener = (event: DragEvent) => void;
  */
 export interface DragSurface {
   /** Test whether the pointer is over a drop slot owned by this
-   *  surface. Return null when not. */
+   *  surface. Return null when not. Optionally returns `view` to
+   *  signal which editor view the drop should land in — required for
+   *  cross-view (Phase 3) drops; when omitted the controller defaults
+   *  to the source view. */
   hitTest(clientX: number, clientY: number):
-    | { el: HTMLElement; insertPos: number; dy: number }
+    | { el: HTMLElement; insertPos: number; dy: number; view?: EditorView }
     | null;
   /** Highlight the given indicator element (or none). The controller
    *  passes the winner across all surfaces; losing surfaces receive
@@ -147,11 +150,32 @@ class DragControllerImpl {
     const { view: srcView, items } = this.session;
     const { view: tgtView, insertPos } = this.hoverTarget;
 
-    // Phase 1+2: any number of items, same view only. Cross-view
-    // (Phase 3) is added later.
-    if (items.length === 0 || srcView !== tgtView) {
+    if (items.length === 0) {
       this.cancel();
       return false;
+    }
+
+    // Cross-view drop: always copy. Source content stays in its
+    // doc; a clone (with fresh heading IDs) lands in the target.
+    // The user explicitly chose a different surface for the drop,
+    // so we never silently move data across documents.
+    if (srcView !== tgtView) {
+      const slices = items.map((item) => srcView.state.doc.slice(item.from, item.to));
+      const tr = tgtView.state.tr;
+      let target = insertPos;
+      for (const slice of slices) {
+        const rewritten = rewriteHeadingIds(slice);
+        tr.insert(target, rewritten.content);
+        target += rewritten.content.size;
+      }
+      tgtView.dispatch(tr.scrollIntoView());
+      // Move focus to the destination so subsequent edits land here.
+      tgtView.focus();
+      this.session = null;
+      this.hoverTarget = null;
+      this.copyMode = false;
+      this.notify('end');
+      return true;
     }
 
     const tr = opts.copy
@@ -197,7 +221,13 @@ class DragControllerImpl {
   dispatchHit(clientX: number, clientY: number): void {
     if (!this.session) return;
     let winner:
-      | { surface: DragSurface; el: HTMLElement; insertPos: number; dy: number }
+      | {
+          surface: DragSurface;
+          el: HTMLElement;
+          insertPos: number;
+          dy: number;
+          view?: EditorView;
+        }
       | null = null;
     for (const surface of this.surfaces) {
       const hit = surface.hitTest(clientX, clientY);
@@ -208,7 +238,13 @@ class DragControllerImpl {
       surface.highlight(winner && winner.surface === surface ? winner.el : null);
     }
     if (winner) {
-      this.setHoverTarget({ view: this.session.view, insertPos: winner.insertPos });
+      // If the winning surface declared its own view (cross-view
+      // drops in multi-pane mode), land there; otherwise default to
+      // the source view (single-doc behavior).
+      this.setHoverTarget({
+        view: winner.view ?? this.session.view,
+        insertPos: winner.insertPos,
+      });
     } else {
       this.setHoverTarget(null);
     }
@@ -319,7 +355,7 @@ export function buildCopyTransaction(
  *  populated with a string get rewritten (pocket / hat / block / tag /
  *  analytic — see `headingAttrs` in `schema/nodes.ts`). Nodes without
  *  an id attr or with a default-null id pass through unchanged. */
-function rewriteHeadingIds(slice: Slice): Slice {
+export function rewriteHeadingIds(slice: Slice): Slice {
   return new Slice(
     rewriteFragment(slice.content),
     slice.openStart,

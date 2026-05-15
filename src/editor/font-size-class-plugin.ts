@@ -124,24 +124,32 @@ function computeDecorationsInRange(doc: PMNode, from: number, to: number): Decor
       }),
     );
 
-    // Every text run in a shrunken paragraph gets an inline line-height
-    // declaration that:
-    //   1. Tracks the body knob (`var(--pmd-line-height)`), unitless,
-    //      so when applied to an inline element it resolves to
-    //      multiplier × that-element's-own-font-size.
-    //   2. Is floored at 1.2 — enough to clear Calibri's natural
-    //      ascender + descender extent at any font-size, preventing
-    //      adjacent small-font lines from drawing over each other.
+    // Per-text-run line-height floor: the paragraph's block-level
+    // `line-height: <minPt × ramp>pt` is an absolute length that
+    // inherits as a length to descendants. That value can fall below
+    // an inline run's natural rendered extent (e.g. 8.64pt strut vs
+    // Calibri 8pt's ~9.5pt natural extent), causing adjacent small-
+    // font lines to draw over each other. The floor is
+    // `max(var(--pmd-line-height), 1.2)` — tracks the body knob,
+    // never drops below 1.2× of each run's own font-size.
     //
-    // Why this is needed: the paragraph's block-level `line-height:
-    // <minPt × ramp>pt` is an absolute length that's inherited as a
-    // length by descendants. That value can fall below an inline
-    // run's natural rendered extent (e.g., 8.64pt strut vs Calibri
-    // 8pt's ~9.5pt natural extent), causing visible overlap. The
-    // `max(..., 1.2)` floor here is the safe minimum.
+    // For MARKED text the floor lives in CSS:
+    //   `.pmd-fs-shrunk > * { line-height: max(...) }`
+    // because marks render as `<span>` wrappers that the selector
+    // can target. The selector matches the outermost span of each
+    // run; nested mark-spans inherit the unitless value.
+    //
+    // For BARE text (no marks) the parent has no element wrapping
+    // it, so CSS can't reach it. We still emit an inline
+    // decoration in that case so PM wraps the bare run in a span
+    // with the floor applied. This shifts per-keystroke decoration
+    // count from O(text-runs-in-shrunken-paras) to O(bare-runs).
+    // Cite-heavy shrunken paragraphs (the typical case in debate
+    // workflows) often have zero bare runs — saving the
+    // decoration entirely.
     let offset = 1;
     node.forEach((child) => {
-      if (child.isText) {
+      if (child.isText && child.marks.length === 0) {
         const start = pos + offset;
         const end = start + child.nodeSize;
         decos.push(

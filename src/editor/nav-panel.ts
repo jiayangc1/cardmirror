@@ -19,6 +19,7 @@ import { dragController, type DragItem, type DragSurface } from './drag-controll
 import {
   collectHeadings,
   computeHeadingRange,
+  headingInsertPos,
   TYPE_LABEL,
   type HeadingEntry,
 } from './headings.js';
@@ -98,11 +99,25 @@ export class NavigationPanel {
   private boundOnDragKey = (e: KeyboardEvent) => this.onDragKey(e);
   private boundOnDragKeyUp = (e: KeyboardEvent) => this.onDragKey(e);
 
+  /** When set (multi-pane sections), the outline-level filter is
+   *  per-instance instead of shared via the `navMaxLevel` setting. */
+  private localMaxLevel: number | null = null;
+  /** Heading IDs seen at the last render. Used by
+   *  `applyMaxLevelToNewHeadings` (called after cross-view drops in
+   *  multi-pane mode) to identify headings that were dropped /
+   *  pasted in since the previous render and need to be auto-
+   *  collapsed to the current `maxLevel`. Existing user-expanded
+   *  parents stay expanded. */
+  private lastSeenIds: Set<string> = new Set();
   private get maxLevel(): number {
+    if (this.localMaxLevel != null) return this.localMaxLevel;
     return settings.get('navMaxLevel');
   }
 
-  constructor(parent: HTMLElement) {
+  constructor(parent: HTMLElement, opts?: { localMaxLevel?: boolean; initialMaxLevel?: number }) {
+    if (opts?.localMaxLevel) {
+      this.localMaxLevel = opts.initialMaxLevel ?? settings.get('navMaxLevel');
+    }
     this.root = document.createElement('aside');
     this.root.className = 'pmd-nav-panel';
 
@@ -218,11 +233,11 @@ export class NavigationPanel {
     this.unsubscribeDrag = dragController.subscribe((event) => {
       if (event === 'begin') {
         const session = dragController.getSession();
-        if (!session) return;
-        this.renderDropIndicators(session.items[0]!.level);
+        if (session) this.renderDropIndicators(session.items[0]!.level);
       } else if (event === 'end') {
         this.removeDropIndicators();
       } else if (event === 'move') {
+
         // Run auto-expand / auto-restore / auto-scroll on every
         // controller move event, so editor-sourced drags get the same
         // hover-driven nav-pane behavior as nav-sourced drags. The
@@ -244,6 +259,32 @@ export class NavigationPanel {
   }
 
   /** Surface implementation handed to the drag controller. */
+  /** Cached scroll-gate element — used by hit-test to verify the
+   *  cursor is in THIS nav's section, not just somewhere in the
+   *  nav-rail column. See the comment in `hitTestDropIndicators`. */
+  private navScrollGateEl: HTMLElement | null = null;
+
+  /** Walk up from `this.root` to find the nearest scrolling ancestor
+   *  (the multi-doc `.pmd-multi-nav-body`) or fall back to the panel
+   *  itself (single-doc, where the panel is position:fixed and its
+   *  own rect already gates correctly). Cached per instance. */
+  private findNavScrollGate(): HTMLElement {
+    if (this.navScrollGateEl && this.navScrollGateEl.isConnected) {
+      return this.navScrollGateEl;
+    }
+    let cur: HTMLElement | null = this.root;
+    while (cur && cur !== document.body) {
+      const overflow = getComputedStyle(cur).overflowY;
+      if (overflow === 'auto' || overflow === 'scroll') {
+        this.navScrollGateEl = cur;
+        return cur;
+      }
+      cur = cur.parentElement;
+    }
+    this.navScrollGateEl = this.root;
+    return this.root;
+  }
+
   private dragSurfaceImpl: DragSurface = {
     hitTest: (clientX, clientY) => this.hitTestDropIndicators(clientX, clientY),
     highlight: (el) => this.highlightDropIndicator(el),
@@ -252,25 +293,41 @@ export class NavigationPanel {
   private hitTestDropIndicators(
     clientX: number,
     clientY: number,
-  ): { el: HTMLElement; insertPos: number; dy: number } | null {
+  ): { el: HTMLElement; insertPos: number; dy: number; view?: EditorView } | null {
     const session = dragController.getSession();
     if (!session) return null;
+    const myView = this.view ?? undefined;
 
-    // Horizontal gate: pointer must be inside the nav panel column.
-    // (Use the panel root rather than each indicator's rect so a
-    // pointer past the bottom indicator — where the indicator might
-    // be very narrow — still registers.)
-    const rootRect = this.root.getBoundingClientRect();
-    if (clientX < rootRect.left - 8 || clientX > rootRect.right + 8) return null;
+    // Hit-test gate: in single-doc the panel is position:fixed, so
+    // its own bounding rect spans the whole nav column and a
+    // horizontal-only check is enough. In multi-doc each section
+    // has its own panel and the panel's rect can extend past its
+    // section (content overflow inside the scrolling section body)
+    // — so a cursor in section 2 would still pass the horizontal
+    // check on section 1's hit-test and "drop through" to whichever
+    // indicator in section 1 happened to share a viewport-y with
+    // the cursor. Gate against the nearest scrolling ancestor's
+    // rect, which clips correctly to each section's visible area in
+    // multi-doc while degenerating to the panel itself in single-doc.
+    const gateRect = this.findNavScrollGate().getBoundingClientRect();
+    if (clientX < gateRect.left - 8 || clientX > gateRect.right + 8) return null;
+    if (clientY < gateRect.top || clientY > gateRect.bottom) return null;
 
     type Cand = { el: HTMLElement; insertPos: number; centerY: number; dy: number };
     const valid: Cand[] = [];
+    // For same-view drops, skip indicators that fall inside the
+    // dragged source range (would be a no-op). For cross-view drops
+    // every indicator is a valid landing point — the source ranges
+    // refer to a different doc.
+    const sameDoc = session.view === this.view;
     for (const indicator of this.dropIndicators) {
       const insertPos = parseInt(indicator.dataset['insertPos'] ?? '-1', 10);
-      const onSelf = session.items.some(
-        (it) => insertPos > it.from && insertPos < it.to,
-      );
-      if (onSelf) continue;
+      if (sameDoc) {
+        const onSelf = session.items.some(
+          (it) => insertPos > it.from && insertPos < it.to,
+        );
+        if (onSelf) continue;
+      }
       const rect = indicator.getBoundingClientRect();
       const centerY = (rect.top + rect.bottom) / 2;
       valid.push({ el: indicator, insertPos, centerY, dy: Math.abs(clientY - centerY) });
@@ -283,7 +340,7 @@ export class NavigationPanel {
       if (v.dy > 24) continue;
       if (!best || v.dy < best.dy) best = v;
     }
-    if (best) return { el: best.el, insertPos: best.insertPos, dy: best.dy };
+    if (best) return { el: best.el, insertPos: best.insertPos, dy: best.dy, view: myView };
 
     // Fall-through: pointer is above the topmost or below the
     // bottommost indicator. Snap to that extreme so dragging into
@@ -296,10 +353,10 @@ export class NavigationPanel {
       if (v.centerY > bottomMost.centerY) bottomMost = v;
     }
     if (clientY > bottomMost.centerY) {
-      return { el: bottomMost.el, insertPos: bottomMost.insertPos, dy: bottomMost.dy };
+      return { el: bottomMost.el, insertPos: bottomMost.insertPos, dy: bottomMost.dy, view: myView };
     }
     if (clientY < topMost.centerY) {
-      return { el: topMost.el, insertPos: topMost.insertPos, dy: topMost.dy };
+      return { el: topMost.el, insertPos: topMost.insertPos, dy: topMost.dy, view: myView };
     }
     return null;
   }
@@ -344,8 +401,48 @@ export class NavigationPanel {
     }
   }
 
+  /**
+   * Apply the current `maxLevel` collapse rule to headings whose IDs
+   * weren't present at the last render. Used by the multi-pane shell
+   * after a cross-view drop: dropped content gets fresh heading IDs
+   * via `rewriteHeadingIds`, so the diff identifies exactly the new
+   * entries. Existing user-expanded parents are preserved.
+   *
+   * Also triggers a synchronous re-render and updates the latest doc
+   * snapshot — call after a transaction has applied.
+   */
+  applyMaxLevelToNewHeadings(): void {
+    const view = this.view;
+    if (!view) return;
+    const doc = view.state.doc;
+    this.currentDoc = doc;
+    const maxLevel = this.maxLevel;
+    const entries = collectHeadings(doc);
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i]!;
+      if (entry.id == null) continue;
+      if (this.lastSeenIds.has(entry.id)) continue; // not new
+      const next = entries[i + 1];
+      const hasChildren = next != null && next.level > entry.level;
+      if (!hasChildren) continue;
+      if (entry.level >= maxLevel) {
+        this.collapsed.add(entry.id);
+      }
+    }
+    this.render(doc);
+  }
+
   private render(doc: PMNode): void {
     const entries = collectHeadings(doc);
+
+    // Refresh the `lastSeenIds` set so `applyMaxLevelToNewHeadings`
+    // (called by the multi-pane shell after cross-view drops) can
+    // diff future renders against it.
+    const seen = new Set<string>();
+    for (const entry of entries) {
+      if (entry.id != null) seen.add(entry.id);
+    }
+    this.lastSeenIds = seen;
 
     // Clear and re-build. For doc sizes we care about (max ~600 headings
     // in the example corpus) this is fine; if profiling shows it's hot,
@@ -806,12 +903,18 @@ export class NavigationPanel {
       // of level <= dragged level. Skip deeper entries.
       if (entry.level > draggedLevel) continue;
 
-      const range = this.computeHeadingRange(entry);
-      if (!range) continue;
+      // Drop indicators only need `range.from`. The full
+      // `computeHeadingRange` does an O(doc) forward walk for
+      // pocket / hat / block to find the heading's end; running that
+      // once per entry adds up to several hundred ms on long docs at
+      // drag start. `headingInsertPos` computes just the start
+      // position.
+      const insertPos = headingInsertPos(doc, entry);
+      if (insertPos == null) continue;
 
       const indicator = document.createElement('div');
       indicator.className = 'pmd-nav-drop-indicator';
-      indicator.dataset['insertPos'] = String(range.from);
+      indicator.dataset['insertPos'] = String(insertPos);
       this.listEl.insertBefore(indicator, li);
       this.dropIndicators.push(indicator);
     }
@@ -1051,6 +1154,15 @@ export class NavigationPanel {
     // synchronously and triggers render — so collapsed needs to be
     // up-to-date before that render happens.
     this.applyMaxLevelToCollapseState(level);
+    if (this.localMaxLevel != null) {
+      // Multi-pane: per-instance max level. Update locally; the
+      // settings subscriber doesn't drive us (each pane's filter
+      // is independent).
+      this.localMaxLevel = level;
+      this.updateLevelButtonsActive();
+      if (this.currentDoc) this.render(this.currentDoc);
+      return;
+    }
     if (isAlreadyAtLevel) {
       // Settings.set short-circuits when the value is unchanged, so no
       // subscriber would fire and the freshly-reset collapse state

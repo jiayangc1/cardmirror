@@ -21,16 +21,24 @@
  *  keyed by stage element. Re-pointed each cycle. */
 const stageObservers = new WeakMap<HTMLElement, ResizeObserver>();
 
-/** Point the stage's height-tracking observer at `line`. The
- *  observer pushes `line.offsetHeight` onto `stage.style.height`
- *  so the stage grows / shrinks to fit the current rest line. */
-function trackHeight(stage: HTMLElement, line: HTMLElement): void {
+/** Point the stage's geometry-tracking observer at `line`. The
+ *  observer pushes the line's measured width AND height onto
+ *  `stage.style.width` / `.height` so the stage grows / shrinks to
+ *  fit the current rest line. The width-tracking half is what
+ *  lets the AI tooltip pill auto-fit content like a chip instead
+ *  of sitting at a fixed `min-width`. Stages that opt out of width
+ *  tracking (the comments column's placeholder, where the column
+ *  dictates the width) carry the `pmd-activity-stage-fixed-width`
+ *  class. */
+function trackGeometry(stage: HTMLElement, line: HTMLElement): void {
   if (typeof ResizeObserver === 'undefined') return;
   const existing = stageObservers.get(stage);
   if (existing) existing.disconnect();
+  const fixedWidth = stage.classList.contains('pmd-activity-stage-fixed-width');
   const apply = (): void => {
-    const h = line.getBoundingClientRect().height;
-    if (h > 0) stage.style.height = `${h}px`;
+    const rect = line.getBoundingClientRect();
+    if (rect.height > 0) stage.style.height = `${rect.height}px`;
+    if (!fixedWidth && rect.width > 0) stage.style.width = `${rect.width}px`;
   };
   const ro = new ResizeObserver(apply);
   ro.observe(line);
@@ -49,7 +57,7 @@ export function makeActivityStage(initialText: string): HTMLSpanElement {
   line.className = 'pmd-activity-line pmd-activity-rest';
   line.textContent = initialText;
   stage.appendChild(line);
-  trackHeight(stage, line);
+  trackGeometry(stage, line);
   return stage;
 }
 
@@ -74,7 +82,7 @@ export function cycleActivityText(stage: HTMLElement, newText: string): void {
   void next.getBoundingClientRect();
   next.classList.remove('pmd-activity-in');
   next.classList.add('pmd-activity-rest');
-  trackHeight(stage, next);
+  trackGeometry(stage, next);
 
   if (current) {
     current.classList.remove('pmd-activity-rest');

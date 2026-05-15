@@ -120,6 +120,21 @@ export interface Settings {
   navMaxLevel: number;
   /** Whether to show the cite preview on hover in the nav pane. */
   showCitePreview: boolean;
+  /** Browser-level spellcheck on the editor surface. Off by default
+   *  because on large debate docs the dictionary tokenization +
+   *  underline overlay is a visible per-keystroke cost; debate
+   *  evidence (technical jargon, author names) also produces mostly
+   *  false-positive squiggles. Users who prefer the safety net can
+   *  flip it on. */
+  editorSpellcheck: boolean;
+  /** Whether the user can click-and-drag selected text to move it to
+   *  another position. On by default (matches PM / browser default).
+   *  Turning this off suppresses the browser's `dragstart` on the
+   *  editor surface — text selection still works, but the user can't
+   *  initiate a text-move drag. Doesn't affect the card / heading
+   *  pickup-modifier drag (which is its own pointerdown-driven
+   *  system) or paste / typing. */
+  enableTextDragDrop: boolean;
   /** Whether read mode is currently active (dims non-read-aloud content,
    *  blocks editing). Persisted across sessions because some users may
    *  want it to be the default state. */
@@ -385,6 +400,17 @@ export interface Settings {
    *  full textarea makes more sense than an inline input. Empty
    *  string falls back to `DEFAULT_AI_CITE_PROMPT`. */
   aiCitePrompt: string;
+  /** Master switch for the multi-doc workspace shell — three slots,
+   *  each holding a stack of 0+ docs. Toggling this requires a
+   *  page reload to (re)build the editor shell. Comments are
+   *  unavailable while this is on. See SPEC-multi-pane.md. */
+  multiDocWorkspace: boolean;
+  /** When `multiDocWorkspace` is on and three slots are populated:
+   *  `compact` shows all three panes side by side; `wide` widens
+   *  each pane and lets the user paged-scroll between them
+   *  (2 full + edge of 3rd visible). With 1 or 2 active slots the
+   *  two modes render identically. */
+  multiDocLayoutMode: 'compact' | 'wide';
 }
 
 /** Open-delimiter options for "Condense with warning" markers. The
@@ -432,6 +458,13 @@ const DEFAULTS: Settings = {
   navWidth: 300,
   navMaxLevel: 3,
   showCitePreview: true,
+  editorSpellcheck: false,
+  // Default OFF — the user reported that PM's native click-and-drag
+  // of arbitrary selected text sometimes produces a doc edit that
+  // can't be cleanly undone, and they'd rather lose the feature
+  // than wrestle with the inconsistency. Flip on in Settings if
+  // you want the drag behavior back.
+  enableTextDragDrop: false,
   readMode: false,
   hideEmphasisBordersInReadMode: false,
   zoomPct: 100,
@@ -489,6 +522,8 @@ const DEFAULTS: Settings = {
     reflexive: 'themself',
   },
   aiCitePrompt: '',
+  multiDocWorkspace: false,
+  multiDocLayoutMode: 'compact',
 };
 
 /** Public read-only view of the built-in defaults — handy for any UI
@@ -522,7 +557,8 @@ export interface SettingMeta {
     | 'text'
     | 'password'
     | 'clod'
-    | 'aiCitePrompt';
+    | 'aiCitePrompt'
+    | 'multiDocLayoutMode';
   /** Setting depends on the AI master toggle — greyed out and
    *  disabled in the UI when `aiFeaturesEnabled` is false. */
   aiOnly?: boolean;
@@ -530,10 +566,38 @@ export interface SettingMeta {
 
 export const SETTING_METADATA: SettingMeta[] = [
   {
+    key: 'multiDocWorkspace',
+    label: 'Multi-doc workspace',
+    description:
+      'Enable a three-slot side-by-side workspace for working with up to three documents at once. Comments are unavailable while this is on. Reload the page after toggling for the change to take effect.',
+    kind: 'toggle',
+  },
+  {
+    key: 'multiDocLayoutMode',
+    label: 'Multi-doc layout',
+    description:
+      'When three docs are open, choose compact (all three visible at once, narrow) or wide-scroll (two full panes + edge of third; click the peek to snap). With 1 or 2 docs open, both modes render identically.',
+    kind: 'multiDocLayoutMode',
+  },
+  {
     key: 'showCitePreview',
     label: 'Cite preview on hover',
     description:
       'Show the cite-formatted text from a card on the right side of its nav-pane entry when you hover.',
+    kind: 'toggle',
+  },
+  {
+    key: 'editorSpellcheck',
+    label: 'Editor spellcheck',
+    description:
+      "Show browser spell-check red underlines under typed text. Off by default — on large docs the dictionary lookups + underline overlay add visible per-keystroke cost, and debate evidence (technical jargon, author names, citations) generates a lot of false-positive squiggles.",
+    kind: 'toggle',
+  },
+  {
+    key: 'enableTextDragDrop',
+    label: 'Text drag-and-drop',
+    description:
+      "Allow click-and-drag of selected text to move it to another position. On by default. Disabling stops you (and the browser) from initiating a text-move drag — useful if you keep accidentally dragging selections. Doesn't affect the card / heading pickup-modifier drag.",
     kind: 'toggle',
   },
   {
@@ -791,6 +855,12 @@ function sanitize(s: Settings): Settings {
     navWidth: clamp(s.navWidth, 150, 800),
     navMaxLevel: clamp(Math.round(s.navMaxLevel), 1, 4),
     showCitePreview: !!s.showCitePreview,
+    editorSpellcheck: !!s.editorSpellcheck,
+    // Default to `false` when missing — matches the persisted
+    // default. Saved settings from before this option existed
+    // explicitly opt out of text drag, since the inconsistent-undo
+    // behavior the option works around predates the option itself.
+    enableTextDragDrop: s.enableTextDragDrop === true,
     readMode: !!s.readMode,
     hideEmphasisBordersInReadMode: !!s.hideEmphasisBordersInReadMode,
     zoomPct: clamp(Math.round(s.zoomPct / 10) * 10, 50, 200),
@@ -897,6 +967,11 @@ function sanitize(s: Settings): Settings {
     aiPersonaCustomPronouns: sanitizeCustomPronouns(s.aiPersonaCustomPronouns),
     aiCitePrompt:
       typeof s.aiCitePrompt === 'string' ? s.aiCitePrompt : DEFAULTS.aiCitePrompt,
+    multiDocWorkspace: !!s.multiDocWorkspace,
+    multiDocLayoutMode:
+      s.multiDocLayoutMode === 'wide' || s.multiDocLayoutMode === 'compact'
+        ? s.multiDocLayoutMode
+        : DEFAULTS.multiDocLayoutMode,
   };
 }
 

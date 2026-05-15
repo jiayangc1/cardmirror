@@ -3,6 +3,112 @@
 Append-only log of implementation decisions and their rationale. Each
 entry has a date, a one-line summary, and the reasoning.
 
+## 2026-05-14: Multi-pane workspace (prototype)
+
+First-cut implementation of SPEC-multi-pane.md. Lives on the
+`multi-pane` branch. Gated by a single boolean setting
+(`multiDocWorkspace`) — toggling requires a page reload to (re)build
+the shell. With it OFF, today's single-doc shell loads as-is. With
+it ON, the single-doc surfaces (`#editor`, `#nav-panel`,
+`#comments-column`, the comments ribbon buttons) are hidden and a
+new multi-pane shell takes over.
+
+### Architecture
+
+  - `src/editor/multi-pane-shell.ts` owns the shell. Three slots
+    (`slot1` / `slot2` / `slot3`); each slot is a stack of 0+ live
+    DocRecords (per-stack EditorView + NavigationPanel + per-pane
+    drag surface). Hidden stack members keep their views in memory
+    (Q14: live-view, no serialize). Active slots render in numeric
+    order, left → right; empty slots take no space.
+  - `editor/index.ts` keeps most of the chrome wiring unchanged.
+    Three new exports — `setActiveView`, `getActiveView`,
+    `enableMultiDocMode` plus `buildEditorPlugins` and
+    `effectivePtForNode` — let the multi-pane module build per-pane
+    views with the exact same plugin stack as the single-doc shell
+    and steer the shared ribbon / status bar at the focused pane.
+  - The shell's `enableMultiDocMode` flips a `multiDocActive` flag
+    in `editor/index.ts` and registers a `multiDocOnFileOpen` hook;
+    the existing `dropzone.change` handler delegates to that hook
+    instead of running `mountView` when the flag is set.
+
+### Layout cells
+
+CSS-driven: the `.pmd-multi-row` has a `data-active` attribute (1 /
+2 / 3) that flex sizing reads. With `data-layout="compact"`, each
+active pane gets a fair share of the row (1 = full, 2 = halves, 3
+= thirds). With `data-layout="wide"` and three active panes, panes
+become 45% wide and the row is `overflow-x: auto;
+scroll-snap-type: x mandatory` — clicking the visible peek snaps
+to that pane. With 1 or 2 panes under wide-scroll, the layout
+collapses to the same flex sizing as compact (nothing to scroll).
+
+### Drag-and-drop
+
+`drag-controller.ts`'s commit branch now handles cross-view drops
+by always copying. The source slice's heading IDs are rewritten
+(same `rewriteHeadingIds` the in-doc copy-drag uses) so the
+workspace's id-uniqueness invariant holds. `DragSurface.hitTest`
+returns an optional `view` so a cross-pane surface can declare
+which doc the drop lands in. The editor surface (`drag-editor-
+surface.ts`) and nav surface (`nav-panel.ts`) both populate it.
+The nav surface also skips the same-doc "drop-on-self" guard when
+the drop is cross-view (since the source range refers to a
+different doc).
+
+### Per-section nav outline filter
+
+`NavigationPanel`'s constructor accepts `{ localMaxLevel: true }`.
+When set, the 1/2/3/4 buttons toggle a per-instance level rather
+than writing to the global `navMaxLevel` setting. Each pane's
+section is independent — matches Q2.
+
+### Typography / sizing inheritance
+
+The single-doc shell scopes typography flags to `#editor.X`. The
+multi-pane editors aren't descendants of `#editor`, so they
+wouldn't pick up these rules. Two changes:
+
+  - `applyDisplaySizes` / `applyLineHeight` / `applyBodyFont` now
+    set their CSS custom properties on `documentElement` as well
+    as on `#editor`. The single-doc behavior is unchanged
+    (documentElement is an ancestor of `#editor`); the multi-pane
+    editors inherit the same vars.
+  - Mirror `pmd-cite-underlined` / `pmd-undertag-italic` / etc. to
+    documentElement (most were already mirrored; added
+    `pmd-underline-bold`). New CSS rules at the end of style.css
+    duplicate the `#editor.X .pmd-Y` typography selectors for the
+    multi-pane surface: `html.X .pmd-pane-editor .pmd-Y`.
+
+### Routing prompt
+
+Inline overlay (`promptForSlot`) showing three slot buttons +
+Cancel. Each button labels its slot ("Slot 1") and shows the
+current contents in a smaller line below ("(empty)" or
+"filename" or "filename (+N)" for stacks). The per-pane "+ Open
+file" footer button shortcuts past the prompt by setting
+`pendingRoute` before triggering the picker.
+
+### Comments off
+
+`enableMultiDocMode` hides the comments toggle / add buttons and
+the column itself. The comments plugin still runs in each pane's
+state (cheap, and avoids re-shaping the plugin stack) — it just
+has no UI to render against.
+
+### Known limitations (prototype scope)
+
+  - Toggling the master switch requires a page reload (acceptable
+    per session).
+  - `applyReadMode` only re-runs against `getActiveView()`. The
+    other panes don't see the toggle until they're refocused —
+    not a problem in practice since read-mode toggles are global
+    via the setting and are cheap to re-apply on focus.
+  - Find / Replace, AI flows, and the Doc / Card / Table menus
+    all route through the focused pane only.
+  - Live-view stacks consume per-doc memory. For a typical
+    workspace of 3–6 docs this is well within budget.
+
 ## 2026-05-08: TypeScript + raw ProseMirror + Vite + Vitest
 
 **Stack:**
@@ -2232,3 +2338,180 @@ centering rather than `display: inline-flex` so the native baseline
 shift of `<sup>` / `<sub>` inside the labels survives. Flex alignment
 collapsed the digits onto the cell center, hiding the super/subscript
 visual cue.
+
+## 2026-05-14: `content-visibility: auto` on cards + explicit-trigger width sync
+
+`.pmd-card` / `.pmd-analytic-unit` / `.pmd-pocket` / `.pmd-hat` /
+`.pmd-block` all use `content-visibility: auto` so the browser
+skips layout for off-screen card subtrees. On long docs this is
+the dominant per-keystroke savings — Layout cost in the user's
+profile dropped substantially.
+
+Skipped cards still need an intrinsic size for the scrollbar /
+layout placeholder. Both axes use the `auto <length>` form, so
+after a card has been rendered once the browser auto-remembers
+its real size and reuses that on subsequent skips — visible cards
+always re-render at their actual width when the layout changes,
+and the remembered size gets refreshed naturally as the user
+scrolls.
+
+The `<length>` only matters for cards that have **never** been
+on-screen. For width, a fixed pixel fallback would clip cards in
+a narrow multi-pane slot, so we publish the editor's current
+content-area width as `--pmd-card-intrinsic-width` and the cards'
+`contain-intrinsic-width: auto var(...)` consumes it.
+Measurement reads the ProseMirror element's `clientWidth` minus
+its computed horizontal padding — `offsetWidth` on the outer
+editor body included scrollbar gutter and didn't subtract PM's
+1rem inner padding, which made the initial render a noticeable
+~50px too wide.
+
+The variable is updated by **explicit triggers, not a
+ResizeObserver**. An earlier attempt with a ResizeObserver
+deadlocked into a feedback loop: variable write → cards
+re-layout at the new size → measured body width shifts by a
+pixel → observer re-fires → ... Repeated attempts to break the
+loop (rAF batching, same-value cache, switching from clientWidth
+to `borderBoxSize.inlineSize`) all failed — the observed width
+genuinely changed each iteration once the user clicked into the
+editor, so the cache never gated. The fix was to drop the
+observer entirely and update the variable on the events that
+actually change the pane's available width:
+
+- Single-doc (`editor/index.ts`): window resize + the global
+  settings subscriber (covers nav-rail drag via `navWidth`, zoom,
+  display-size changes).
+- Multi-pane (`editor/multi-pane-shell.ts`): window resize, the
+  settings subscriber (layout-mode toggle, nav drag), and every
+  call to `refreshLayout` (which fires on slot push / close →
+  active-count change).
+
+Both sides coalesce trigger bursts into one rAF measurement so
+multiple events landing in the same tick produce a single read.
+A last-written-value cache short-circuits identical writes so
+repeated sync calls from different triggers don't restamp the
+CSS variable.
+
+### Stopping the intrinsic-width propagation chain
+
+After the observer was removed, a second symptom emerged: the
+multi-pane editor would expand on window resize but never shrink
+back. Specifically, the *entire editor surface* (not just the
+cards) crept wider every time the user resized.
+
+Root cause: `content-visibility: auto` cards publish a
+`contain-intrinsic-width` for their skipped placeholder, and that
+intrinsic-width is part of the parent ProseMirror element's
+max-content. PM's max-content propagated up through
+`.pmd-pane-editor` → `.pmd-pane-body` → `.pmd-pane` →
+`.pmd-multi-row` → `.pmd-multi-shell` → `#app`. With `auto`
+remembering enabled, skipped cards keep their **last rendered**
+size — so when the window grew, cards re-rendered wider and the
+chain inflated, but when the window shrank, off-screen cards
+stayed wide and the chain never deflated.
+
+Two CSS fixes broke the chain:
+
+- **`contain: inline-size` on `.ProseMirror`** (the targeted fix):
+  treats the PM box as inline-size-independent of its contents.
+  PM is already `width: 100%` of its parent in practice, so this
+  is purely about killing the upward propagation, not changing
+  used width.
+- **Explicit `min-width: 0` on `.pmd-multi-shell` and
+  `.pmd-multi-row`**: these flex containers were missing it, so
+  their default `min-width: auto` was a second path for
+  min-content propagation. Belt and suspenders — the inline-size
+  containment alone fixes the observed bug, but min-width:0 on the
+  containers is correct hygiene given any descendant can publish
+  an intrinsic size via containment.
+
+### Drop-indicator rendering: visibility-gated via IntersectionObserver
+
+`content-visibility: auto` introduced a third symptom: starting a
+drag (text→nav pickup) froze the page for ~1s on a long doc, and
+sometimes "click and hold without drag" appeared to do nothing.
+Root cause: `EditorDragSurface.renderIndicators` walks every
+heading in the doc and reads `offsetTop` to place a drop indicator
+at each one's CSS top inside the host. With CV:auto skipping
+off-screen subtrees, each `offsetTop` read on a descendant of a
+skipped card forces the browser to materialize that subtree's
+layout — and doing it N times in a tight loop costs the entire
+doc's layout cost (or worse, if the materializations aren't
+amortized).
+
+Fix: render indicators ONLY for headings whose elements are
+currently within (or near) the viewport. `EditorDragSurface` now
+maintains an `IntersectionObserver` continuously, tracking which
+`[data-id]` heading elements (and the doc's last child for the
+doc-end indicator) are intersecting. The IO uses `root: null`
+(viewport) and `rootMargin: '50%'` so a viewport-sized buffer of
+indicators is rendered above and below the visible region —
+indicators don't pop in as the user scrolls during a drag. A
+`MutationObserver` (debounced via the idle scheduler) re-syncs
+the observed-element set as PM transactions add or remove heading
+nodes from the DOM.
+
+`renderIndicators` now uses the IO-maintained `visibleHeadings`
+set as a filter: walking `collectHeadings(doc)` is still O(headings)
+but each iteration only does an `offsetTop` read for in-viewport
+elements, which are already laid out — no CV:auto materialization
+forced. On scroll during a drag, the IO callback re-runs
+`renderIndicators` to refresh the visible-region indicator set.
+
+Considered alternatives: (a) suppressing CV:auto for the duration
+of the drag via a `:root.pmd-drag-active` class — works but still
+forces a full-doc layout pass at drag start, which was the
+"extremely slow" the user reported even after the freeze stopped;
+(b) computing drop targets on-the-fly via `posAtCoords` and
+rendering a single floating indicator — simplest, but loses the
+"all drop targets visible at once" UX. Visibility-gated indicators
+preserve the existing UX (still see indicators for every heading
+in view) while avoiding the layout pass entirely.
+
+### Follow-up: shaving the lingering pickup-entry delay
+
+After the IO-based visibility gate, the freeze was gone but
+pickup still took a beat to enter on a long doc. The user's
+Performance recording (INP 425ms, processing duration 324ms)
+showed the remaining cost was split between **both** drop-target
+surfaces' `'begin'` subscribers — `renderIndicators` (editor)
+and `renderDropIndicators` (nav-pane) — each iterating every
+heading and calling `computeHeadingRange`. Bottom-up: 107ms in
+`computeHeadingRange`'s call tree, 28ms in `collectCiteText`,
+~80ms in forced layout from `offsetTop` reads.
+
+Four cuts:
+
+- `renderIndicators` reordered the heading walk so the visibility
+  gate fires BEFORE any range computation, and replaced
+  `computeHeadingRange` with a lightweight `headingInsertPos`. The
+  full range computation for pocket / hat / block does a
+  `nodesBetween(entry.pos + nodeSize, doc.content.size, ...)` walk
+  to find the next equal-or-shallower heading — that walk is O(doc)
+  in the worst case and was running for every heading in the doc
+  before the visibility gate even got a chance to reject. Drop
+  indicators only need each heading's *start* position, which is
+  just `entry.pos` for pocket / hat / block and the resolved parent
+  position for tag / analytic — no forward walk required.
+- `headingInsertPos` lives in `editor/headings.ts` and is shared
+  with `nav-panel.ts`. The nav-pane's `renderDropIndicators` was
+  doing the same `computeHeadingRange` call per heading; replaced
+  with the same helper. Both drop-target surfaces fire on every
+  drag's `'begin'`, so this cut compounds across surfaces.
+- `collectHeadings(doc, { skipCite: true })` — new opt-in that
+  skips the per-tag `collectCiteText` descent. The editor surface
+  doesn't read `entry.cite` at all (it's only displayed in the
+  nav-pane's outline), so skipping the cite walk during
+  drop-indicator placement saves ~30ms on a long doc. The nav-pane
+  still uses the default (cite-enabled) form for its main
+  outline render.
+- Pickup-mode cursor CSS no longer uses the universal-descendant
+  selector (`#editor.pmd-editor-pickup-mode *`), which was
+  invalidating the cursor property on every element under the host
+  (tens of thousands on a long doc) at class-toggle time. Cursor
+  inherits in CSS, so setting it on `.ProseMirror` cascades to
+  every text descendant without touching their individual style
+  computations. Side note: the old selector keyed on `#editor`
+  only, so the multi-pane host (`.pmd-pane-editor`) never showed
+  the grab cursor at all — the `:is(#editor, .pmd-pane-editor)`
+  rewrite fixes that too.

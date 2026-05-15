@@ -19,9 +19,10 @@
  */
 
 import type { EditorView } from 'prosemirror-view';
-import { collectHeadings, computeHeadingRange, TYPE_TO_LEVEL } from './headings.js';
+import { collectHeadings, headingInsertPos, TYPE_TO_LEVEL } from './headings.js';
 import { dragController, type DragItem, type DragSurface } from './drag-controller.js';
 import { settings } from './settings.js';
+import { scheduleIdle, cancelIdle, type IdleHandle } from './idle-scheduler.js';
 
 interface IndicatorRecord {
   el: HTMLElement;
@@ -36,7 +37,7 @@ interface HoveredContainer {
   label: string;
 }
 
-class EditorDragSurface implements DragSurface {
+export class EditorDragSurface implements DragSurface {
   private view: EditorView | null = null;
   private host: HTMLElement | null = null;
   private indicators: IndicatorRecord[] = [];
@@ -67,14 +68,78 @@ class EditorDragSurface implements DragSurface {
   private boundOnDocMove = (e: PointerEvent) => this.onDocPointerMoveDuringDrag(e);
   private boundOnDocUp = (e: PointerEvent) => this.onDocPointerUpDuringDrag(e);
 
+  /** Cached scroll-gate element (the nearest scrolling ancestor of
+   *  host, or host itself). Reused by every hit-test so we don't
+   *  walk the DOM on every pointermove. */
+  private scrollGateEl: HTMLElement | null = null;
+
+  // ---- Heading-visibility tracking (for drop-indicator rendering) ----
+  //
+  // Cards / heading containers have `content-visibility: auto`, which
+  // means off-screen subtrees are skipped from layout. Querying
+  // `offsetTop` of a descendant of a skipped subtree forces the
+  // browser to materialize that subtree's layout — and the
+  // drop-indicator code does that for every heading in the doc.
+  // On a long doc this is hundreds of ms of forced layout.
+  //
+  // Solution: maintain an IntersectionObserver continuously, tracking
+  // which heading elements are currently within (or near) the
+  // viewport. Drop indicators are rendered ONLY for the visible
+  // subset — those elements are already laid out so the offsetTop
+  // reads are fast. As the user scrolls during a drag, the IO fires
+  // and we re-render indicators for the newly-visible subset.
+  /** Per-element visibility flag, fed by the IntersectionObserver. */
+  private visibleHeadings: Set<HTMLElement> = new Set();
+  /** Whether `view.dom.lastElementChild` is currently in viewport.
+   *  Drives whether the doc-end indicator renders. */
+  private visibleLastChild = false;
+  /** The set of elements currently observed by the IO. Refreshed
+   *  whenever PM mutates the doc structure. */
+  private observedHeadings: Set<HTMLElement> = new Set();
+  private observedLastChild: HTMLElement | null = null;
+  private headingIO: IntersectionObserver | null = null;
+  /** MutationObserver watching `view.dom` for added / removed
+   *  heading nodes. Fires after every PM transaction — debounced
+   *  via the idle scheduler so we don't pay this cost per keystroke. */
+  private headingMutObserver: MutationObserver | null = null;
+  private refreshHeadingObsHandle: IdleHandle | null = null;
+
+  /** Return the host's own scroller if it has one, otherwise the
+   *  nearest ancestor whose `overflow-y` allows scrolling. Used by
+   *  `hitTest` to decide whether the cursor is "inside the editor's
+   *  visible drop region" — see the comment in `hitTest`. */
+  private findScrollGate(): HTMLElement {
+    if (this.scrollGateEl && this.scrollGateEl.isConnected) return this.scrollGateEl;
+    let cur: HTMLElement | null = this.host;
+    while (cur && cur !== document.body) {
+      const overflow = getComputedStyle(cur).overflowY;
+      if (overflow === 'auto' || overflow === 'scroll') {
+        this.scrollGateEl = cur;
+        return cur;
+      }
+      cur = cur.parentElement;
+    }
+    // Fall back to host (e.g., single-doc host that doesn't scroll
+    // either, or a detached host during teardown).
+    this.scrollGateEl = this.host;
+    return this.host!;
+  }
+
   attach(view: EditorView, hostEl: HTMLElement): void {
     this.view = view;
     this.host = hostEl;
+    this.scrollGateEl = null;
     if (!hostEl.style.position) hostEl.style.position = 'relative';
 
     this.unregisterSurface = dragController.registerSurface(this);
     this.unsubscribeDrag = dragController.subscribe((event) => {
       if (event === 'begin') {
+        // Eager render at drag start ensures cross-pane drop
+        // targets (in multi-doc mode) have indicators ready the
+        // moment the pointer enters them. Earlier attempt at
+        // lazy-render-on-first-hitTest left target panes empty in
+        // some cross-pane scenarios. With the two-pass layout-
+        // batched renderIndicators below the cost is moderate.
         const session = dragController.getSession();
         if (session) this.renderIndicators(session.items[0]!.level);
       } else if (event === 'end') {
@@ -92,6 +157,7 @@ class EditorDragSurface implements DragSurface {
     window.addEventListener('blur', this.boundOnBlur);
     hostEl.addEventListener('pointermove', this.boundOnHostMove);
     hostEl.addEventListener('pointerdown', this.boundOnHostDown);
+    this.setupHeadingObservers();
   }
 
   private onGlobalMove(e: MouseEvent): void {
@@ -121,6 +187,7 @@ class EditorDragSurface implements DragSurface {
     this.detachDragListeners();
     this.removeIndicators();
     this.removeHighlight();
+    this.teardownHeadingObservers();
     this.hovered = null;
     this.pickupModifierHeld = false;
     this.dragOriginatedHere = false;
@@ -130,19 +197,23 @@ class EditorDragSurface implements DragSurface {
 
   // ---- DragSurface implementation ----
 
-  hitTest(clientX: number, clientY: number): { el: HTMLElement; insertPos: number; dy: number } | null {
+  hitTest(clientX: number, clientY: number): { el: HTMLElement; insertPos: number; dy: number; view?: EditorView } | null {
     if (!this.host) return null;
-    const hostRect = this.host.getBoundingClientRect();
-    // Horizontal gate only — vertically the pointer can fall past the
-    // last indicator (mostly-empty doc, dragging into the open space
-    // below) and we still want to snap to the bottom.
-    if (clientX < hostRect.left || clientX > hostRect.right) {
+    // For the hit-test gate, use the nearest SCROLLING ancestor — in
+    // single-doc that's the host itself (`#editor` has overflow:auto),
+    // in multi-doc that's the pane body (the host `.pmd-pane-editor`
+    // has overflow:visible and its element box is locked to the
+    // body's visible height while PM's content overflows further
+    // down). Using the host's own rect rejects every cursor below
+    // its box even though the editor content extends past it.
+    const gateRect = this.findScrollGate().getBoundingClientRect();
+    if (clientX < gateRect.left || clientX > gateRect.right) {
       return null;
     }
     // Generous vertical clamp so we don't claim drops far outside the
     // editor's visible area (e.g., user dragging over a totally
     // unrelated page region above or below).
-    if (clientY < hostRect.top - 64 || clientY > hostRect.bottom + 64) {
+    if (clientY < gateRect.top - 64 || clientY > gateRect.bottom + 64) {
       return null;
     }
 
@@ -162,13 +233,14 @@ class EditorDragSurface implements DragSurface {
     }
     if (valid.length === 0) return null;
 
+    const view = this.view ?? undefined;
     // Preferred: closest indicator within 32px band.
     let best: Cand | null = null;
     for (const v of valid) {
       if (v.dy > 32) continue;
       if (!best || v.dy < best.dy) best = v;
     }
-    if (best) return { el: best.el, insertPos: best.insertPos, dy: best.dy };
+    if (best) return { el: best.el, insertPos: best.insertPos, dy: best.dy, view };
 
     // Fall-through: pointer is above the topmost or below the
     // bottommost indicator (e.g., empty page space at the bottom).
@@ -180,10 +252,10 @@ class EditorDragSurface implements DragSurface {
       if (v.centerY > bottomMost.centerY) bottomMost = v;
     }
     if (clientY > bottomMost.centerY) {
-      return { el: bottomMost.el, insertPos: bottomMost.insertPos, dy: bottomMost.dy };
+      return { el: bottomMost.el, insertPos: bottomMost.insertPos, dy: bottomMost.dy, view };
     }
     if (clientY < topMost.centerY) {
-      return { el: topMost.el, insertPos: topMost.insertPos, dy: topMost.dy };
+      return { el: topMost.el, insertPos: topMost.insertPos, dy: topMost.dy, view };
     }
     return null;
   }
@@ -201,48 +273,214 @@ class EditorDragSurface implements DragSurface {
     if (!this.view || !this.host) return;
     const view = this.view;
     const host = this.host;
-    const hostRect = host.getBoundingClientRect();
-    // #editor uses CSS `zoom`, so `style.top` set on an indicator is
-    // interpreted in the host's unzoomed CSS pixels (then multiplied by
-    // zoom at render time). The viewport-distance from coordsAtPos /
-    // getBoundingClientRect has to be divided back out.
-    const zoom = this.getEditorZoom();
 
+    // Use each heading's rendered DOM element to derive its CSS top
+    // INSIDE the host (`offsetTop` walks the offsetParent chain).
+    // Previously we used `view.coordsAtPos` (viewport coords) and
+    // transformed back with `host.getBoundingClientRect().top` and
+    // `host.scrollTop`. That worked in single-doc where the host IS
+    // the scroll container, but broke in multi-doc — the scroll
+    // container is the pane *body*, not the host, so the transform
+    // collapsed all indicators near the top of the host's content.
+    // Offsets sidestep the viewport coordinate space entirely.
+    const positions: { insertPos: number; top: number }[] = [];
     const seen = new Set<number>();
-    const place = (insertPos: number, anchorY: number): void => {
+    const pushPos = (insertPos: number, top: number): void => {
       if (seen.has(insertPos)) return;
       seen.add(insertPos);
-      const indicator = document.createElement('div');
-      indicator.className = 'pmd-editor-drop-indicator';
-      indicator.style.top = `${(anchorY - hostRect.top) / zoom + host.scrollTop}px`;
-      host.appendChild(indicator);
-      this.indicators.push({ el: indicator, insertPos });
+      positions.push({ insertPos, top });
     };
-
-    for (const entry of collectHeadings(view.state.doc)) {
+    // Build a fast id→element map from the currently-visible heading
+    // set so we can render indicators only for headings the user can
+    // actually see. Headings outside the viewport stay
+    // `content-visibility: auto`-skipped — querying their offsetTop
+    // would force the browser to materialize their ancestor layout,
+    // which is the slow path we're avoiding. The IntersectionObserver
+    // (`headingIO`) keeps `visibleHeadings` current.
+    const visibleIdToEl = new Map<string, HTMLElement>();
+    for (const el of this.visibleHeadings) {
+      const id = el.dataset['id'];
+      if (id) visibleIdToEl.set(id, el);
+    }
+    const doc = view.state.doc;
+    // `skipCite: true` — drop-indicator placement doesn't read
+    // `entry.cite`, and the cite walk is the heaviest part of
+    // `collectHeadings` (it descends every card looking for
+    // cite-marked text runs).
+    for (const entry of collectHeadings(doc, { skipCite: true })) {
       if (entry.level > draggedLevel) continue;
-      const range = computeHeadingRange(view.state.doc, entry);
-      if (!range) continue;
-      try {
-        const coords = view.coordsAtPos(range.from);
-        place(range.from, coords.top);
-      } catch {
-        /* skip */
+      const id = entry.id;
+      if (!id) continue;
+      const el = visibleIdToEl.get(id);
+      if (!el) continue;
+      // Visibility gate first — the heading-range computation below
+      // does a forward doc walk for pocket / hat / block (nodesBetween
+      // to find the next equal-or-shallower heading), which is the
+      // expensive bit. Skipping that for off-screen headings keeps
+      // drag pickup snappy on long docs.
+      //
+      // We also DON'T call `computeHeadingRange` here — for
+      // indicator placement we only need the heading's start position,
+      // which is `entry.pos` for pocket / hat / block and the parent
+      // card's position for tag / analytic. `headingInsertPos` below
+      // computes just that, without the forward-walk for the heading's
+      // full range.
+      const insertPos = headingInsertPos(doc, entry);
+      if (insertPos == null) continue;
+      // Heading is in-viewport, so its ancestors are already laid out
+      // and the offsetTop read is cheap.
+      const topInHost = offsetTopWithin(el, host);
+      if (topInHost == null) continue;
+      pushPos(insertPos, topInHost);
+    }
+    // Doc-end indicator: same visibility gate. The last child is
+    // observed separately because it may not carry `data-id`.
+    const docEnd = view.state.doc.content.size;
+    if (!seen.has(docEnd) && this.visibleLastChild) {
+      const lastChild = view.dom.lastElementChild as HTMLElement | null;
+      if (lastChild) {
+        const topInHost = offsetTopWithin(lastChild, host);
+        if (topInHost != null) pushPos(docEnd, topInHost + lastChild.offsetHeight);
       }
     }
 
-    const docEnd = view.state.doc.content.size;
-    try {
-      const endCoords = view.coordsAtPos(docEnd);
-      place(docEnd, endCoords.bottom);
-    } catch {
-      /* skip */
+    // Single-DOM append via a fragment — no layout thrash from the
+    // per-iteration mutations the old loop did.
+    const fragment = document.createDocumentFragment();
+    for (const { insertPos, top } of positions) {
+      const indicator = document.createElement('div');
+      indicator.className = 'pmd-editor-drop-indicator';
+      indicator.style.top = `${top}px`;
+      fragment.appendChild(indicator);
+      this.indicators.push({ el: indicator, insertPos });
     }
+    host.appendChild(fragment);
   }
 
   private removeIndicators(): void {
     for (const r of this.indicators) r.el.remove();
     this.indicators = [];
+  }
+
+  // ---- Heading visibility tracking ----
+
+  /** Stand up the IntersectionObserver + MutationObserver that keep
+   *  `visibleHeadings` and `visibleLastChild` current. Called once
+   *  from `attach`. */
+  private setupHeadingObservers(): void {
+    if (!this.view) return;
+    this.headingIO = new IntersectionObserver(
+      (entries) => this.onHeadingsIntersection(entries),
+      // `root: null` = viewport. The doc-end / heading elements live
+      // inside a scroll container that's itself inside the viewport,
+      // so viewport intersection correctly tracks user-visible state
+      // for both single-doc (`#editor` may or may not scroll) and
+      // multi-pane (each pane body scrolls inside its own pane).
+      // 50% rootMargin keeps a viewport-sized buffer of indicators
+      // rendered above and below the visible region so the user
+      // doesn't see them pop in as they scroll during a drag.
+      { root: null, rootMargin: '50%', threshold: 0 },
+    );
+    this.headingMutObserver = new MutationObserver(() => this.scheduleHeadingObsRefresh());
+    this.headingMutObserver.observe(this.view.dom, { childList: true, subtree: true });
+    // Initial population — observe everything currently rendered.
+    this.refreshHeadingObservations();
+  }
+
+  private teardownHeadingObservers(): void {
+    if (this.refreshHeadingObsHandle !== null) {
+      cancelIdle(this.refreshHeadingObsHandle);
+      this.refreshHeadingObsHandle = null;
+    }
+    if (this.headingMutObserver) {
+      this.headingMutObserver.disconnect();
+      this.headingMutObserver = null;
+    }
+    if (this.headingIO) {
+      this.headingIO.disconnect();
+      this.headingIO = null;
+    }
+    this.observedHeadings.clear();
+    this.observedLastChild = null;
+    this.visibleHeadings.clear();
+    this.visibleLastChild = false;
+  }
+
+  /** PM mutations fire as a burst — debounce the re-observe via the
+   *  idle scheduler so we don't pay this cost on every keystroke. */
+  private scheduleHeadingObsRefresh(): void {
+    if (this.refreshHeadingObsHandle !== null) return;
+    this.refreshHeadingObsHandle = scheduleIdle(() => {
+      this.refreshHeadingObsHandle = null;
+      this.refreshHeadingObservations();
+    }, 250);
+  }
+
+  /** Sync IO observations with the current set of `[data-id]`
+   *  elements in `view.dom` plus the doc's last child (for the
+   *  doc-end indicator). Adds new observations, drops stale ones. */
+  private refreshHeadingObservations(): void {
+    if (!this.view || !this.headingIO) return;
+    const heads = this.view.dom.querySelectorAll<HTMLElement>('[data-id]');
+    const next = new Set<HTMLElement>();
+    for (const el of heads) next.add(el);
+    // Unobserve elements no longer present.
+    for (const el of this.observedHeadings) {
+      if (!next.has(el)) {
+        this.headingIO.unobserve(el);
+        this.visibleHeadings.delete(el);
+      }
+    }
+    // Observe elements newly present.
+    for (const el of next) {
+      if (!this.observedHeadings.has(el)) {
+        this.headingIO.observe(el);
+      }
+    }
+    this.observedHeadings = next;
+    // Doc-end last-child tracking. Re-attach when it changes.
+    const lastChild = this.view.dom.lastElementChild as HTMLElement | null;
+    if (lastChild !== this.observedLastChild) {
+      if (this.observedLastChild) {
+        this.headingIO.unobserve(this.observedLastChild);
+        this.visibleLastChild = false;
+      }
+      if (lastChild) this.headingIO.observe(lastChild);
+      this.observedLastChild = lastChild;
+    }
+  }
+
+  private onHeadingsIntersection(entries: IntersectionObserverEntry[]): void {
+    let changed = false;
+    for (const e of entries) {
+      const el = e.target as HTMLElement;
+      if (e.isIntersecting) {
+        if (el === this.observedLastChild && !this.visibleLastChild) {
+          this.visibleLastChild = true;
+          changed = true;
+        }
+        if (el.hasAttribute('data-id') && !this.visibleHeadings.has(el)) {
+          this.visibleHeadings.add(el);
+          changed = true;
+        }
+      } else {
+        if (el === this.observedLastChild && this.visibleLastChild) {
+          this.visibleLastChild = false;
+          changed = true;
+        }
+        if (this.visibleHeadings.has(el)) {
+          this.visibleHeadings.delete(el);
+          changed = true;
+        }
+      }
+    }
+    // If a drag is currently active and the visible set shifted (e.g.
+    // user scrolled the pane), re-render indicators to cover the
+    // newly-visible region.
+    if (changed && dragController.isActive()) {
+      const session = dragController.getSession();
+      if (session) this.renderIndicators(session.items[0]!.level);
+    }
   }
 
   // ---- Modifier-pickup mode ----
@@ -532,3 +770,23 @@ class EditorDragSurface implements DragSurface {
  * Workspace-wide singleton.
  */
 export const editorDragSurface = new EditorDragSurface();
+
+/** Sum `offsetTop` from `el` up to (but excluding) `host`. Returns the
+ *  CSS top of `el` inside `host`'s coordinate system, regardless of
+ *  intermediate positioned ancestors. Used by drop-indicator placement
+ *  to avoid the viewport→host transform that fails when the host
+ *  isn't the scroll container. */
+function offsetTopWithin(el: HTMLElement, host: HTMLElement): number | null {
+  let top = 0;
+  let walker: HTMLElement | null = el;
+  // 16 hops is a generous bound for editor DOM nesting; prevents
+  // accidental infinite walks if `host` somehow isn't in `el`'s
+  // offsetParent chain.
+  for (let i = 0; i < 16 && walker; i++) {
+    if (walker === host) return top;
+    top += walker.offsetTop;
+    walker = walker.offsetParent as HTMLElement | null;
+  }
+  return null;
+}
+

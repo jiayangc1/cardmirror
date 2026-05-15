@@ -38,6 +38,7 @@ import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } 
 import { DOMParser as PMDOMParser, Fragment, Slice, type Node as PMNode } from 'prosemirror-model';
 import { schema } from '../schema/index.js';
 import { condenseBranchC, condenseMerge } from './condense.js';
+import { buildImageNodeFromBlob, insertImageNode } from './image-insert.js';
 
 /**
  * Build a Slice representing `text` as plain inline content, splitting
@@ -120,6 +121,22 @@ export function buildPastePlugin(ctx: PastePluginCtx): Plugin<PluginState> {
     },
     props: {
       handlePaste(view, event, slice) {
+        // Clipboard image paste — screenshots, copy-image from a
+        // browser, etc. Take precedence over text / HTML branches
+        // when the clipboard carries `image/*` file data; users
+        // pasting a screenshot don't want the fallback text label.
+        const files = event.clipboardData?.files;
+        if (files && files.length > 0) {
+          const imageFile = Array.from(files).find((f) => f.type.startsWith('image/'));
+          if (imageFile) {
+            event.preventDefault();
+            void (async () => {
+              const node = await buildImageNodeFromBlob(imageFile);
+              if (node) insertImageNode(view, node);
+            })();
+            return true;
+          }
+        }
         const armed = isPlainPasteArmed(view.state);
         if (armed) {
           // Sticky-toggle behavior: plain-paste stays on until the user

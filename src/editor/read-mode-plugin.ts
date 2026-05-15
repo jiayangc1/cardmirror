@@ -34,41 +34,62 @@
 import { Plugin } from 'prosemirror-state';
 import { Decoration, DecorationSet } from 'prosemirror-view';
 import type { Node as PMNode } from 'prosemirror-model';
-import { settings } from './settings.js';
 import { changedRange, expandToTopLevel } from './decoration-range.js';
 
-/** Meta key used to force a recompute when read mode toggles. */
+/** Meta key used to flip read mode on or off for a specific view.
+ *  The meta value is the *desired* state — `true` turns read mode
+ *  on, `false` turns it off. (Earlier this was a boolean
+ *  "recompute" flag and the plugin re-read the global
+ *  `settings.readMode` itself, but that broke once multi-doc made
+ *  read mode per-pane state — the global setting stays `false`
+ *  while individual panes flip on, and the plugin's text-hiding
+ *  decorations never got emitted.) */
 export const PMD_READ_MODE_TOGGLE = 'pmdReadModeToggle';
 
-export const readModePlugin: Plugin<DecorationSet> = new Plugin<DecorationSet>({
+interface ReadModeState {
+  on: boolean;
+  decorations: DecorationSet;
+}
+
+export const readModePlugin: Plugin<ReadModeState> = new Plugin<ReadModeState>({
   state: {
-    init(_, { doc }) {
-      return settings.get('readMode') ? computeFullSet(doc) : DecorationSet.empty;
+    init() {
+      // Always start OFF — the dispatching code path
+      // (`applyReadMode` / `applyReadModeToTarget`) sends a toggle
+      // meta the moment a view should be in read mode, so per-view
+      // state starts in a known-good baseline regardless of any
+      // global setting.
+      return { on: false, decorations: DecorationSet.empty };
     },
     apply(tr, prev, _oldState, newState) {
-      if (tr.getMeta(PMD_READ_MODE_TOGGLE)) {
-        return settings.get('readMode') ? computeFullSet(newState.doc) : DecorationSet.empty;
+      const meta = tr.getMeta(PMD_READ_MODE_TOGGLE);
+      if (meta !== undefined) {
+        const on = meta === true;
+        return {
+          on,
+          decorations: on ? computeFullSet(newState.doc) : DecorationSet.empty,
+        };
       }
       if (!tr.docChanged) return prev;
-      // When read mode is off the decoration set is empty and stays
-      // empty — skip the walk entirely.
-      if (!settings.get('readMode')) return prev;
+      if (!prev.on) return prev;
 
       const range = changedRange(tr);
-      if (!range) return prev.map(tr.mapping, tr.doc);
+      if (!range) {
+        return { on: prev.on, decorations: prev.decorations.map(tr.mapping, tr.doc) };
+      }
 
       // Map existing decorations through the change, then replace any
       // that fall inside the recompute window.
       const expanded = expandToTopLevel(tr.doc, range.from, range.to);
-      const mapped = prev.map(tr.mapping, tr.doc);
+      const mapped = prev.decorations.map(tr.mapping, tr.doc);
       const stale = mapped.find(expanded.from, expanded.to);
       const fresh = computeDecorationsInRange(tr.doc, expanded.from, expanded.to);
-      return mapped.remove(stale).add(tr.doc, fresh);
+      return { on: prev.on, decorations: mapped.remove(stale).add(tr.doc, fresh) };
     },
   },
   props: {
     decorations(state) {
-      return readModePlugin.getState(state);
+      return readModePlugin.getState(state)?.decorations;
     },
   },
 });

@@ -11,7 +11,26 @@
       <div class="ribbon-section ribbon-left">
         <div class="ribbon-button-stack">
           <button id="open-btn" type="button" title="Open .docx" aria-label="Open">📂</button>
+          <button id="new-btn" type="button" title="New document" aria-label="New document">🆕</button>
           <button id="export-btn" type="button" disabled title="Save As…" aria-label="Save As">💾</button>
+        </div>
+        <!-- Speech-doc buttons. Same 2-row stack rhythm as the file
+             buttons so they line up. Visible only in multi-doc mode
+             (a CSS rule hides the whole stack in single-doc — the
+             commands don't make sense without a second pane). Order
+             with `grid-auto-flow: row` so HTML reads:
+                 🎤 (new)   📌 (mark/unmark)
+                 ➤  (send-cursor)   ⤓ (send-end)         -->
+        <div id="speech-stack" class="ribbon-button-stack ribbon-speech-stack">
+          <button id="speech-new-btn" type="button"
+                  title="New speech document" aria-label="New speech document">🎤</button>
+          <button id="speech-mark-btn" type="button"
+                  aria-pressed="false" title="Mark / unmark the active doc as the speech doc"
+                  aria-label="Mark active doc as speech doc">📌</button>
+          <button id="speech-send-cursor-btn" type="button"
+                  title="Send to speech doc at cursor (`)" aria-label="Send to speech at cursor">➤</button>
+          <button id="speech-send-end-btn" type="button"
+                  title="Send to speech doc at end (Alt-`)" aria-label="Send to speech at end">⤓</button>
         </div>
         <input type="file" id="dropzone" accept=".docx" hidden />
         <div id="formatting-panel" class="ribbon-formatting-panel" role="group" aria-label="Formatting panel">
@@ -101,6 +120,8 @@
         <div id="format-menu-panel" class="ribbon-format-menu-panel" role="group" aria-label="Formatting utilities">
           <button id="table-menu-btn" class="ribbon-doc-menu-btn ribbon-format-table-btn" type="button"
                   title="Table operations" aria-haspopup="true" aria-expanded="false">Table <span class="ribbon-doc-menu-arrow">▾</span></button>
+          <button id="insert-image-btn" class="ribbon-format-inline-btn ribbon-format-image-btn" type="button"
+                  title="Insert image at cursor" aria-label="Insert image">🖼</button>
           <div class="ribbon-format-inline-row" role="group" aria-label="Inline marks">
             <button id="superscript-btn" class="ribbon-format-inline-btn" type="button"
                     title="Superscript">x<sup>2</sup></button>

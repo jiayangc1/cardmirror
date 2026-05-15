@@ -24,23 +24,30 @@ import { Plugin } from 'prosemirror-state';
 import type { Transaction } from 'prosemirror-state';
 import type { Node as PMNode } from 'prosemirror-model';
 import { schema } from '../schema/index.js';
+import { changedRange } from './transaction-utils.js';
 
 const CANDIDATE_TYPES = new Set<string>(['card_body', 'paragraph', 'cite_paragraph']);
 
 export const citeClassifierPlugin: Plugin = new Plugin({
   appendTransaction(transactions, _oldState, newState) {
-    if (!transactions.some((t) => t.docChanged)) return null;
+    // Scope to the mapped range of the dispatched changes. Walking
+    // the full doc on every keystroke is O(N), which dominates
+    // typing latency on large workspaces. `nodesBetween` still
+    // surfaces the candidate textblock's parent, which is what
+    // `targetTypeFor` needs.
+    const range = changedRange(transactions);
+    if (!range) return null;
 
     let tr: Transaction | null = null;
-    newState.doc.descendants((node, pos) => {
+    newState.doc.nodesBetween(range.from, range.to, (node, pos, parent) => {
       const name = node.type.name;
-      if (!CANDIDATE_TYPES.has(name)) return;
-      const $pos = newState.doc.resolve(pos);
-      const parent = $pos.parent;
+      if (!CANDIDATE_TYPES.has(name)) return true;
+      if (!parent) return false;
       const target = targetTypeFor(node, parent);
-      if (target === null || target === name) return;
+      if (target === null || target === name) return false;
       if (!tr) tr = newState.tr;
       tr.setNodeMarkup(pos, schema.nodes[target]!);
+      return false;
     });
 
     return tr;

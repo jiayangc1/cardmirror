@@ -165,9 +165,14 @@ body {
    the export button's top + bottom align with the panels' bottom
    row. 1.45rem row height + 2px inter-row gap = the same rhythm. */
 .ribbon-button-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  /* Was a column flex when this only held Open + Save. Adding "New"
+   * would make a 3-row stack, breaking the 2-row chrome rhythm. Use
+   * a 2-row × N-column grid instead — Open / New on top, Save below. */
+  display: grid;
+  grid-template-rows: repeat(2, auto);
+  grid-auto-flow: column;
+  gap: 2px 3px;
+  align-content: center;
 }
 
 /* Prefix with `#ribbon` so this rule beats the generic
@@ -178,6 +183,31 @@ body {
   height: 1.45rem;
   width: 1.5rem;
   font-size: 0.78rem;
+}
+
+/* Speech-doc button stack. Same layout rhythm as the file stack
+   (Open/New/Save), placed immediately to its right. Hidden in
+   single-doc — the speech-send gesture requires a separate
+   destination doc that single-doc can't provide, and the
+   commands all hand off to the multi-pane shell. A thin
+   left-side rule separates this cluster from the file buttons
+   so they read as two distinct groups. */
+.ribbon-speech-stack {
+  /* Override the parent stack's column-major auto-flow: with four
+     buttons we want a clean 2×2 row-major grid so the buttons
+     read left-to-right top-to-bottom. */
+  grid-auto-flow: row;
+  grid-template-columns: repeat(2, auto);
+  border-left: 1px solid var(--pmd-c-border-soft);
+  padding-left: 0.4rem;
+  margin-left: 0.2rem;
+}
+body:not(.pmd-multi-doc) #speech-stack { display: none; }
+/* `mark active as speech` is a toggle — when this button is the
+   active doc's speech designation, it stays pressed-down so the
+   user can see at a glance which slot holds the speech doc. */
+#speech-mark-btn[aria-pressed="true"] {
+  background: var(--pmd-c-hover-strong);
 }
 
 /* Formatting panel — Verbatim-style apply-paragraph-style buttons.
@@ -778,7 +808,7 @@ code {
    browsers anchor at the very top of the viewport — under our fixed
    ribbon. scroll-margin-top reserves that much vertical space above
    the heading when it's the scroll target. */
-#editor [data-id] {
+:is(#editor, .pmd-pane-editor) [data-id] {
   scroll-margin-top: calc(var(--ribbon-height) + 0.5rem);
 }
 
@@ -827,7 +857,7 @@ code {
    specificity than a bare `.pmd-analytic` rule and would otherwise
    strip the before-margin. Color is settings-driven via
    --pmd-color-analytic — see ARCHITECTURE.md §18. */
-#editor .pmd-analytic {
+:is(#editor, .pmd-pane-editor) .pmd-analytic {
   font-size: var(--pmd-size-analytic);
   line-height: var(--pmd-line-height-analytic);
   font-weight: bold;
@@ -842,7 +872,7 @@ code {
 .pmd-cite-para,
 .pmd-card-body,
 .pmd-undertag,
-#editor p {
+:is(#editor, .pmd-pane-editor) p {
   margin: 0;
 }
 
@@ -863,12 +893,54 @@ code {
 .pmd-analytic-unit {
   border-left: 2px solid transparent;
   padding-left: 0.5rem;
+  /* `contain: layout style` tells the browser that layout (and
+     style invalidation) inside this element never propagates up
+     to ancestors. Without this, every keystroke makes the browser
+     walk the entire doc tree to recompute layout.
+
+     `content-visibility: auto` is the stronger move: off-screen
+     cards are skipped from layout AND paint entirely. The catch
+     is that it implicitly applies size containment when skipped,
+     using `contain-intrinsic-size` as the rendered size for both
+     axes — so a fixed-pixel width fallback would clip multi-pane
+     cards in narrow panes. Both axes use the `auto <length>`
+     form: after a card has been rendered once, the browser
+     remembers its last actual size and reuses that on subsequent
+     skips, so cards stay correctly sized even after a window
+     resize. The <length> is just the fallback for cards that have
+     never been on-screen — the editor publishes its current
+     content-area width as `--pmd-card-intrinsic-width` so that
+     fallback closely matches a card's real rendered width
+     (otherwise off-screen-never-rendered cards in a narrow
+     multi-pane slot would size to the fixed 600px and the
+     scrollbar would overestimate the doc's width). The 32px
+     subtraction accounts for the ProseMirror element's 1rem
+     horizontal padding in multi-pane mode (and is harmless in
+     single-doc where the editor publishes its own width minus
+     any padding directly). */
+  contain: layout style;
+  content-visibility: auto;
+  contain-intrinsic-width: auto var(--pmd-card-intrinsic-width, 600px);
+  contain-intrinsic-height: auto 200px;
 }
 
 .pmd-card:hover,
 .pmd-analytic-unit:hover {
   border-left-color: var(--pmd-c-card-hover);
 }
+
+/* Heading containers (pocket / hat / block) — same containment as
+   cards. Smaller intrinsic-height placeholder since these are
+   typically single-line headings. */
+.pmd-pocket,
+.pmd-hat,
+.pmd-block {
+  contain: layout style;
+  content-visibility: auto;
+  contain-intrinsic-width: auto var(--pmd-card-intrinsic-width, 600px);
+  contain-intrinsic-height: auto 40px;
+}
+
 
 /* Undertag paragraph. Color is settings-driven (--pmd-color-undertag);
    italic / bold are gated on typography-flag classes on #editor. */
@@ -940,6 +1012,20 @@ code {
 
 #editor.pmd-undertag-bold .pmd-undertag-mark {
   font-weight: bold;
+}
+
+/* font-size-class-plugin: per-text-run line-height floor for shrunken
+ * paragraphs (those whose smallest font_size < 11pt). The paragraph's
+ * own line-height is an absolute pt value (collapses the strut so
+ * small-font-only lines pack tight); descendants would otherwise
+ * inherit that small length and risk overlap. This rule provides the
+ * floor for any inline element inside a shrunken paragraph — mark
+ * spans, mark-span chains, widget elements, etc. — without the
+ * plugin needing to emit one inline decoration per text run. Bare
+ * (mark-less) text runs still get an inline decoration from the
+ * plugin because CSS can't target text nodes directly. */
+.pmd-fs-shrunk > * {
+  line-height: max(var(--pmd-line-height), 1.2);
 }
 
 /* Pilcrow marker — small ¶ between paragraphs that Branch B condense
@@ -1037,9 +1123,22 @@ code {
    visible text from `pmd-rm-keep` spans + `::after { content: ' ' }`
    and relies on whitespace collapsing to fold those separators into
    a single space between chunks. */
-#editor .ProseMirror {
+:is(#editor, .pmd-pane-editor) .ProseMirror {
   white-space: pre-wrap;
   tab-size: 4;
+  /* Stop cards' `contain-intrinsic-width` from propagating up the
+   * layout chain. `content-visibility: auto` cards publish an
+   * intrinsic-width so the browser can size their skipped
+   * placeholder boxes; without inline-size containment here, that
+   * intrinsic-width becomes part of the ProseMirror element's
+   * max-content, propagates to `#editor` (or `.pmd-pane-editor`),
+   * and grows the editor whenever the window resizes — never
+   * shrinking back, because skipped cards remember their last
+   * rendered width. Inline-size containment treats the
+   * ProseMirror box as inline-size-independent of its contents,
+   * which is already true in practice (PM is `width: 100%` of its
+   * parent) — it just stops the propagation. */
+  contain: inline-size;
 }
 #editor.pmd-read-mode .ProseMirror {
   white-space: normal;
@@ -1223,15 +1322,25 @@ body.pmd-nav-resize-active {
 
 /* Pickup-mode (Ctrl+Alt+Shift / Cmd+Option+Shift held). Cursor
    becomes grab; once a drag is active the cursor stays grab/grabbing
-   regardless of element. The descendant override is needed to defeat
-   ProseMirror's own contenteditable text cursor. */
-#editor.pmd-editor-pickup-mode,
-#editor.pmd-editor-pickup-mode * {
+   regardless of element. Setting the cursor on `.ProseMirror`
+   inherits to every text descendant (cursor inherits by default in
+   CSS), which defeats contenteditable's built-in text cursor without
+   needing a `* { cursor: ... }` universal-descendant rule —
+   the universal form invalidates the cursor property on every
+   element under the host (tens of thousands on a long doc), which
+   showed up as a noticeable delay when entering pickup mode. The
+   `:is()` selector covers both single-doc (`#editor`) and multi-pane
+   (`.pmd-pane-editor`) hosts. A handful of descendants set their own
+   cursor explicitly (table cells, column-resize handles); they keep
+   it, which is an acceptable minor visual inconsistency during a
+   pickup. */
+:is(#editor, .pmd-pane-editor).pmd-editor-pickup-mode,
+:is(#editor, .pmd-pane-editor).pmd-editor-pickup-mode .ProseMirror {
   cursor: grab !important;
 }
 
-#editor.pmd-editor-dragging-mode,
-#editor.pmd-editor-dragging-mode * {
+:is(#editor, .pmd-pane-editor).pmd-editor-dragging-mode,
+:is(#editor, .pmd-pane-editor).pmd-editor-dragging-mode .ProseMirror {
   cursor: grabbing !important;
 }
 
@@ -1562,6 +1671,19 @@ body.pmd-nav-resize-active {
 
 .pmd-nav-context-item:hover {
   background: var(--pmd-c-hover);
+}
+
+/* Disabled menu items — e.g. the AI image actions when AI features
+   are off or no API key is set. Stay visible (so the affordance is
+   discoverable) but render greyed-out and don't react to hover. */
+.pmd-nav-context-item-disabled,
+.pmd-nav-context-item:disabled {
+  color: var(--pmd-c-text-muted);
+  cursor: not-allowed;
+}
+.pmd-nav-context-item-disabled:hover,
+.pmd-nav-context-item:disabled:hover {
+  background: transparent;
 }
 
 .pmd-nav-context-item-checked::before {
@@ -2079,25 +2201,37 @@ body.pmd-nav-resize-active {
    Same vertical rhythm as the Doc/Card panel; the second row hosts
    a sub-grid of three glyph-sized toggle buttons sized to fit
    side-by-side under the Table button. */
+/* 2-row × 3-column grid where every column is one inline-slot
+   wide (1.45rem) and the gaps match the inline-row's 2px gutters.
+   Total panel width = 3 × 1.45rem + 2 × 2px, exactly matching the
+   3-glyph row below. Row 1: Table dropdown spans cols 1–2, image
+   button sits in col 3. Row 2: the inline-mark sub-grid spans all
+   three columns. */
 .ribbon-format-menu-panel {
   display: grid;
-  grid-template-columns: auto;
+  grid-template-columns: repeat(3, 1.45rem);
   grid-template-rows: 1.45rem 1.45rem;
   align-content: center;
-  gap: 2px 3px;
+  gap: 2px;
   padding-left: 0.5rem;
   margin-left: 0.25rem;
   border-left: 1px solid var(--pmd-c-border-soft);
 }
 
 #ribbon .ribbon-format-table-btn {
-  /* Match width to the inline-row beneath it so the panel feels
-     balanced top-to-bottom. */
+  grid-column: 1 / span 2;
   width: 100%;
   justify-self: stretch;
 }
 
+#ribbon .ribbon-format-image-btn {
+  grid-column: 3;
+}
+
 .ribbon-format-inline-row {
+  /* Span all three top-row columns so the 3 glyphs sit under the
+     Table + image cluster as a unified second row. */
+  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(3, 1.45rem);
   gap: 2px;
@@ -2867,7 +3001,7 @@ body.pmd-nav-resize-active {
 /* Inline indicator on commented text — subtle yellow underline so
    you can see at a glance what's commented. Doesn't fight with
    highlight backgrounds since it's an underline. */
-#editor .pmd-comment-range {
+:is(#editor, .pmd-pane-editor) .pmd-comment-range {
   background-color: rgba(255, 215, 0, 0.12);
   border-bottom: 1px dotted #c79a00;
   cursor: help;
@@ -2894,19 +3028,37 @@ body.pmd-nav-resize-active {
   overflow: hidden;
   min-height: 1.3em;
   line-height: 1.3em;
-  /* Height is set in JS by a ResizeObserver tracking the rest line.
-     The transition makes growth/shrink between activities of
-     different wrapped-line counts read as a smooth resize rather
-     than a snap. Matches the line slide/fade duration. */
-  transition: height 280ms ease-out;
+  /* Width AND height are set in JS by a ResizeObserver tracking
+     the rest line. Both transition so growth / shrink between
+     activities of different lengths read as a smooth resize
+     rather than a snap. The width transition is what makes the
+     AI tooltip pill grow / shrink to fit each cycled activity
+     line. Stages with `pmd-activity-stage-fixed-width` opt out
+     of width tracking (used by the comments column, where the
+     surrounding column dictates the width). */
+  transition: width 280ms ease-out, height 280ms ease-out;
+}
+.pmd-activity-stage-fixed-width {
+  width: 100%;
 }
 .pmd-activity-line {
   display: block;
   position: absolute;
   left: 0;
-  right: 0;
   top: 0;
+  /* No `right: 0;` so the line's intrinsic width is its content
+     width — the ResizeObserver in `activity-cycler.ts` reads
+     that width and pushes it onto the stage. Stages opting out
+     of width tracking (fixed-width column placeholder) still
+     get a stretchy line below. */
+  max-width: 22rem;
+  white-space: nowrap;
   transition: transform 280ms ease-out, opacity 280ms ease-out;
+}
+.pmd-activity-stage-fixed-width .pmd-activity-line {
+  right: 0;
+  max-width: none;
+  white-space: normal;
 }
 .pmd-activity-line.pmd-activity-rest {
   transform: translateY(0);
@@ -2930,13 +3082,13 @@ body.pmd-nav-resize-active {
 .pmd-ai-cite-tooltip {
   position: absolute;
   z-index: 900;
-  /* `min-width` is what gives the inner activity-stage something
-     to fill. The stage's only children are `position: absolute`, so
-     they don't contribute intrinsic width — without a min-width on
-     this container the tooltip + stage both collapse to zero and
-     the activity text disappears. */
-  min-width: 18rem;
+  /* Width tracks the inner activity-stage, which itself tracks
+     the current rest line's measured width — so the pill is
+     exactly as wide as whichever activity is showing. Hard cap
+     so a long persona activity wraps to a second line instead
+     of stretching off-screen. */
   max-width: 22rem;
+  width: max-content;
   padding: 0.35rem 0.7rem;
   background: rgba(139, 92, 246, 0.95);
   color: #fff;
@@ -3451,14 +3603,14 @@ body.pmd-nav-resize-active {
    No `width: 100%` — TableView sets an inline `style.width` from the
    summed `colwidth` attrs (imported from <w:tblGrid>), and we want
    the table to render at its true Word width, not edge-to-edge. */
-#editor .tableWrapper > table {
+:is(#editor, .pmd-pane-editor) .tableWrapper > table {
   border-collapse: collapse;
   margin: 0.5rem 0;
   table-layout: fixed;
 }
 
-#editor .tableWrapper td,
-#editor .tableWrapper th {
+:is(#editor, .pmd-pane-editor) .tableWrapper td,
+:is(#editor, .pmd-pane-editor) .tableWrapper th {
   border: 1px solid #888;
   padding: 0.2rem 0.4rem;
   vertical-align: top;
@@ -3466,22 +3618,22 @@ body.pmd-nav-resize-active {
   box-sizing: border-box;
 }
 
-#editor .tableWrapper th {
+:is(#editor, .pmd-pane-editor) .tableWrapper th {
   background: #f0f0f0;
   font-weight: bold;
 }
 
-#editor .tableWrapper p {
+:is(#editor, .pmd-pane-editor) .tableWrapper p {
   margin: 0;
 }
 
 /* prosemirror-tables column-resize handle. */
-#editor .tableWrapper {
+:is(#editor, .pmd-pane-editor) .tableWrapper {
   overflow-x: auto;
   margin: 0.5rem 0;
 }
 
-#editor .column-resize-handle {
+:is(#editor, .pmd-pane-editor) .column-resize-handle {
   position: absolute;
   right: -2px;
   top: 0;
@@ -3491,12 +3643,19 @@ body.pmd-nav-resize-active {
   pointer-events: none;
 }
 
-#editor.resize-cursor {
+/* prosemirror-tables's table-column-resize plugin sets
+ * `class: "resize-cursor"` via its `props.attributes`, which PM
+ * applies to `view.dom` (the `.ProseMirror` element), NOT to the
+ * editor host. The old selector `#editor.resize-cursor` looked
+ * for the class on `#editor` itself and never matched in either
+ * mode. Targeting `.ProseMirror.resize-cursor` works for
+ * single-doc and multi-pane both. */
+.ProseMirror.resize-cursor {
   cursor: col-resize;
 }
 
 /* prosemirror-tables's selected-cells decoration. */
-#editor .selectedCell::after {
+:is(#editor, .pmd-pane-editor) .selectedCell::after {
   position: absolute;
   content: '';
   inset: 0;
@@ -3505,3 +3664,529 @@ body.pmd-nav-resize-active {
   z-index: 2;
 }
 
+
+/* ============================================================
+   Multi-pane workspace shell
+   ------------------------------------------------------------
+   Active only when settings.multiDocWorkspace is true. Rendered
+   by `multi-pane-shell.ts` into #app, alongside the (hidden)
+   single-doc surfaces. The shell takes over the editor area;
+   the shared ribbon and status bar at the top/bottom of the
+   window stay in place and route through the focused pane's
+   view via `setActiveView` in `editor/index.ts`. */
+
+/* Hide single-doc artifacts when multi-doc is on. The shell
+ * module also flips the `hidden` attribute on these directly,
+ * but the body class keeps things consistent if other styles
+ * try to reach in.
+ */
+body.pmd-multi-doc #editor,
+body.pmd-multi-doc #comments-column,
+body.pmd-multi-doc #nav-panel {
+  display: none !important;
+}
+body.pmd-multi-doc {
+  /* No page-level scrolling in multi-doc mode — every editor
+   * surface clips inside its own pane. Prevents the rare cases
+   * where a stack dropdown / route overlay / focus ring widens
+   * the document beyond the viewport. */
+  overflow: hidden;
+}
+body.pmd-multi-doc #app {
+  /* The hidden single-doc nav panel reserved `var(--nav-width)`
+   * of left margin. In multi-doc mode the new nav rail sits
+   * at the window edge and is sized by its own dataset. */
+  margin-left: var(--nav-width);
+  /* Lock #app to viewport height so the flex chain
+   * (shell → row → pane → body) gets a definite size to fill.
+   * Without this, `flex: 1 1 auto` resolves to content height
+   * (no scrollbars in the panes, the whole page scrolls as one,
+   * pane title chip/footer drift off the viewport with content).
+   * `min-height` alone isn't enough — content can exceed it and
+   * make the page itself scroll. */
+  height: calc(100vh - var(--ribbon-height) - var(--status-bar-height));
+  min-height: 0;
+  overflow: hidden;
+}
+body.pmd-multi-doc #status-bar {
+  /* The shared status bar spans the full window width in multi-doc
+   * mode, including the strip below the nav rail. The nav rail
+   * itself ends at `--status-bar-height`, so the rail sits flush
+   * with the status bar above. */
+  left: 0;
+}
+/* Each pane shows its own word count in its footer, so the
+ * shared status-bar word counter is redundant in multi-doc mode.
+ * Hide it (and let the zoom controls right-align via the spacer). */
+body.pmd-multi-doc #word-count-display {
+  display: none;
+}
+
+/* ---- Nav rail (one section per active slot) ---- */
+
+.pmd-multi-nav {
+  position: fixed;
+  top: var(--ribbon-height);
+  bottom: var(--status-bar-height);
+  left: 0;
+  width: var(--nav-width);
+  background: var(--pmd-c-surface-2, var(--pmd-c-surface));
+  border-right: 1px solid var(--pmd-c-border-soft);
+  display: flex;
+  flex-direction: column;
+  z-index: 50;
+  overflow: hidden;
+}
+.pmd-multi-nav-section {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--pmd-c-border-soft);
+  overflow: hidden;
+}
+.pmd-multi-nav-section:first-child {
+  border-top: none;
+}
+/* Class-selector specificity ties [hidden]'s UA `display: none`,
+ * so the .pmd-multi-nav-section `display: flex` would otherwise win
+ * and the section would render despite being hidden. Restore the
+ * UA behavior explicitly so empty slots take no space and the
+ * remaining active sections share the rail evenly (1/1, 1/2, 1/3). */
+.pmd-multi-nav-section[hidden] { display: none; }
+.pmd-multi-nav-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* The body scrolls. The list does NOT scroll on its own — that
+   * way the panel's `<header>` (1/2/3/4 buttons) can `position:
+   * sticky` to the top of the scrolling body and stay visible
+   * as the list scrolls past it. */
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  /* Match the nav panel's white surface so when the panel's
+   * intrinsic height is shorter than the body (very few headings),
+   * the body's background fills the rest instead of revealing the
+   * rail's grey behind it. */
+  background: var(--pmd-c-bg);
+}
+/* The per-section NavigationPanel mounts its `<aside class="pmd-nav-panel">`
+ * inside `.pmd-multi-nav-body`. Strip the fixed-position styling the
+ * single-doc nav panel uses; in multi-doc the section IS the layout
+ * anchor. */
+.pmd-multi-nav-body .pmd-nav-panel {
+  position: static;
+  width: auto;
+  height: auto;
+  border-right: none;
+  /* The panel grows to its content height; the body around it
+   * scrolls. (Don't `flex: 1 1 auto` here — that would compete with
+   * the body's overflow and break sticky on the header.) */
+  display: block;
+}
+.pmd-multi-nav-body .pmd-nav-panel > header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--pmd-c-surface-2, var(--pmd-c-surface));
+}
+.pmd-multi-nav-body .pmd-nav-resize-handle {
+  display: none;
+}
+/* Per-pane list lays out in normal flow inside the panel; the body
+ * provides the scrollbar. */
+.pmd-multi-nav-body .pmd-nav-list {
+  overflow: visible;
+}
+
+/* ---- Multi-pane shell ---- */
+
+.pmd-multi-shell {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Explicit `min-width: 0` is needed so a child with a wide
+   * intrinsic content size (from `content-visibility: auto` cards
+   * publishing `contain-intrinsic-width`) can't blow the shell wider
+   * than its share of `#app`. Without this, the shell's default
+   * `min-width: auto` evaluates to min-content, which propagates up
+   * from skipped cards and grows the shell when the user resizes
+   * the window. */
+  min-width: 0;
+}
+.pmd-multi-row {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  /* Same reasoning as `.pmd-multi-shell` — defend against
+   * min-content propagation from `content-visibility: auto`
+   * descendants. */
+  min-width: 0;
+}
+
+/* Compact layout — each non-hidden pane gets a share of the row.
+ * 1 active → full width; 2 → halves; 3 → thirds. */
+.pmd-multi-row[data-layout="compact"] .pmd-pane {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Wide-scroll layout — three-pane row scrolls horizontally; the
+ * viewport shows two full panes plus the leading edge of the third
+ * (target ~10% peek per SPEC-multi-pane.md). Clicking the peek
+ * scroll-snaps to it.
+ *
+ * Pane width math: at scroll=0 the visible window is 100% of the
+ * row, the panes lay out at 0, w, 2w. We want pane3 to peek by
+ * 10% of its OWN width, so the visible portion of pane3 is
+ * (100% - 2w) and the constraint is (100% - 2w) / w = 0.10, which
+ * solves to w = 100% / 2.10. Same formula whether the window is
+ * 1200px or 2400px wide. */
+.pmd-multi-row[data-layout="wide"] {
+  overflow-x: auto;
+  /* Explicit `hidden` on the cross axis. Without it the CSS spec
+   * promotes `overflow-y` to `auto` whenever `overflow-x` is set
+   * to anything but `visible`, which would make the row scroll as
+   * a unit vertically and override each pane's own `.pmd-pane-body
+   * { overflow: auto }`. We want every pane to scroll
+   * independently. */
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  /* No `scroll-behavior: smooth` here — programmatic scrolls into
+   * a side pane were getting paused mid-animation by ProseMirror's
+   * mousedown handling (focus + cursor placement). Pair the snap
+   * behaviour with `behavior: 'auto'` on the scrollIntoView call
+   * so the transition lands instantly and crisply. */
+}
+.pmd-multi-row[data-layout="wide"][data-active="3"] {
+  --pmd-pane-width: calc(100% / 2.1);
+}
+.pmd-multi-row[data-layout="wide"][data-active="3"] .pmd-pane {
+  flex: 0 0 var(--pmd-pane-width);
+  min-width: 0;
+  scroll-snap-align: start;
+}
+/* With 1 or 2 active slots, wide-scroll still flex-fills. */
+.pmd-multi-row[data-layout="wide"]:not([data-active="3"]) .pmd-pane {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.pmd-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--pmd-c-border-soft);
+  background: var(--pmd-c-bg, #fff);
+  position: relative;
+}
+.pmd-pane:last-child { border-right: none; }
+.pmd-pane[hidden] { display: none; }
+
+/* Focused pane: blue accent bar on top + tinted chip so the
+ * routing target is obvious at a glance. */
+.pmd-pane-focused {
+  box-shadow: inset 0 3px 0 0 var(--pmd-c-accent, #4a90e2);
+}
+.pmd-pane-focused .pmd-pane-chip {
+  background: var(--pmd-c-accent, #4a90e2);
+  color: #fff;
+}
+.pmd-pane-focused .pmd-pane-chip-name {
+  color: #fff;
+}
+.pmd-pane-focused .pmd-pane-chip-close,
+.pmd-pane-focused .pmd-pane-chip-stack {
+  color: #fff;
+}
+
+/* Title chip — small, ~22px tall. Way smaller than the original
+ * sketch's full-width box; just a thin header above the editor. */
+.pmd-pane-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.4rem;
+  background: var(--pmd-c-surface-2, var(--pmd-c-surface));
+  border-bottom: 1px solid var(--pmd-c-border-soft);
+  font-size: 0.78rem;
+  line-height: 1;
+  min-height: 22px;
+}
+.pmd-pane-chip-name {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--pmd-c-text);
+}
+
+/* Speech-doc indicator. Class on the pane element gets set/cleared
+   by `MultiPaneShell.refreshSpeechChips`. The 🎤 prefix on the
+   chip name is the same affordance Verbatim's title-bar tweak
+   uses ("Speech …") — just visible enough to remind the user
+   which slot is the active destination for the ` send-to-speech
+   chord. The chip's accent stripe reinforces it without crowding
+   the filename. */
+.pmd-pane-speech .pmd-pane-chip-name::before {
+  content: '🎤';
+  margin-right: 0.3em;
+}
+/* Light blue tint when the slot is NOT focused. When focused, the
+   `.pmd-pane-focused .pmd-pane-chip` rule takes over (dark blue
+   bg + white text) — without the `:not()` guard the speech rule
+   wins on source order and leaves white text on a light-blue
+   chip, which is unreadable. */
+.pmd-pane-speech:not(.pmd-pane-focused) .pmd-pane-chip {
+  background: var(--pmd-c-drop-soft, var(--pmd-c-surface));
+}
+.pmd-pane-chip-stack {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 3px;
+  padding: 0 0.3rem;
+  font-size: 0.7rem;
+  color: var(--pmd-c-text-muted);
+  cursor: pointer;
+}
+.pmd-pane-chip-stack:hover { background: var(--pmd-c-surface-3, var(--pmd-c-surface)); }
+.pmd-pane-chip-stack[hidden] { display: none; }
+.pmd-pane-chip-close {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--pmd-c-text-muted);
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.pmd-pane-chip-close:hover { color: var(--pmd-c-danger, #c00); }
+
+/* Stack dropdown — floats over the chip when the user clicks ▾. */
+.pmd-pane-chip-dropdown {
+  background: var(--pmd-c-bg, #fff);
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  min-width: 180px;
+  z-index: 600;
+  padding: 0.2rem 0;
+}
+.pmd-pane-chip-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.pmd-pane-chip-dropdown-row:hover { background: var(--pmd-c-surface-2, var(--pmd-c-surface)); }
+.pmd-pane-chip-dropdown-row.pmd-active { font-weight: 600; }
+.pmd-pane-chip-dropdown-name {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pmd-pane-chip-dropdown-close {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--pmd-c-text-muted);
+  font-size: 0.9rem;
+}
+.pmd-pane-chip-dropdown-close:hover { color: var(--pmd-c-danger, #c00); }
+
+/* Editor body — fills the rest of the pane height. Only vertical
+ * scroll; horizontal is clipped so a wider-than-pane element
+ * (e.g., a long heading without word breaks) can't force a
+ * horizontal scrollbar that eats vertical space. */
+.pmd-pane-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  position: relative;
+}
+.pmd-pane-editor {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  /* Match the single-doc editor's zoom binding so the shared zoom
+   * controls scale per-pane content, and the editor drag surface's
+   * zoom-aware math lands drop indicators at the right Y position. */
+  zoom: var(--editor-zoom, 1);
+  /* Single-doc `#editor` sets these directly on itself so every
+   * descendant inherits the body size + line-height. Multi-pane's
+   * editor surface isn't a descendant of `#editor`, so it has to
+   * stamp them on its own root — otherwise body text falls back to
+   * the browser default 16px (= 12pt) and tags / cite marks
+   * (correctly 13pt) only look 1pt larger than body. */
+  font-size: var(--pmd-size-normal);
+  line-height: var(--pmd-line-height);
+}
+/* Re-use the global editor styling for the per-pane ProseMirror
+ * surface (the ProseMirror's own root element gets class
+ * `ProseMirror`). The pane wrapper here just provides scrolling. */
+.pmd-pane-editor .ProseMirror {
+  outline: none;
+  min-height: 100%;
+  padding: 1rem;
+  /* Inherit the body font picked in Settings. `--pmd-body-font` is
+   * set on documentElement by `applyBodyFont`, so it cascades here
+   * even though `.pmd-pane-editor` is not a descendant of #editor. */
+  font-family: var(--pmd-body-font, "Calibri", "Helvetica Neue", sans-serif);
+  /* Match the single-doc editor: preserve typed whitespace + tab
+   * stops. Also wrap long words rather than letting them push the
+   * pane wider than 1/3 of the row. */
+  white-space: pre-wrap;
+  tab-size: 4;
+  overflow-wrap: anywhere;
+}
+
+/* Footer with word count + open file button. */
+.pmd-pane-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.4rem;
+  background: var(--pmd-c-surface-2, var(--pmd-c-surface));
+  border-top: 1px solid var(--pmd-c-border-soft);
+  font-size: 0.72rem;
+  min-height: 22px;
+}
+.pmd-pane-wc {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--pmd-c-text-muted);
+}
+.pmd-pane-open {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 3px;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.72rem;
+  color: var(--pmd-c-text);
+  cursor: pointer;
+}
+.pmd-pane-open:hover { background: var(--pmd-c-surface-3, var(--pmd-c-surface)); }
+
+/* ---- Routing prompt overlay ---- */
+
+.pmd-route-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--pmd-c-overlay, rgba(0,0,0,0.35));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.pmd-route-dialog {
+  background: var(--pmd-c-bg, #fff);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 360px;
+}
+.pmd-route-header {
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+.pmd-route-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+.pmd-route-btn {
+  flex: 1 1 0;
+  background: var(--pmd-c-surface-2, var(--pmd-c-surface));
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+  text-align: center;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  color: var(--pmd-c-text);
+}
+.pmd-route-btn strong { font-size: 0.9rem; }
+.pmd-route-btn span { color: var(--pmd-c-text-muted); }
+.pmd-route-btn:hover { background: var(--pmd-c-surface-3, var(--pmd-c-surface)); }
+.pmd-route-cancel {
+  align-self: flex-end;
+  background: transparent;
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 4px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: var(--pmd-c-text-muted);
+}
+.pmd-route-cancel:hover { color: var(--pmd-c-text); }
+
+/* ---- Multi-pane: typography parity ----
+ *
+ * The single-doc editor scopes typography-flag rules to `#editor.X`.
+ * For the multi-pane shell, the same flags are mirrored to
+ * documentElement by `applyDisplayTypography`, so we re-apply the
+ * same predicates to `.pmd-pane-editor` here.
+ */
+html.pmd-undertag-italic .pmd-pane-editor .pmd-undertag,
+html.pmd-undertag-italic .pmd-pane-editor .pmd-undertag-mark {
+  font-style: italic;
+}
+html.pmd-undertag-bold .pmd-pane-editor .pmd-undertag,
+html.pmd-undertag-bold .pmd-pane-editor .pmd-undertag-mark {
+  font-weight: bold;
+}
+html.pmd-cite-underlined .pmd-pane-editor .pmd-cite {
+  text-decoration: underline;
+}
+html.pmd-underline-bold .pmd-pane-editor .pmd-underline {
+  font-weight: bold;
+}
+html.pmd-emphasis-bold .pmd-pane-editor .pmd-emphasis {
+  font-weight: bold;
+}
+html.pmd-emphasis-italic .pmd-pane-editor .pmd-emphasis {
+  font-style: italic;
+}
+html.pmd-emphasis-box .pmd-pane-editor .pmd-emphasis {
+  border: var(--pmd-emphasis-box-size, 0.5pt) solid currentColor;
+  padding: 0 0.1em;
+  border-radius: 1px;
+}
+
+/* Read-mode mirrors for `#editor.pmd-read-mode` rules. Read mode in
+ * multi-doc is per-pane: the shell toggles `pmd-read-mode` on the
+ * individual `.pmd-pane-editor` whose user clicked the ribbon
+ * button, NOT on `documentElement`. So the selectors below key on
+ * the class being on the pane element itself. Specificity matches
+ * the single-doc `#editor.pmd-read-mode` form (1 class on the host
+ * + 1 class on the descendant), and the `.pmd-pane-editor` host-
+ * scoping keeps the rule from leaking to other panes. */
+.pmd-pane-editor.pmd-read-mode .ProseMirror {
+  white-space: normal;
+}
+.pmd-pane-editor.pmd-read-mode .pmd-emphasis:not(:has(.pmd-rm-keep)) {
+  border: none;
+  padding: 0;
+}
+.pmd-pane-editor.pmd-read-mode.pmd-rm-no-emphasis-borders .pmd-emphasis {
+  border: none;
+  padding: 0;
+}

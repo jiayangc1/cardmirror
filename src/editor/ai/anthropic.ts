@@ -7,9 +7,30 @@
  * features and pasting their own key.
  */
 
+/** Anthropic multipart content blocks (vision support). A text-only
+ *  message can be a plain string; messages with images use the
+ *  block-array form: `[{ type: 'text', text }, { type: 'image', ... }]`.
+ *  Block ordering matters — Anthropic recommends placing images
+ *  before the text instruction in multimodal prompts. */
+export type AnthropicContentBlock =
+  | { type: 'text'; text: string }
+  | {
+      type: 'image';
+      source: {
+        type: 'base64';
+        /** MIME type of the inlined bytes. Anthropic supports the common
+         *  raster formats — `image/png`, `image/jpeg`, `image/gif`,
+         *  `image/webp`. SVG / EMF / TIFF aren't supported by the
+         *  vision API; callers should fall back gracefully. */
+        media_type: string;
+        /** Raw base64 (no `data:` prefix). */
+        data: string;
+      };
+    };
+
 export interface AnthropicMessage {
   role: 'user' | 'assistant';
-  content: string;
+  content: string | AnthropicContentBlock[];
 }
 
 export interface AnthropicRequest {

@@ -45,15 +45,26 @@ export const TYPE_LABEL: Record<string, string> = {
  * Walk the doc and produce a flat list of heading entries in document
  * order. Heading-anchored nodes (pocket/hat/block/tag/analytic) get
  * an entry; other content does not.
+ *
+ * `opts.skipCite` skips the per-tag `collectCiteText` walk, which is
+ * the bulk of this function's cost on long docs (it descends every
+ * card to find cite-marked text runs). The nav-pane shows cite text
+ * next to each tag entry and so needs it; the drop-indicator path
+ * doesn't read `entry.cite` at all, so it passes `skipCite: true` to
+ * cut drag-start latency.
  */
-export function collectHeadings(doc: PMNode): HeadingEntry[] {
+export function collectHeadings(
+  doc: PMNode,
+  opts: { skipCite?: boolean } = {},
+): HeadingEntry[] {
+  const skipCite = opts.skipCite === true;
   const out: HeadingEntry[] = [];
   doc.descendants((node, pos) => {
     const type = node.type.name;
     if (type in TYPE_TO_LEVEL) {
       const level = TYPE_TO_LEVEL[type]!;
       let cite: string | null = null;
-      if (type === 'tag') {
+      if (!skipCite && type === 'tag') {
         const $pos = doc.resolve(pos);
         const card = $pos.parent;
         if (card.type.name === 'card') {
@@ -123,6 +134,27 @@ export function computeHeadingRange(
     return true;
   });
   return { from, to, useNodeSelection: false };
+}
+
+/**
+ * Cheap variant of `computeHeadingRange` that only returns the
+ * insertion position (`range.from`). Drop-indicator rendering — both
+ * the nav-pane and the editor surface — places indicators at each
+ * heading's start position and never needs the heading's full end.
+ * The full `computeHeadingRange` does a `nodesBetween(...)` forward
+ * walk to find the next equal-or-shallower heading, which is O(doc)
+ * per pocket / hat / block — running it for every entry in a long
+ * doc adds up to a noticeable beat at drag start.
+ */
+export function headingInsertPos(doc: PMNode, entry: HeadingEntry): number | null {
+  if (entry.type === 'tag' || entry.type === 'analytic') {
+    // Inside a card (or analytic_unit) — drop slot is the wrapping
+    // node's position, one step up from the heading.
+    const $pos = doc.resolve(entry.pos);
+    return $pos.before();
+  }
+  // Pocket / Hat / Block: the heading IS the boundary.
+  return entry.pos;
 }
 
 /**

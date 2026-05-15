@@ -1799,6 +1799,15 @@ const BUILTIN_PROTECTED_REGEXES: readonly RegExp[] = [
   /\[.*?FOOTNOTE.*?\]/gi,
   /<.*?FOOTNOTE.*?>/gi,
   /\{.*?FOOTNOTE.*?\}/gi,
+  // Image alt-text fallbacks — anything containing "ALT TEXT" between
+  // any of the six delimiter shapes. Doubles before singles so the
+  // longer match wins when both shapes overlap.
+  /\[\[.*?ALT TEXT.*?\]\]/gi,
+  /<<.*?ALT TEXT.*?>>/gi,
+  /\{\{.*?ALT TEXT.*?\}\}/gi,
+  /\[.*?ALT TEXT.*?\]/gi,
+  /<.*?ALT TEXT.*?>/gi,
+  /\{.*?ALT TEXT.*?\}/gi,
 ];
 
 const REGEX_ESCAPE_RE = /[.*+?^${}()|[\]\\]/g;
@@ -2851,7 +2860,15 @@ export type RibbonCommandId =
   | 'deleteTableColumn'
   | 'mergeTableCells'
   | 'splitTableCell'
-  | 'deleteTable';
+  | 'deleteTable'
+  | 'newDocument'
+  | 'openFile'
+  | 'saveAs'
+  | 'newSpeechDocument'
+  | 'markActiveAsSpeech'
+  | 'sendToSpeechAtCursor'
+  | 'sendToSpeechAtEnd'
+  | 'insertImage';
 
 export const STRUCTURAL_RIBBON_COMMAND_IDS: StructuralRibbonCommandId[] = [
   'setPocket',
@@ -2910,6 +2927,14 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'mergeTableCells',
   'splitTableCell',
   'deleteTable',
+  'newDocument',
+  'openFile',
+  'saveAs',
+  'newSpeechDocument',
+  'markActiveAsSpeech',
+  'sendToSpeechAtCursor',
+  'sendToSpeechAtEnd',
+  'insertImage',
 ];
 
 export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
@@ -2948,7 +2973,7 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   toggleCommentsVisible: 'Show / hide comments',
   addCommentToSelection: 'Add comment to selection',
   aiAskAboutSelection: 'Ask AI about selection',
-  aiCreateCite: 'AI: format cite from selection',
+  aiCreateCite: 'Format cite from selection',
   wordCountSelection: 'Word count selection',
   openShortcutsReference: 'Open keyboard shortcuts',
   selectSimilar: 'Select Similar Formatting',
@@ -2965,6 +2990,14 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   mergeTableCells: 'Merge Cells',
   splitTableCell: 'Split Cell',
   deleteTable: 'Delete Table',
+  newDocument: 'New document',
+  openFile: 'Open file',
+  saveAs: 'Save document',
+  newSpeechDocument: 'New speech document',
+  markActiveAsSpeech: 'Mark / unmark active doc as the speech doc',
+  sendToSpeechAtCursor: 'Send to speech (at cursor)',
+  sendToSpeechAtEnd: 'Send to speech (at end)',
+  insertImage: 'Insert image at cursor',
 };
 
 /**
@@ -3031,6 +3064,26 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   mergeTableCells: '',
   splitTableCell: '',
   deleteTable: '',
+  // Chrome won't let JS suppress its `Ctrl-N` (new window) or
+  // `Ctrl-Shift-N` (new incognito window) defaults — both keys
+  // are un-preventable in the browser, so we use `Mod-Alt-N`
+  // instead. Users on a future Electron build (or who don't care
+  // about the conflict on their platform) can rebind via Settings
+  // → Keybindings.
+  newDocument: 'Mod-Alt-n',
+  openFile: 'Mod-o',
+  saveAs: 'Mod-s',
+  // Verbatim's "Send to speech" — bare backtick (next to 1 on US
+  // layouts) for at-cursor, Alt-backtick for at-end-of-doc. Same
+  // chord as the desktop app. Trade-off: a bare backtick keystroke
+  // is consumed by the command; users who actually need to type a
+  // literal "`" in evidence can rebind these via Settings →
+  // Keybindings.
+  sendToSpeechAtCursor: '`',
+  sendToSpeechAtEnd: 'Alt-`',
+  newSpeechDocument: '',
+  markActiveAsSpeech: '',
+  insertImage: '',
 };
 
 /**
@@ -3095,6 +3148,25 @@ export interface RibbonContext {
   addCommentToSelection: () => void;
   aiAskAboutSelection: () => void;
   aiCreateCite: () => void;
+  /** File-level commands. These work regardless of whether the editor
+   *  is mounted / has a doc loaded — they always run the same handler
+   *  the corresponding ribbon button uses. */
+  newDocument: () => void;
+  openFile: () => void;
+  saveAs: () => void;
+  /** Speech-doc commands (Verbatim's `Paperless.SendToSpeech` family).
+   *  All four are wired via the speech-doc registry — when the host
+   *  hasn't installed a real implementation, the defaults are
+   *  no-ops so tests / standalone uses don't crash. */
+  newSpeechDocument: () => void;
+  markActiveAsSpeech: () => void;
+  sendToSpeechAtCursor: () => void;
+  sendToSpeechAtEnd: () => void;
+  /** Open the file picker that prompts for an image to insert at
+   *  the editor's current cursor. Pasting an image from the
+   *  clipboard goes through paste-plugin instead — no ctx hook
+   *  needed for that path. */
+  insertImage: () => void;
 }
 
 const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
@@ -3121,6 +3193,14 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   addCommentToSelection: () => {},
   aiAskAboutSelection: () => {},
   aiCreateCite: () => {},
+  newDocument: () => {},
+  openFile: () => {},
+  saveAs: () => {},
+  newSpeechDocument: () => {},
+  markActiveAsSpeech: () => {},
+  sendToSpeechAtCursor: () => {},
+  sendToSpeechAtEnd: () => {},
+  insertImage: () => {},
 };
 
 function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
@@ -3277,6 +3357,59 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
       return splitCell;
     case 'deleteTable':
       return deleteTable;
+    case 'newDocument':
+      // File-level commands: always available, even with no doc open
+      // and no selection. PM-command convention: return `false` from
+      // a "query" call (no dispatch) so the keybinding editor can
+      // tell apart bound-but-unrunnable from bound-and-active, then
+      // run the side effect on the real dispatch call.
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.newDocument();
+        return true;
+      };
+    case 'openFile':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.openFile();
+        return true;
+      };
+    case 'saveAs':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.saveAs();
+        return true;
+      };
+    case 'newSpeechDocument':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.newSpeechDocument();
+        return true;
+      };
+    case 'markActiveAsSpeech':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.markActiveAsSpeech();
+        return true;
+      };
+    case 'sendToSpeechAtCursor':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.sendToSpeechAtCursor();
+        return true;
+      };
+    case 'sendToSpeechAtEnd':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.sendToSpeechAtEnd();
+        return true;
+      };
+    case 'insertImage':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.insertImage();
+        return true;
+      };
   }
 }
 

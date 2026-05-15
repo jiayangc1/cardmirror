@@ -230,6 +230,8 @@ class SettingsModal {
       return row;
     } else if (meta.kind === 'formattingPanelMode') {
       label.appendChild(buildFormattingPanelModeEditor());
+    } else if (meta.kind === 'multiDocLayoutMode') {
+      label.appendChild(buildMultiDocLayoutModeEditor());
     } else if (meta.kind === 'headingMode') {
       row.appendChild(text);
       row.appendChild(buildHeadingModeEditor());
@@ -821,6 +823,26 @@ function buildFormattingPanelModeEditor(): HTMLElement {
   }
   select.addEventListener('change', () => {
     settings.set('formattingPanelMode', select.value as FormattingPanelMode);
+  });
+  return select;
+}
+
+function buildMultiDocLayoutModeEditor(): HTMLElement {
+  const select = document.createElement('select');
+  select.className = 'pmd-formatting-panel-mode-select';
+  const options: { value: 'compact' | 'wide'; label: string }[] = [
+    { value: 'compact', label: 'Compact — all 3 panes side by side' },
+    { value: 'wide', label: 'Wide-scroll — 2 full + edge of 3rd (click to snap)' },
+  ];
+  for (const o of options) {
+    const opt = document.createElement('option');
+    opt.value = o.value;
+    opt.textContent = o.label;
+    if (o.value === settings.get('multiDocLayoutMode')) opt.selected = true;
+    select.appendChild(opt);
+  }
+  select.addEventListener('change', () => {
+    settings.set('multiDocLayoutMode', select.value as 'compact' | 'wide');
   });
   return select;
 }
