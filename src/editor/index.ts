@@ -289,6 +289,15 @@ const ribbonContext: RibbonContext = {
     if (!view) return;
     runAiCreateCite(view);
   },
+  newDocument: () => {
+    void onNewDocClicked();
+  },
+  openFile: () => {
+    dropzone.click();
+  },
+  saveAs: () => {
+    void runSaveAsFlow();
+  },
 };
 
 openBtn.addEventListener('click', () => dropzone.click());
@@ -297,6 +306,7 @@ if (newBtn) {
     void onNewDocClicked();
   });
 }
+
 
 /**
  * Handle the ribbon "New document" button.
@@ -922,10 +932,40 @@ window.addEventListener('keydown', (e) => {
   );
   if (!cmdId) return;
   e.preventDefault();
+  // File-level commands (newDocument / openFile / saveAs) and the
+  // shortcuts-dialog opener don't need a live view — invoke the
+  // ctx side effect directly so the shortcut works even when no
+  // pane has a doc open. Other commands still require a view
+  // because they read state / dispatch transactions.
+  if (VIEWLESS_RIBBON_COMMANDS.has(cmdId)) {
+    runViewlessRibbon(cmdId);
+    return;
+  }
   if (!view) return;
   const cmd = getRibbonCommand(cmdId, ribbonContext);
   cmd(view.state, view.dispatch.bind(view), view);
 });
+
+/** Ribbon commands whose side effect doesn't read the doc / dispatch
+ *  a transaction. Listed here so the global keydown handler can
+ *  invoke them without a live view — single-doc startup is
+ *  view-ful by the time this fires, but multi-doc with no panes
+ *  open hits this path. */
+const VIEWLESS_RIBBON_COMMANDS = new Set<RibbonCommandId>([
+  'newDocument',
+  'openFile',
+  'saveAs',
+  'openShortcutsReference',
+]);
+
+function runViewlessRibbon(id: RibbonCommandId): void {
+  switch (id) {
+    case 'newDocument': ribbonContext.newDocument(); return;
+    case 'openFile': ribbonContext.openFile(); return;
+    case 'saveAs': ribbonContext.saveAs(); return;
+    case 'openShortcutsReference': ribbonContext.openShortcutsReference(); return;
+  }
+}
 
 // Wire the color panel (split buttons + swatch pickers). Pass a ref
 // object so the panel reads the live view through `view.view` even

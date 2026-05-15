@@ -2851,7 +2851,10 @@ export type RibbonCommandId =
   | 'deleteTableColumn'
   | 'mergeTableCells'
   | 'splitTableCell'
-  | 'deleteTable';
+  | 'deleteTable'
+  | 'newDocument'
+  | 'openFile'
+  | 'saveAs';
 
 export const STRUCTURAL_RIBBON_COMMAND_IDS: StructuralRibbonCommandId[] = [
   'setPocket',
@@ -2910,6 +2913,9 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'mergeTableCells',
   'splitTableCell',
   'deleteTable',
+  'newDocument',
+  'openFile',
+  'saveAs',
 ];
 
 export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
@@ -2965,6 +2971,9 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   mergeTableCells: 'Merge Cells',
   splitTableCell: 'Split Cell',
   deleteTable: 'Delete Table',
+  newDocument: 'New document',
+  openFile: 'Open file',
+  saveAs: 'Save document',
 };
 
 /**
@@ -3031,6 +3040,9 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   mergeTableCells: '',
   splitTableCell: '',
   deleteTable: '',
+  newDocument: 'Mod-n',
+  openFile: 'Mod-o',
+  saveAs: 'Mod-s',
 };
 
 /**
@@ -3095,6 +3107,12 @@ export interface RibbonContext {
   addCommentToSelection: () => void;
   aiAskAboutSelection: () => void;
   aiCreateCite: () => void;
+  /** File-level commands. These work regardless of whether the editor
+   *  is mounted / has a doc loaded — they always run the same handler
+   *  the corresponding ribbon button uses. */
+  newDocument: () => void;
+  openFile: () => void;
+  saveAs: () => void;
 }
 
 const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
@@ -3121,6 +3139,9 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   addCommentToSelection: () => {},
   aiAskAboutSelection: () => {},
   aiCreateCite: () => {},
+  newDocument: () => {},
+  openFile: () => {},
+  saveAs: () => {},
 };
 
 function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
@@ -3277,6 +3298,29 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
       return splitCell;
     case 'deleteTable':
       return deleteTable;
+    case 'newDocument':
+      // File-level commands: always available, even with no doc open
+      // and no selection. PM-command convention: return `false` from
+      // a "query" call (no dispatch) so the keybinding editor can
+      // tell apart bound-but-unrunnable from bound-and-active, then
+      // run the side effect on the real dispatch call.
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.newDocument();
+        return true;
+      };
+    case 'openFile':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.openFile();
+        return true;
+      };
+    case 'saveAs':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.saveAs();
+        return true;
+      };
   }
 }
 
