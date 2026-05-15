@@ -33,3 +33,11 @@ dist/
 # custom macro exports). Kept locally for development reference but
 # not part of the repo.
 reference-docs/
+
+# Compiled Electron main/preload output (apps/desktop/dist).
+# Already covered by the root `dist/` rule above, but called out
+# here since the desktop workspace builds into apps/desktop/dist.
+apps/desktop/dist/
+
+# Electron-builder artifacts (Phase 5).
+release/
