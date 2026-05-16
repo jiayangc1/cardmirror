@@ -713,7 +713,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     key: 'includeSpeechDocPocket',
     label: 'Seed new speech docs with a Pocket heading',
     description:
-      'When on (default), New Speech Document opens with a Pocket carrying the speech\'s name (e.g. "Speech 1NC 5-15 9-30AM") at the top, matching Verbatim. Turn off to start with a fully blank doc — one empty paragraph.',
+      'When on (default), New Speech Document opens with a Pocket carrying the speech\'s name (e.g. "Speech 1NC 5-15 9-30AM") at the top. Turn off to start with a fully blank doc — one empty paragraph.',
     kind: 'toggle',
     category: 'general',
   },
