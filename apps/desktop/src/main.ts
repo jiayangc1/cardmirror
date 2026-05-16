@@ -53,6 +53,15 @@ interface InitialDocPayload {
 }
 const pendingInitialDocs = new Map<number, InitialDocPayload>();
 
+/** Per-window allow-list for the next `close` event. The window
+ *  close interception forwards the close to the renderer for
+ *  confirmation; once the renderer has decided the window should
+ *  close (Save, Save As, or Discard all do this; Cancel does not)
+ *  it calls `host:close-self`, which adds the window's id here so
+ *  the resulting `close` event passes through without bouncing
+ *  back to the renderer. Cleared whenever a window is gone. */
+const skipCloseConfirm = new Set<number>();
+
 function createWindow(initialDoc?: InitialDocPayload): BrowserWindow {
   const win = new BrowserWindow({
     width: 1400,
@@ -88,9 +97,29 @@ function createWindow(initialDoc?: InitialDocPayload): BrowserWindow {
   win.on('focus', () => {
     mainWindow = win;
   });
+  // Intercept user-initiated close (X button, Cmd-W, etc.) so the
+  // renderer can prompt for unsaved-doc handling. The renderer
+  // responds by either calling `host:close-self` (which adds the
+  // window's id to `skipCloseConfirm` so the resulting close
+  // event passes through cleanly) or by doing nothing (Cancel).
+  // Programmatic closes from elsewhere in this file go through
+  // the same skip-set, so they aren't double-prompted.
+  win.on('close', (e) => {
+    if (skipCloseConfirm.has(win.id)) {
+      skipCloseConfirm.delete(win.id);
+      return;
+    }
+    if (win.webContents.isDestroyed()) {
+      // Renderer is gone — nothing to ask. Let the close proceed.
+      return;
+    }
+    e.preventDefault();
+    win.webContents.send('host:close-request');
+  });
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
     pendingInitialDocs.delete(win.id);
+    skipCloseConfirm.delete(win.id);
   });
 
   mainWindow = win;
@@ -351,7 +380,13 @@ ipcMain.handle('host:journal-and-close-other-windows', async (event) => {
 
 ipcMain.handle('host:close-self', async (event) => {
   const sender = BrowserWindow.fromWebContents(event.sender);
-  if (sender && !sender.isDestroyed()) sender.close();
+  if (sender && !sender.isDestroyed()) {
+    // Mark this window as "already confirmed" so the close event
+    // about to fire passes through the interception without
+    // bouncing back to the renderer.
+    skipCloseConfirm.add(sender.id);
+    sender.close();
+  }
 });
 
 // ─── Speech-doc registry ──────────────────────────────────────────

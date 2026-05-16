@@ -47,6 +47,7 @@ interface ElectronAPI {
   journalAndCloseOtherWindows(): Promise<void>;
   closeSelf(): Promise<void>;
   onPleaseCloseForModeSwitch(handler: () => void): () => void;
+  onCloseRequest(handler: () => void): () => void;
   docRegister(uid: string): Promise<void>;
   docUnregister(uid: string): Promise<void>;
   speechSet(uid: string | null): Promise<void>;
@@ -172,6 +173,13 @@ export class ElectronHost implements Host {
   /** Subscribe to mode-switch please-close broadcasts. */
   onPleaseCloseForModeSwitch(handler: () => void): () => void {
     return api().onPleaseCloseForModeSwitch(handler);
+  }
+
+  /** Subscribe to user-initiated window close requests. Main fires
+   *  this when the user clicks the OS close button so the renderer
+   *  can prompt for unsaved-doc handling before the window closes. */
+  onCloseRequest(handler: () => void): () => void {
+    return api().onCloseRequest(handler);
   }
 
   /** Doc-lifecycle reporting for the main-process speech-doc

@@ -728,6 +728,7 @@ async function onNewDocClicked(): Promise<void> {
   currentDocHandle = null;
   currentDocFormat = null;
   currentDocUid = newSessionDocUid();
+  markCurrentDocClean();
   syncSingleDocSpeechRegistration();
   // The fresh doc is conceptually still pristine, but the user
   // just demonstrated they're done with whatever was here before.
@@ -2118,6 +2119,7 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
       if (tx.docChanged) {
         currentDoc = next.doc;
         markNonPristineStarter();
+        markCurrentDocDirty();
         // Re-arm the autosave debounce. No-ops when the setting
         // is off, so the call is cheap to fire unconditionally.
         notifyEditForAutosave();
@@ -2326,6 +2328,19 @@ function markNonPristineStarter(): void {
   isPristineStarter = false;
 }
 
+/** Whether the single-doc view has unsaved changes — true on any
+ *  doc-changing edit, cleared on a successful save (manual or
+ *  autosave) and on every doc swap (Open, New, mount-from-spawn,
+ *  recovery). Drives the close-confirm prompt: a clean window
+ *  closes without prompting. */
+let currentDocDirty = false;
+function markCurrentDocDirty(): void {
+  currentDocDirty = true;
+}
+function markCurrentDocClean(): void {
+  currentDocDirty = false;
+}
+
 /** Generate a fresh session-scoped doc UID. Used by the single-doc
  *  edit path; multi-doc DocRecords have their own newDocUid pool.
  *  Keeping the namespaces separate avoids accidental collisions
@@ -2458,6 +2473,7 @@ async function runOpenFlow(): Promise<void> {
     currentDocHandle = opened.handle ?? null;
     currentDocFormat = format;
     currentDocUid = newSessionDocUid();
+    markCurrentDocClean();
     syncSingleDocSpeechRegistration();
     markNonPristineStarter();
     updateWindowTitle();
@@ -2570,6 +2586,7 @@ async function runSaveAsFlow(): Promise<boolean> {
     commitSaveResult(result.name, result.handle ?? null, choice.format);
     flashSaveSuccess();
     markNonPristineStarter();
+    markCurrentDocClean();
     // Successful save — the on-disk file IS the latest version, the
     // journal is redundant. Best-effort delete.
     void clearJournalForActiveDoc();
@@ -2604,6 +2621,7 @@ async function runSaveFlow(): Promise<boolean> {
     await getHost().saveExisting(file.handle, bytes);
     flashSaveSuccess();
     markNonPristineStarter();
+    markCurrentDocClean();
     void clearJournalForActiveDoc();
     return true;
   } catch (err) {
@@ -2772,6 +2790,7 @@ async function runAutosaveAttempt(): Promise<void> {
     });
     await getHost().saveExisting(file.handle, bytes);
     flashSaveSuccess();
+    markCurrentDocClean();
     void clearJournalForActiveDoc();
   } catch (err) {
     // Autosave failures are noisy if we alert(); the user will
@@ -2864,7 +2883,139 @@ if (autosaveBtn) {
         await electronHost.closeSelf();
       })();
     });
+    // User clicked the OS close button. If the doc is clean,
+    // close immediately. If dirty, prompt for save / save-as /
+    // cancel / discard.
+    electronHost.onCloseRequest(() => {
+      void handleUserCloseRequest();
+    });
   }
+}
+
+/** Renderer-side handler for `host:close-request` (the user
+ *  clicked the window's close button). Clean docs close
+ *  immediately; dirty docs surface a 4-option prompt and act on
+ *  the user's choice. Cancel leaves the window open. */
+async function handleUserCloseRequest(): Promise<void> {
+  const electronHost = getElectronHost();
+  if (!electronHost) return;
+  if (!currentDocDirty) {
+    await electronHost.closeSelf();
+    return;
+  }
+  const choice = await confirmCloseUnsaved();
+  switch (choice) {
+    case 'save': {
+      const ok = await runSaveFlow();
+      if (ok) await electronHost.closeSelf();
+      return;
+    }
+    case 'saveAs': {
+      const ok = await runSaveAsFlow();
+      if (ok) await electronHost.closeSelf();
+      return;
+    }
+    case 'discard': {
+      // User wants the work gone. Drop the journal so it doesn't
+      // surface as a recovery option on the next launch, then
+      // close.
+      await clearCurrentJournal().catch(() => {
+        /* best-effort */
+      });
+      await electronHost.closeSelf();
+      return;
+    }
+    case 'cancel':
+      // Window stays open.
+      return;
+  }
+}
+
+/** Four-button overlay for "user wants to close a dirty doc."
+ *  Same DOM shape as `confirmNewDocOverwrite` but with separate
+ *  Save and Save-As actions (in-place save vs pick-location) plus
+ *  an explicit Discard. Esc / overlay-click cancel. */
+function confirmCloseUnsaved(): Promise<'save' | 'saveAs' | 'discard' | 'cancel'> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'pmd-route-overlay';
+    const dialog = document.createElement('div');
+    dialog.className = 'pmd-route-dialog';
+
+    const header = document.createElement('div');
+    header.className = 'pmd-route-header';
+    header.textContent = 'You have unsaved changes. Save before closing?';
+    dialog.appendChild(header);
+
+    const buttons = document.createElement('div');
+    buttons.className = 'pmd-route-buttons';
+
+    const cleanup = (): void => {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    };
+
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'pmd-route-btn';
+    saveBtn.innerHTML =
+      '<strong>Save</strong><br><span>Write to the existing file, then close.</span>';
+    saveBtn.addEventListener('click', () => {
+      cleanup();
+      resolve('save');
+    });
+    buttons.appendChild(saveBtn);
+
+    const saveAsBtn = document.createElement('button');
+    saveAsBtn.type = 'button';
+    saveAsBtn.className = 'pmd-route-btn';
+    saveAsBtn.innerHTML =
+      '<strong>Save As…</strong><br><span>Pick a location, then close.</span>';
+    saveAsBtn.addEventListener('click', () => {
+      cleanup();
+      resolve('saveAs');
+    });
+    buttons.appendChild(saveAsBtn);
+
+    const discardBtn = document.createElement('button');
+    discardBtn.type = 'button';
+    discardBtn.className = 'pmd-route-btn';
+    discardBtn.innerHTML =
+      "<strong>Don't save</strong><br><span>Discard changes and close. Recovery journal is dropped.</span>";
+    discardBtn.addEventListener('click', () => {
+      cleanup();
+      resolve('discard');
+    });
+    buttons.appendChild(discardBtn);
+
+    dialog.appendChild(buttons);
+
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'pmd-route-cancel';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => {
+      cleanup();
+      resolve('cancel');
+    });
+    dialog.appendChild(cancel);
+
+    overlay.appendChild(dialog);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        cleanup();
+        resolve('cancel');
+      }
+    });
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        cleanup();
+        resolve('cancel');
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+  });
 }
 
 function countSummary(doc: PMNode): string {
@@ -2958,6 +3109,10 @@ async function mountFromSpawnPayload(
     currentDocHandle = payload.handle;
     currentDocFormat = format;
     currentDocUid = payload.uid ?? newSessionDocUid();
+    // Newly spawned window starts clean — even though it has
+    // pre-loaded content from the originating window, it hasn't
+    // been edited in THIS window's session.
+    markCurrentDocClean();
     syncSingleDocSpeechRegistration();
     if (payload.markAsSpeech) {
       // New Speech Document flow: the spawning window built the
@@ -3081,6 +3236,9 @@ async function runStartupRecovery(): Promise<void> {
   }
   const { openRecoverySidebar } = await import('./recovery-ui.js');
   await openRecoverySidebar(entries, {
+    onSave: async (entry) => {
+      return saveRecoveryEntry(entry);
+    },
     onOpen: async (entry) => {
       // Multi-doc opens into a slot; single-doc replaces the
       // current view.
@@ -3110,6 +3268,90 @@ async function runStartupRecovery(): Promise<void> {
       }
     },
   });
+}
+
+/** Persist a recovery journal entry to disk without opening it in
+ *  the editor. Used by the recovery sidebar's Save action so the
+ *  user can finalize a draft directly from the sidebar.
+ *
+ *  In-place when `entry.handle` exists and we can save silently;
+ *  otherwise opens the same Save-As modal the regular save path
+ *  uses, defaulting to the entry's original filename / format.
+ *  Deletes the journal entry on success so it doesn't reappear in
+ *  the recovery list next launch. Returns whether the user
+ *  committed to a save. */
+async function saveRecoveryEntry(entry: JournalEntry): Promise<boolean> {
+  const host = getHost();
+  // In-place save when we have a handle and the host supports
+  // silent writes — re-serialize the journal's cmir bytes through
+  // PM to either cmir-out (cheap) or docx-out (toDocx).
+  if (entry.handle && entry.format && host.supportsInPlaceSave) {
+    try {
+      const bytes = await reserializeJournalAs(entry, entry.format);
+      if (typeof entry.handle !== 'string') return false;
+      await host.saveExisting(entry.handle, bytes);
+      await host.deleteJournal(entry.uid).catch(() => {
+        /* best-effort */
+      });
+      return true;
+    } catch (err) {
+      console.error('Recovery save failed:', err);
+      alert(`Save failed: ${err instanceof Error ? err.message : err}`);
+      return false;
+    }
+  }
+  // No handle, or host can't save in place — open the Save-As
+  // modal pre-filled with the entry's name + format. Anything the
+  // user picks here writes a fresh file.
+  const choice = await openSaveAs({
+    initialFilename: entry.filename || 'Untitled',
+    defaultFormat: entry.format ?? 'cmir',
+  });
+  if (!choice) return false;
+  try {
+    const bytes = await reserializeJournalAs(entry, choice.format);
+    const filters =
+      choice.format === 'cmir'
+        ? [{ name: 'CardMirror native (.cmir)', extensions: ['cmir'] }]
+        : [{ name: 'Microsoft Word (.docx)', extensions: ['docx'] }];
+    const result = await host.saveAs(choice.filename, bytes, { filters });
+    if (!result) return false;
+    await host.deleteJournal(entry.uid).catch(() => {
+      /* best-effort */
+    });
+    return true;
+  } catch (err) {
+    console.error('Recovery Save As failed:', err);
+    alert(`Save As failed: ${err instanceof Error ? err.message : err}`);
+    return false;
+  }
+}
+
+/** Convert a journal entry's stored cmir bytes into the requested
+ *  on-disk format. cmir → cmir is a passthrough (the journal
+ *  already stores cmir); cmir → docx parses the journal and runs
+ *  the export pipeline. */
+async function reserializeJournalAs(
+  entry: JournalEntry,
+  format: 'cmir' | 'docx',
+): Promise<Uint8Array> {
+  if (format === 'cmir') {
+    // Defensive copy — entry.bytes may be a Buffer post-IPC.
+    return entry.bytes instanceof Uint8Array
+      ? entry.bytes
+      : new Uint8Array(entry.bytes as ArrayBufferLike);
+  }
+  const parsed = parseNative(entry.bytes);
+  const exportDoc = transformForExport(parsed.doc, {
+    includeComments: true,
+    includeAnalytics: true,
+    includeUndertags: true,
+    readMode: false,
+  });
+  return toDocx(
+    exportDoc,
+    parsed.threads.length > 0 ? { threads: parsed.threads } : undefined,
+  );
 }
 
 /** Silently open every journal entry as part of a mode-switch
@@ -3186,6 +3428,9 @@ async function applyRecovery(entry: JournalEntry): Promise<void> {
   // Reuse the original uid so a re-crash overwrites the same
   // journal slot (rather than accumulating new ones).
   currentDocUid = entry.uid;
+  // Recovery restores content that wasn't successfully saved on the
+  // previous session, so the doc is dirty by definition.
+  markCurrentDocDirty();
   syncSingleDocSpeechRegistration();
   markNonPristineStarter();
   updateWindowTitle();

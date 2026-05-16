@@ -20,6 +20,13 @@
 import type { JournalEntry } from './host/index.js';
 
 export interface RecoverySidebarCallbacks {
+  /** Called when the user clicks Save on a row. Should write the
+   *  entry's bytes to disk (in-place if `entry.handle` is set,
+   *  otherwise via a Save-As dialog) WITHOUT mounting the doc
+   *  into the editor. Returns `true` if the user saved (the
+   *  sidebar removes the row); `false` if cancelled. The callback
+   *  is responsible for deleting the journal entry on success. */
+  onSave(entry: JournalEntry): Promise<boolean> | boolean;
   /** Called when the user clicks Open on a row. Should mount the
    *  entry's doc into the editor. The sidebar marks the row as
    *  "Currently open" but doesn't remove it — the user can open
@@ -99,7 +106,7 @@ class RecoverySidebar {
     const intro = document.createElement('p');
     intro.className = 'pmd-recovery-sidebar-intro';
     intro.textContent =
-      'These drafts weren\'t saved last time. Click Open to load one into the editor; Discard deletes it. Drafts you skip will reappear next launch.';
+      'These drafts weren\'t saved last time. Save writes the draft to disk without opening it; Open loads it into the editor for inspection; Discard deletes it. Drafts you skip will reappear next launch.';
     this.root.appendChild(intro);
 
     // (Re)mount the list element. Cleared on each render so we can
@@ -150,6 +157,17 @@ class RecoverySidebar {
     const actions = document.createElement('div');
     actions.className = 'pmd-recovery-sidebar-row-actions';
 
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'pmd-recovery-sidebar-row-btn pmd-recovery-sidebar-row-btn-save';
+    saveBtn.textContent = 'Save';
+    saveBtn.title =
+      entry.handle
+        ? 'Write this draft back to its original location and remove it from the recovery list.'
+        : 'Pick a location to write this draft to. Removes it from the recovery list on success.';
+    saveBtn.addEventListener('click', () => void this.saveEntry(entry));
+    actions.appendChild(saveBtn);
+
     const openBtn = document.createElement('button');
     openBtn.type = 'button';
     openBtn.className = 'pmd-recovery-sidebar-row-btn pmd-recovery-sidebar-row-btn-open';
@@ -169,6 +187,20 @@ class RecoverySidebar {
 
     row.appendChild(actions);
     return row;
+  }
+
+  private async saveEntry(entry: JournalEntry): Promise<void> {
+    let saved = false;
+    try {
+      saved = await this.callbacks.onSave(entry);
+    } catch (err) {
+      console.warn(`Failed to save recovery draft ${entry.uid}:`, err);
+    }
+    if (!saved) return;
+    this.entries = this.entries.filter((e) => e.uid !== entry.uid);
+    if (this.currentlyOpenUid === entry.uid) this.currentlyOpenUid = null;
+    this.render();
+    if (this.entries.length === 0) this.close();
   }
 
   private async openEntry(entry: JournalEntry): Promise<void> {

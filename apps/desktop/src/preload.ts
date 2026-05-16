@@ -94,6 +94,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('mode-switch:please-close', listener);
   },
 
+  /** Subscribe to user-initiated close requests. Main intercepts
+   *  the window's `close` event and sends this so the renderer
+   *  can prompt for unsaved-doc handling. The renderer's handler
+   *  must call `host:close-self` to actually close, or do nothing
+   *  (Cancel). */
+  onCloseRequest(handler: () => void): () => void {
+    const listener = (): void => handler();
+    ipcRenderer.on('host:close-request', listener);
+    return () => ipcRenderer.removeListener('host:close-request', listener);
+  },
+
   /** Doc-lifecycle reporting for the main-process speech-doc
    *  registry. Renderers call register on mount and unregister on
    *  close, so main knows where each uid lives. */
