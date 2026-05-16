@@ -21,7 +21,7 @@ tree of cards, cites, and headings rather than a flat stream of
 styled paragraphs, a future release will let you search your
 entire evidence library by author, tag, or structural position
 across every open doc — folded into the editor instead of run
-through a separate Block Search tool.
+through a separate tool like [Block Search](https://debate-decoded.ghost.io/blocksearch-making-large-files-usable/).
 
 You can run CardMirror as a **desktop app** on Windows, macOS, or
 Linux — the recommended path for tournament-day work — or as a
