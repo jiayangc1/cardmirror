@@ -11,9 +11,9 @@ the de facto Microsoft Word add-in for US policy/LD/PF debate).
 > code you're looking at is the **web preview** of an upcoming
 > desktop-first editor suite. Standalone desktop builds (Windows /
 > macOS / Linux) will be the recommended way to use CardMirror for
-> tournament work; this web edition exists today so you can try the
+> important work; this web edition exists today so you can try the
 > editor without installing anything. Not yet recommended for actual
-> round-day use.
+> tournament-day use.
 
 ## Where to read
 
@@ -177,8 +177,7 @@ After a few seconds you'll see something like:
 
 Open your browser, type `http://localhost:5173/` into the address
 bar, and press Enter. **CardMirror loads.** You'll see an empty
-starter doc. Drag a `.docx` file onto the page (or click the 📂 icon
-in the ribbon) to open a real document.
+starter doc. Click the 📂 icon in the ribbon to open a real document.
 
 **Leave the terminal window open while you use the editor.** Closing
 the terminal stops CardMirror. To stop it intentionally, click the
