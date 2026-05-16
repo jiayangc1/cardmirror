@@ -1,230 +1,214 @@
 /**
- * Recovery modal.
+ * Crash-recovery sidebar.
  *
- * Shown at startup when the host returns one or more unsaved
- * journal entries — meaning the previous session ended without a
- * successful save / explicit close for those docs. Each entry gets
- * its own row: filename, last-edited timestamp, and per-row
- * "Recover" / "Discard" buttons.
+ * Word-style left panel that shows journal entries left over from
+ * a previous session. Each row lets the user **Open** the draft
+ * (load it into the editor for inspection) or **Discard** it
+ * (delete the journal). Drafts the user neither opens nor discards
+ * stay in the journal store and reappear on the next launch.
  *
- * Promise-based — resolves with the user's per-entry decisions
- * once they finish triaging. "Keep all for later" closes the modal
- * without taking action on any entry (the journals stay on disk
- * for the next launch).
+ * Unlike a modal, the sidebar coexists with the editor — the user
+ * can scroll through one draft, decide, then click another. The
+ * sidebar lays out to the right of the nav-pane, pushing the
+ * editor area further right; closing it returns the editor to its
+ * normal width.
+ *
+ * Promise-based: resolves when the user closes the sidebar (or
+ * after every entry has been opened / discarded).
  */
 
 import type { JournalEntry } from './host/index.js';
 
-/** What the user chose for each journal entry. The modal returns
- *  one of these per entry; the caller acts on it. */
-export type RecoveryDecision = 'recover' | 'discard' | 'keep';
-
-export interface RecoveryResult {
-  /** Decisions keyed by `JournalEntry.uid`, in the same order as
-   *  the input list (preserves user-visible row order for the
-   *  caller's iteration). */
-  decisions: Map<string, RecoveryDecision>;
+export interface RecoverySidebarCallbacks {
+  /** Called when the user clicks Open on a row. Should mount the
+   *  entry's doc into the editor. The sidebar marks the row as
+   *  "Currently open" but doesn't remove it — the user can open
+   *  others to compare, and only Save or Discard finalizes. */
+  onOpen(entry: JournalEntry): Promise<void> | void;
+  /** Called when the user clicks Discard. The sidebar removes the
+   *  row from its list before invoking; the callback should delete
+   *  the journal entry from the host store. */
+  onDiscard(entry: JournalEntry): Promise<void> | void;
 }
 
-export function openRecoveryModal(entries: JournalEntry[]): Promise<RecoveryResult> {
+export function openRecoverySidebar(
+  entries: JournalEntry[],
+  callbacks: RecoverySidebarCallbacks,
+): Promise<void> {
   return new Promise((resolve) => {
-    new RecoveryModal(entries, resolve);
+    new RecoverySidebar(entries, callbacks, resolve);
   });
 }
 
-class RecoveryModal {
-  private readonly overlay: HTMLDivElement;
-  private readonly dialog: HTMLDivElement;
-  private readonly decisions = new Map<string, RecoveryDecision>();
-  private readonly rowElems = new Map<string, HTMLElement>();
+class RecoverySidebar {
+  private readonly root: HTMLElement;
+  private readonly listEl: HTMLDivElement;
+  /** UID of the entry currently mounted in the editor (if any) —
+   *  drives the "Currently open" visual indicator. Null when the
+   *  user hasn't opened any draft yet (or has switched away). */
+  private currentlyOpenUid: string | null = null;
+  /** Live list of remaining entries. Mutated by Discard. */
+  private entries: JournalEntry[];
   private settled = false;
 
   constructor(
-    private readonly entries: JournalEntry[],
-    private readonly settle: (r: RecoveryResult) => void,
+    initialEntries: JournalEntry[],
+    private readonly callbacks: RecoverySidebarCallbacks,
+    private readonly settle: () => void,
   ) {
-    // Default every entry to "keep" — that's the safest action if
-    // the user closes the modal without explicit choices.
-    for (const e of entries) this.decisions.set(e.uid, 'keep');
+    this.entries = [...initialEntries];
 
-    this.overlay = document.createElement('div');
-    this.overlay.className = 'pmd-recovery-overlay';
+    this.root = document.createElement('aside');
+    this.root.className = 'pmd-recovery-sidebar';
+    document.body.appendChild(this.root);
+    document.body.classList.add('pmd-recovery-active');
 
-    this.dialog = document.createElement('div');
-    this.dialog.className = 'pmd-recovery-dialog';
-    this.overlay.appendChild(this.dialog);
-
-    this.overlay.addEventListener('click', (e) => {
-      if (e.target === this.overlay) this.finishKeepAll();
-    });
     document.addEventListener('keydown', this.handleKey);
 
+    this.listEl = document.createElement('div');
+    this.listEl.className = 'pmd-recovery-sidebar-list';
+
     this.render();
-    document.body.appendChild(this.overlay);
   }
 
   private readonly handleKey = (e: KeyboardEvent): void => {
     if (this.settled) return;
     if (e.key === 'Escape') {
       e.preventDefault();
-      this.finishKeepAll();
+      this.close();
     }
   };
 
   private render(): void {
+    this.root.innerHTML = '';
+
     const header = document.createElement('header');
-    header.className = 'pmd-recovery-header';
+    header.className = 'pmd-recovery-sidebar-header';
     const title = document.createElement('h2');
-    title.textContent =
-      this.entries.length === 1
-        ? 'Recover unsaved work'
-        : `Recover ${this.entries.length} unsaved drafts`;
+    title.textContent = 'Recover drafts';
     header.appendChild(title);
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
-    closeBtn.className = 'pmd-recovery-close';
+    closeBtn.className = 'pmd-recovery-sidebar-close';
     closeBtn.textContent = '×';
-    closeBtn.title = 'Keep for later';
-    closeBtn.addEventListener('click', () => this.finishKeepAll());
+    closeBtn.title = 'Close — drafts left here will reappear next time you launch CardMirror';
+    closeBtn.addEventListener('click', () => this.close());
     header.appendChild(closeBtn);
-    this.dialog.appendChild(header);
+    this.root.appendChild(header);
 
-    const intro = document.createElement('div');
-    intro.className = 'pmd-recovery-intro';
-    const lead = document.createElement('p');
-    lead.textContent = `CardMirror exited before ${
-      this.entries.length === 1 ? 'this draft was' : 'these drafts were'
-    } saved. For each one:`;
-    intro.appendChild(lead);
-    const legend = document.createElement('ul');
-    legend.className = 'pmd-recovery-legend';
-    legend.innerHTML =
-      '<li><strong>Recover</strong> opens the draft in the editor.</li>' +
-      '<li><strong>Discard</strong> deletes the draft. (You can\'t undo this.)</li>' +
-      '<li>Leave both unselected to keep it for next launch.</li>';
-    intro.appendChild(legend);
-    this.dialog.appendChild(intro);
+    const intro = document.createElement('p');
+    intro.className = 'pmd-recovery-sidebar-intro';
+    intro.textContent =
+      'These drafts weren\'t saved last time. Click Open to load one into the editor; Discard deletes it. Drafts you skip will reappear next launch.';
+    this.root.appendChild(intro);
 
-    const list = document.createElement('div');
-    list.className = 'pmd-recovery-list';
+    // (Re)mount the list element. Cleared on each render so we can
+    // rebuild after a Discard removes a row.
+    this.listEl.innerHTML = '';
     for (const entry of this.entries) {
-      list.appendChild(this.renderRow(entry));
+      this.listEl.appendChild(this.renderRow(entry));
     }
-    this.dialog.appendChild(list);
+    this.root.appendChild(this.listEl);
 
     const footer = document.createElement('footer');
-    footer.className = 'pmd-recovery-footer';
-    const keepBtn = document.createElement('button');
-    keepBtn.type = 'button';
-    keepBtn.className = 'pmd-recovery-btn pmd-recovery-btn-secondary';
-    keepBtn.textContent = 'Keep all for later';
-    keepBtn.addEventListener('click', () => this.finishKeepAll());
-    footer.appendChild(keepBtn);
-    const commitBtn = document.createElement('button');
-    commitBtn.type = 'button';
-    commitBtn.className = 'pmd-recovery-btn pmd-recovery-btn-primary';
-    commitBtn.textContent = 'Apply choices';
-    commitBtn.addEventListener('click', () => this.finishCommit());
-    footer.appendChild(commitBtn);
-    this.dialog.appendChild(footer);
+    footer.className = 'pmd-recovery-sidebar-footer';
+    const doneBtn = document.createElement('button');
+    doneBtn.type = 'button';
+    doneBtn.className = 'pmd-recovery-sidebar-done';
+    doneBtn.textContent = this.entries.length === 0 ? 'Done' : 'Close';
+    doneBtn.addEventListener('click', () => this.close());
+    footer.appendChild(doneBtn);
+    this.root.appendChild(footer);
   }
 
   private renderRow(entry: JournalEntry): HTMLElement {
     const row = document.createElement('div');
-    row.className = 'pmd-recovery-row';
-    this.rowElems.set(entry.uid, row);
+    row.className = 'pmd-recovery-sidebar-row';
+    if (entry.uid === this.currentlyOpenUid) {
+      row.classList.add('pmd-recovery-sidebar-row-active');
+    }
 
-    const info = document.createElement('div');
-    info.className = 'pmd-recovery-row-info';
     const name = document.createElement('div');
-    name.className = 'pmd-recovery-row-name';
+    name.className = 'pmd-recovery-sidebar-row-name';
     name.textContent = entry.filename || 'Untitled';
-    info.appendChild(name);
+    row.appendChild(name);
+
     const sub = document.createElement('div');
-    sub.className = 'pmd-recovery-row-sub';
-    sub.textContent = `Edited ${formatRelativeTime(entry.savedAt)}${
-      entry.format ? ` · ${entry.format}` : ''
-    }`;
-    info.appendChild(sub);
-    row.appendChild(info);
+    sub.className = 'pmd-recovery-sidebar-row-sub';
+    const parts: string[] = [formatRelativeTime(entry.savedAt)];
+    if (entry.format) parts.push(entry.format);
+    sub.textContent = parts.join(' · ');
+    row.appendChild(sub);
+
+    if (entry.uid === this.currentlyOpenUid) {
+      const indicator = document.createElement('div');
+      indicator.className = 'pmd-recovery-sidebar-row-indicator';
+      indicator.textContent = 'Open in editor';
+      row.appendChild(indicator);
+    }
 
     const actions = document.createElement('div');
-    actions.className = 'pmd-recovery-row-actions';
-    const recoverBtn = makeChoiceBtn(
-      'Recover',
-      'recover',
-      'Reopen this draft in the editor when you click Apply choices.',
-    );
-    const discardBtn = makeChoiceBtn(
-      'Discard',
-      'discard',
-      'Delete this draft when you click Apply choices.',
-    );
-    actions.appendChild(recoverBtn);
-    actions.appendChild(discardBtn);
-    row.appendChild(actions);
+    actions.className = 'pmd-recovery-sidebar-row-actions';
 
-    const self = this;
-    function makeChoiceBtn(
-      label: string,
-      decision: RecoveryDecision,
-      tooltip: string,
-    ): HTMLButtonElement {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'pmd-recovery-row-btn';
-      b.textContent = label;
-      b.title = tooltip;
-      b.addEventListener('click', () => {
-        // Toggle: clicking the already-selected choice clears it
-        // back to "keep for later" so the user can undo a misclick
-        // without having to click the other option.
-        if (self.decisions.get(entry.uid) === decision) {
-          self.decisions.set(entry.uid, 'keep');
-        } else {
-          self.decisions.set(entry.uid, decision);
-        }
-        self.refreshRowChoiceState(entry.uid);
-      });
-      return b;
-    }
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.className = 'pmd-recovery-sidebar-row-btn pmd-recovery-sidebar-row-btn-open';
+    openBtn.textContent = entry.uid === this.currentlyOpenUid ? 'Reopen' : 'Open';
+    openBtn.title =
+      'Load this draft into the editor so you can see it. Save it to keep it; Discard to delete it.';
+    openBtn.addEventListener('click', () => void this.openEntry(entry));
+    actions.appendChild(openBtn);
+
+    const discardBtn = document.createElement('button');
+    discardBtn.type = 'button';
+    discardBtn.className = 'pmd-recovery-sidebar-row-btn pmd-recovery-sidebar-row-btn-discard';
+    discardBtn.textContent = 'Discard';
+    discardBtn.title = 'Delete this draft. You can\'t undo this.';
+    discardBtn.addEventListener('click', () => void this.discardEntry(entry));
+    actions.appendChild(discardBtn);
+
+    row.appendChild(actions);
     return row;
   }
 
-  /** Update the visual state of a row's two buttons to reflect the
-   *  current decision. */
-  private refreshRowChoiceState(uid: string): void {
-    const row = this.rowElems.get(uid);
-    if (!row) return;
-    const decision = this.decisions.get(uid);
-    for (const btn of row.querySelectorAll<HTMLButtonElement>('.pmd-recovery-row-btn')) {
-      const choice = btn.textContent === 'Recover' ? 'recover' : 'discard';
-      btn.classList.toggle('pmd-recovery-row-btn-selected', choice === decision);
+  private async openEntry(entry: JournalEntry): Promise<void> {
+    try {
+      await this.callbacks.onOpen(entry);
+      this.currentlyOpenUid = entry.uid;
+      this.render();
+    } catch (err) {
+      console.warn(`Failed to open recovery draft ${entry.uid}:`, err);
     }
   }
 
-  private finishCommit(): void {
-    this.finish({ decisions: new Map(this.decisions) });
+  private async discardEntry(entry: JournalEntry): Promise<void> {
+    this.entries = this.entries.filter((e) => e.uid !== entry.uid);
+    if (this.currentlyOpenUid === entry.uid) this.currentlyOpenUid = null;
+    this.render();
+    try {
+      await this.callbacks.onDiscard(entry);
+    } catch (err) {
+      console.warn(`Failed to discard recovery draft ${entry.uid}:`, err);
+    }
+    // Auto-close when the list is empty — no more decisions to make.
+    if (this.entries.length === 0) {
+      this.close();
+    }
   }
 
-  private finishKeepAll(): void {
-    // Reset every entry to "keep" — preserves the safe default.
-    for (const e of this.entries) this.decisions.set(e.uid, 'keep');
-    this.finish({ decisions: new Map(this.decisions) });
-  }
-
-  private finish(result: RecoveryResult): void {
+  private close(): void {
     if (this.settled) return;
     this.settled = true;
     document.removeEventListener('keydown', this.handleKey);
-    this.overlay.remove();
-    this.settle(result);
+    document.body.classList.remove('pmd-recovery-active');
+    this.root.remove();
+    this.settle();
   }
 }
 
-/** Format an ISO 8601 timestamp as a relative human-readable
- *  string. Used in the recovery modal so users can tell at a glance
- *  how recent each draft is. */
+/** Relative-time string ("5 minutes ago" / "2 hours ago" / etc.).
+ *  Falls back to the raw locale string for entries older than a
+ *  week. */
 function formatRelativeTime(iso: string): string {
   const date = new Date(iso);
   const ms = Date.now() - date.getTime();

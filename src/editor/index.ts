@@ -2504,19 +2504,15 @@ if (settings.get('multiDocWorkspace')) {
 }
 
 /** Startup recovery — read any unsaved journals from the previous
- *  session and surface the recovery modal if there are any. The
- *  user's per-entry decisions drive what gets loaded back / dropped
- *  / kept for next launch.
- *
- *  Multi-doc mode can recover several at once (one per slot, then
- *  stacked into the focused slot). Single-doc mode can only display
- *  one document at a time, so multiple Recover picks resolve to
- *  "recover the most recent, keep the rest for next launch" — and
- *  the user sees a toast about it. */
+ *  session and surface the recovery sidebar if there are any. The
+ *  sidebar lets the user open each draft into the editor for
+ *  inspection before deciding whether to keep it (save) or
+ *  discard it. Drafts left undecided when the sidebar closes
+ *  remain in the journal store for the next launch. */
 async function runStartupRecovery(): Promise<void> {
   const host = getHost();
   if (!host.journalsSupported) return;
-  let entries: Awaited<ReturnType<typeof host.readJournals>>;
+  let entries: JournalEntry[];
   try {
     entries = await host.readJournals();
   } catch (err) {
@@ -2524,68 +2520,37 @@ async function runStartupRecovery(): Promise<void> {
     return;
   }
   if (entries.length === 0) return;
-  // Lazy-load the modal so its CSS / JS isn't paid for in the
-  // common (no-recovery) case.
-  const { openRecoveryModal } = await import('./recovery-ui.js');
-  const result = await openRecoveryModal(entries);
-
-  // Process discards first (cheap, no UI side-effects). Then handle
-  // recoveries based on mode.
-  for (const entry of entries) {
-    if (result.decisions.get(entry.uid) === 'discard') {
-      void host.deleteJournal(entry.uid).catch((err) =>
-        console.warn('Failed to discard journal:', err),
-      );
-    }
-  }
-  const toRecover = entries.filter((e) => result.decisions.get(e.uid) === 'recover');
-  if (toRecover.length === 0) return;
-
-  if (multiDocActive && multiDocOnRecoveredDoc) {
-    // Multi-doc: load every selected draft. The shell distributes
-    // into empty slots first, then stacks extras onto the focused
-    // slot's record stack.
-    for (const entry of toRecover) {
-      try {
-        const parsed = parseNative(entry.bytes);
-        await multiDocOnRecoveredDoc({
-          uid: entry.uid,
-          filename: entry.filename,
-          handle: entry.handle,
-          format: entry.format,
-          doc: parsed.doc,
-          threads: parsed.threads,
-        });
-      } catch (err) {
-        console.warn(`Failed to parse recovery journal for ${entry.uid}:`, err);
+  const { openRecoverySidebar } = await import('./recovery-ui.js');
+  await openRecoverySidebar(entries, {
+    onOpen: async (entry) => {
+      // Multi-doc opens into a slot; single-doc replaces the
+      // current view.
+      if (multiDocActive && multiDocOnRecoveredDoc) {
+        try {
+          const parsed = parseNative(entry.bytes);
+          await multiDocOnRecoveredDoc({
+            uid: entry.uid,
+            filename: entry.filename,
+            handle: entry.handle,
+            format: entry.format,
+            doc: parsed.doc,
+            threads: parsed.threads,
+          });
+        } catch (err) {
+          console.warn(`Failed to parse recovery journal for ${entry.uid}:`, err);
+        }
+        return;
       }
-    }
-    showToast(
-      toRecover.length === 1
-        ? `Recovered ${toRecover[0]!.filename}`
-        : `Recovered ${toRecover.length} drafts into the workspace`,
-      { durationMs: 2200 },
-    );
-    return;
-  }
-
-  // Single-doc: only one doc can live in the editor at a time. Pick
-  // the most recently saved draft and recover it; leave the rest as
-  // journals so the next launch will offer them again.
-  const sorted = [...toRecover].sort((a, b) =>
-    (b.savedAt ?? '').localeCompare(a.savedAt ?? ''),
-  );
-  const winner = sorted[0]!;
-  await applyRecovery(winner);
-  const deferred = sorted.length - 1;
-  if (deferred > 0) {
-    showToast(
-      `Recovered ${winner.filename}. ${deferred} other draft${deferred === 1 ? '' : 's'} kept for next launch — single-doc mode opens one at a time.`,
-      { durationMs: 4000 },
-    );
-  } else {
-    showToast(`Recovered ${winner.filename}`, { durationMs: 2200 });
-  }
+      await applyRecovery(entry);
+    },
+    onDiscard: async (entry) => {
+      try {
+        await host.deleteJournal(entry.uid);
+      } catch (err) {
+        console.warn('Failed to discard journal:', err);
+      }
+    },
+  });
 }
 
 /** Load a recovered journal entry into the single-doc editor (the
