@@ -23,6 +23,10 @@ import type {
  *  (and not imported from the desktop workspace) so the editor
  *  doesn't take a build-time dependency on Electron-specific code. */
 interface ElectronAPI {
+  pickDirectory(opts?: {
+    defaultPath?: string;
+    title?: string;
+  }): Promise<string | null>;
   openFile(opts: { filters: FileFilter[] }): Promise<{
     name: string;
     bytes: Uint8Array;
@@ -70,6 +74,13 @@ export class ElectronHost implements Host {
   readonly supportsInPlaceSave = true;
   readonly journalsSupported = true;
   readonly canSpawnWindow = true;
+
+  async pickDirectory(opts?: {
+    defaultPath?: string;
+    title?: string;
+  }): Promise<string | null> {
+    return api().pickDirectory(opts);
+  }
 
   async openFile(opts: OpenFileOptions = {}): Promise<OpenedFile | null> {
     const result = await api().openFile({ filters: opts.filters ?? [] });

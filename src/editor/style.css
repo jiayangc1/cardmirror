@@ -3302,6 +3302,35 @@ body.pmd-nav-resize-active {
 }
 .pmd-settings-btn:hover { background: var(--pmd-c-button-hover, rgba(0, 0, 0, 0.06)); }
 
+/* Folder picker — read-only path display next to a Browse / Clear
+   pair. The path span ellipses on overflow so long absolute paths
+   don't stretch the settings dialog. */
+.pmd-settings-folder {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.pmd-settings-folder-path {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--pmd-c-border, #999);
+  border-radius: 4px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+  font-size: 0.85rem;
+  font-family: 'JetBrains Mono', 'Menlo', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pmd-settings-folder-path.pmd-settings-folder-empty {
+  color: var(--pmd-c-text-muted, #888);
+  font-style: italic;
+  font-family: inherit;
+}
+
 /* ---------------------------------------------- Clod configurator */
 
 .pmd-clod-overlay {

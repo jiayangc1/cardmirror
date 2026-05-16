@@ -29,6 +29,12 @@ interface JournalEntry {
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  /** Open the native directory-picker dialog. Used by the
+   *  settings UI for the "default folder" rows. Returns the
+   *  chosen absolute path or null if the user cancelled. */
+  pickDirectory: (opts?: { defaultPath?: string; title?: string }) =>
+    ipcRenderer.invoke('host:pick-directory', opts),
+
   openFile: (opts: { filters: FileFilter[] }) =>
     ipcRenderer.invoke('host:open-file', opts),
 

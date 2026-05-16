@@ -118,6 +118,23 @@ function bytesToBuffer(bytes: unknown): Buffer {
 
 // ─── IPC handlers ──────────────────────────────────────────────────
 
+ipcMain.handle(
+  'host:pick-directory',
+  async (event, opts?: { defaultPath?: string; title?: string }) => {
+    const win = ownerWindow(event.sender);
+    const result = await dialog.showOpenDialog(
+      win ?? new BrowserWindow({ show: false }),
+      {
+        properties: ['openDirectory', 'createDirectory'],
+        defaultPath: opts?.defaultPath,
+        title: opts?.title,
+      },
+    );
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0]!;
+  },
+);
+
 ipcMain.handle('host:open-file', async (event, opts: { filters?: FileFilter[] }) => {
   const win = ownerWindow(event.sender);
   const result = await dialog.showOpenDialog(win ?? new BrowserWindow({ show: false }), {

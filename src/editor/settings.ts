@@ -29,6 +29,14 @@ function workspaceLayoutDescription(): string {
 
 const STORAGE_KEY = 'pmd-settings';
 
+/** Keys whose values are per-window/per-session: never written to
+ *  localStorage, never synced via storage events, and reset to
+ *  defaults on reload. Read mode is the canonical case — Verbatim
+ *  exits read mode on document close, and we already treat it as
+ *  per-pane in multi-doc mode; making it per-window matches that
+ *  intent for the multi-window case. */
+const TRANSIENT_SETTING_KEYS = new Set<string>(['readMode']);
+
 /** Reader profile for read-time estimates: name + words-per-minute. */
 export interface ReaderConfig {
   name: string;
@@ -615,6 +623,7 @@ export interface SettingMeta {
     | 'shrinkCustomProtections'
     | 'keybindings'
     | 'text'
+    | 'folder'
     | 'password'
     | 'clod'
     | 'aiCitePrompt'
@@ -670,8 +679,8 @@ export const SETTING_METADATA: SettingMeta[] = [
     key: 'defaultSpeechDocFolder',
     label: 'Default folder for new speech documents',
     description:
-      'Absolute path. When set, "New Speech Document" saves the new doc into this folder by default. Leave empty (the default) to keep the current behavior of leaving the doc unsaved until you explicitly Save / Save As.',
-    kind: 'text',
+      'When set, "New Speech Document" saves the new doc into this folder by default. Leave empty (the default) to keep the current behavior of leaving the doc unsaved until you explicitly Save / Save As.',
+    kind: 'folder',
     category: 'general',
     electronOnly: true,
   },
@@ -921,7 +930,19 @@ export class SettingsStore {
       window.addEventListener('storage', (event) => {
         if (event.storageArea !== localStorage) return;
         if (event.key !== STORAGE_KEY && event.key !== null) return;
-        this.values = this.load();
+        const incoming = this.load();
+        // Transient keys (e.g., read mode) stay window-local: don't
+        // let another window's persisted state override what THIS
+        // window has chosen. The originating window persists only
+        // the non-transient keys, but a fresh load() would still
+        // hydrate transients from DEFAULTS — which would erase
+        // this window's current value if we didn't pin it.
+        for (const key of TRANSIENT_SETTING_KEYS) {
+          (incoming as unknown as Record<string, unknown>)[key] = (
+            this.values as unknown as Record<string, unknown>
+          )[key];
+        }
+        this.values = incoming;
         this.notify();
       });
     }
@@ -934,7 +955,7 @@ export class SettingsStore {
   set<K extends keyof Settings>(key: K, value: Settings[K]): void {
     if (this.values[key] === value) return;
     this.values[key] = value;
-    this.persist();
+    if (!TRANSIENT_SETTING_KEYS.has(key as string)) this.persist();
     this.notify();
   }
 
@@ -956,6 +977,13 @@ export class SettingsStore {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') {
+          // Strip transient keys before merging — they're per-
+          // session/per-window. If an earlier version of the app
+          // happened to persist `readMode`, we don't want this
+          // window to boot into it.
+          for (const key of TRANSIENT_SETTING_KEYS) {
+            delete (parsed as Record<string, unknown>)[key];
+          }
           return sanitize({ ...DEFAULTS, ...parsed });
         }
       }
@@ -979,7 +1007,12 @@ export class SettingsStore {
 
   private persist(): void {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.values));
+      // Strip transient keys before serializing so they neither
+      // survive a reload nor (more importantly) trigger a storage
+      // event with a stale read-mode flag for other windows.
+      const toStore: Record<string, unknown> = { ...this.values };
+      for (const key of TRANSIENT_SETTING_KEYS) delete toStore[key];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
     } catch {
       /* localStorage full / disabled — ignore */
     }

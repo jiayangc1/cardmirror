@@ -3,6 +3,50 @@
 Append-only log of implementation decisions and their rationale. Each
 entry has a date, a one-line summary, and the reasoning.
 
+## 2026-05-15: Read mode is window-local (transient setting)
+
+Read mode now belongs to the window that toggled it. Previously,
+cross-window settings sync (the `storage` event listener added
+yesterday) carried `readMode` through every window — toggle in
+A, B and C all flip too. That's wrong: read mode is a workflow
+state for the doc you're actively delivering / reviewing, not a
+preference that should apply uniformly.
+
+Mechanism: `TRANSIENT_SETTING_KEYS = new Set(['readMode'])`.
+`SettingsStore`:
+
+  - `persist()` strips transient keys from the serialized payload
+    before writing — so no localStorage write, so no storage
+    event on other windows.
+  - The storage-event listener still hydrates the rest of the
+    snapshot but pins transient-key values from `this.values`,
+    so a write from another window can't clobber the local read-
+    mode state via the side-channel of a different setting's
+    persist.
+  - `load()` deletes transient keys from anything parsed out of
+    localStorage before merging into DEFAULTS, so a stale
+    `readMode` left over from before this change can't haunt
+    fresh boots.
+
+Net effect: each window's read mode is independent and reload
+defaults to off, matching the "transient delivery-mode" intent
+documented in `applyReadMode` already.
+
+## 2026-05-15: Folder-picker setting kind + pickDirectory IPC
+
+New `'folder'` SettingMeta kind for path-valued settings on
+Electron. Renders as a read-only path display (or "(not set)"
+when empty) with Browse… / Clear buttons. The Browse button
+calls `host.pickDirectory({ defaultPath, title })` → main
+process `dialog.showOpenDialog({ properties: ['openDirectory',
+'createDirectory'] })` → absolute path string. Used by
+`defaultSpeechDocFolder`; future desktop-only path settings can
+reuse the same kind.
+
+The path is intentionally non-editable: users either pick via
+the system dialog or clear. Removes a typo-with-no-feedback
+failure mode where a mistyped path silently no-ops at save time.
+
 ## 2026-05-15: Onboarding-starter setting + multi-window New flow
 
 Two related fixes:
