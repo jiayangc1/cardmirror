@@ -1365,52 +1365,45 @@ export class NavigationPanel {
     }
   }
 
-  /** Scroll `target` to the top of its scroll container, with a
-   *  multi-pass refine so `content-visibility: auto` cards between
-   *  current viewport and target materialize and revise their
-   *  layout before the final scroll position is committed.
+  /** Scroll `target` into view with accurate cumulative offsets,
+   *  pre-materializing every `content-visibility: auto` card and
+   *  heading container in the editor BEFORE the scroll happens.
    *
    *  The bug we're working around: cards have
-   *  `contain-intrinsic-height: auto 200px`. Subtrees that have
-   *  never rendered use the 200px placeholder; cumulative
-   *  estimates up to the target can be off by tens of pixels per
-   *  skipped subtree, so a single `scrollIntoView` on a large doc
-   *  lands slightly above or below the intended heading. Each
-   *  subsequent pass narrows the gap as the now-visible content
-   *  flips from intrinsic-size to actual-size.
+   *  `contain-intrinsic-height: auto 200px`, headings `auto 40px`.
+   *  Cumulative scroll-position calculations between the current
+   *  viewport and a far-away target use those placeholders for
+   *  every skipped subtree — each off by tens of pixels — so a
+   *  single `scrollIntoView` on a large doc lands near but not
+   *  on the target. Subsequent scrolls also can't fix it from
+   *  inside a JS handler because layout for those subtrees only
+   *  flushes once they intersect the viewport, after the scroll
+   *  animation, too late.
    *
-   *  We also briefly force the target's own subtree to visible so
-   *  the target's contribution to layout is accurate from frame 1
-   *  — the browser then has a concrete height to land on.
-   *  Three RAFs is more than enough for any reasonable doc. */
+   *  The .pmd-force-materialize CSS rule (in style.css) flips
+   *  every cv:auto card / heading to cv:visible. Reading
+   *  `offsetHeight` on the editor's contenteditable forces a
+   *  synchronous layout pass for the WHOLE subtree, so the
+   *  browser now knows every block's actual height. `scrollIntoView`
+   *  uses those for accurate scroll-position math and lands on
+   *  the target on the first try.
+   *
+   *  We revert the class on the next animation frame. Per the
+   *  spec, content-visibility: auto's intrinsic size is the
+   *  last-rendered size of the element — so the heights stay
+   *  cached and the scroll position remains correct as the user
+   *  pans around afterwards. */
   private scrollTargetIntoView(target: HTMLElement): void {
-    const prevContentVisibility = target.style.contentVisibility;
-    target.style.contentVisibility = 'visible';
-    // Read offsetHeight to force the materialization to flush
-    // before the first scrollIntoView call.
-    void target.offsetHeight;
-
+    if (!this.view) return;
+    const editor = this.view.dom;
+    editor.classList.add('pmd-force-materialize');
+    // Force synchronous layout flush so the override takes effect
+    // for the upcoming scroll math.
+    void editor.offsetHeight;
     target.scrollIntoView({ behavior: 'auto', block: 'start' });
-
-    let pass = 1;
-    const refine = (): void => {
-      if (!target.isConnected) {
-        target.style.contentVisibility = prevContentVisibility;
-        return;
-      }
-      target.scrollIntoView({ behavior: 'auto', block: 'start' });
-      pass++;
-      if (pass < 3) {
-        requestAnimationFrame(refine);
-      } else {
-        // Restore content-visibility. Target is now at top of
-        // viewport so it stays materialized regardless; the
-        // override was only needed for the early-pass position
-        // calculations.
-        target.style.contentVisibility = prevContentVisibility;
-      }
-    };
-    requestAnimationFrame(refine);
+    requestAnimationFrame(() => {
+      editor.classList.remove('pmd-force-materialize');
+    });
   }
 }
 
