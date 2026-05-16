@@ -26,15 +26,11 @@ Microsoft Word add-in used by US policy/LD/PF debaters.
 ## Repo layout
 
 - `PROJECT.md` (this file) — project index and high-level orientation.
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — editor design decisions:
-  schema shape, three-layer rendering model, multi-doc workspace, read
-  mode, send-to-speech, search, transclusion, integration boundaries.
-- [`NOTES-verbatim.md`](./NOTES-verbatim.md) — Verbatim's data model,
-  style mechanics, real-world observations from working documents, and
-  the round-trip contract specifics.
-- [`NOTES-custom-macros.md`](./NOTES-custom-macros.md) — Advanced
-  Verbatim's custom macros, effect-level. What features the editor
-  needs to replicate (or supersede).
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — editor design: schema
+  shape, three-layer rendering model, multi-doc workspace, read
+  mode, send-to-speech, search, transclusion, editing-behavior
+  rules, integration boundaries.
+- [`CHANGELOG.md`](./CHANGELOG.md) — user-facing release notes.
 
 Round-trip fidelity is verified against real `.docx` files via the
 test suite. Point `CARDMIRROR_DOCS_DIR` at a folder of fixtures to
@@ -44,9 +40,7 @@ run the round-trip / mark-fidelity / structural-validity tests
 ## Reading order for a new contributor
 
 1. This file for orientation.
-2. `ARCHITECTURE.md` for design decisions.
-3. `NOTES-verbatim.md` for the docx data model.
-4. `NOTES-custom-macros.md` for the bucket-3 feature inventory.
+2. `ARCHITECTURE.md` for the design.
 
 ## Headline design decisions
 
@@ -90,8 +84,7 @@ referenced files.
   drives the workspace + read-mode + cross-doc-coordinator foundation.
   The backtick / Alt-backtick chord, NewSpeech, mark-as-speech, and a
   uid-keyed resolver that bridges into Electron main for cross-window
-  routing are shipped. — `ARCHITECTURE.md` §10, `DECISIONS.md`
-  2026-05-15 entry.
+  routing are shipped. — `ARCHITECTURE.md` §10.
 - **Round-trip is the dominant correctness criterion.** Schema, importer,
   and exporter are one tightly-coupled project. The Stylepox normalizer
   is genuinely separable (and the user already maintains a working

@@ -1,10 +1,9 @@
 # Architecture
 
-Design decisions for the CardMirror editor. This file captures the
-*editor's* design choices — schema shape, rendering model, multi-doc
-architecture, integration boundaries. Verbatim's own data model lives in
-[`NOTES-verbatim.md`](./NOTES-verbatim.md); macro effects we're trying to
-replicate live in [`NOTES-custom-macros.md`](./NOTES-custom-macros.md).
+The CardMirror editor's design — schema shape, rendering model,
+multi-doc workspace, send-to-speech / read-mode / cross-pane drag
+semantics, editing-behavior rules at node boundaries, and the
+companion-tool integration surface.
 
 ---
 
@@ -50,8 +49,8 @@ realities from day one, not retrofitted.
 
 ### Build order
 
-1. **Schema first** — small, defensible, designed against the realities
-   in `NOTES-verbatim.md` §6.
+1. **Schema first** — small, defensible, designed against the
+   realities of Verbatim's OOXML.
 2. **Exporter** — schema → OOXML, tested by hand-constructing schema trees
    and verifying the docx renders correctly in Word + Advanced Verbatim.
 3. **Importer alongside** — OOXML → schema, tested via
@@ -76,10 +75,12 @@ Concretely:
 - **Aggressive cleanup on import is OK.** We are *not* required to
   preserve arbitrary cruft. Stylepox, abandoned custom styles, irrelevant
   hyperlinks, font/spacing overrides — all fair to normalize.
-- **Verbatim and Advanced Verbatim semantics must be preserved with full
-  fidelity.** Anything Verbatim's macros key on must round-trip. The
-  inventory in `NOTES-verbatim.md` and `NOTES-custom-macros.md` is the
-  authoritative list.
+- **Verbatim and Advanced Verbatim semantics must be preserved with
+  full fidelity.** Anything Verbatim's macros key on must
+  round-trip — style names, document variables, run-level
+  attributes — and every Advanced Verbatim macro effect we replicate
+  must produce a doc Verbatim-using teammates can re-open without
+  noticing the seam.
 - **Exports look native.** Style names, outline levels, document
   variables, and direct-formatting conventions must match what Verbatim
   itself produces. The receiver should not be able to tell our editor
@@ -136,8 +137,7 @@ Notes:
   (which cards sit under which Block, which Block under which Hat, etc.)
   is implicit in document order + outline level — not enforced by
   schema containment. The nav panel walks the flat sequence and groups
-  by outline level to derive the tree view. See `DECISIONS.md`
-  2026-05-08 "Schema design — heading-level nodes are flat paragraphs."
+  by outline level to derive the tree view.
 - **Pocket is optional at root.** Some real working docs have zero
   Heading1 paragraphs. Top-level entry can be Hat, Block, or a plain
   paragraph.
@@ -530,9 +530,9 @@ beyond "insert text at cursor."
 
 ## 11. Search
 
-Two scopes, two phases. **Neither is shipped yet** — the workspace
-shell, schema, and round-trip are in; full-text and schema-aware
-search across docs is roadmap work.
+Two scopes, two phases. Both are planned for a later release —
+the workspace shell, schema, and round-trip are in place; full-text
+and schema-aware search across docs is roadmap work.
 
 **Workspace search** — across all currently-open docs in the
 workspace. Index lives in memory, updates incrementally as docs are
@@ -756,18 +756,9 @@ interaction; the editor enforces it via ProseMirror commands and
 keymap overrides. Where in doubt, prefer the rule that matches the
 *user's likely intent* over the rule that matches Word.
 
-This section is the source of truth for those rules. Decided rules
-live here; rationale (one-liners) goes to `DECISIONS.md` with a back-
-reference. Open questions stay marked `[open]` until polled and
-resolved.
+This section is the source of truth for those rules.
 
-### Status legend
-
-- `[decided]` — rule is settled; rationale logged in `DECISIONS.md`.
-
-### Decided rules
-
-#### Body-slot absorption after card / analytic_unit `[decided]`
+### Body-slot absorption after card / analytic_unit
 
 A body-slot node at doc level whose immediate previous sibling is a
 `card` or `analytic_unit` is auto-absorbed into that container. The
@@ -797,11 +788,7 @@ Cases preserved (no absorption):
 Implemented as `src/editor/absorb-plugin.ts`, an `appendTransaction`
 plugin that runs after every doc-changing transaction.
 
-Rationale: see `DECISIONS.md` 2026-05-09 "Paragraph absorption rule for
-loose paragraphs after a card" and 2026-05-10 "Cite handling
-unification."
-
-#### Cite paragraph classification (runtime invariant) `[decided]`
+### Cite paragraph classification (runtime invariant)
 
 A paragraph-like textblock's *type* tracks its inline content's cite
 state. On every dispatched transaction, `src/editor/cite-classifier-plugin.ts`
@@ -825,9 +812,7 @@ but the looser schema collapses what had become a forest of edge
 cases in the cite-paste logic and makes "any body slot can hold a
 cite" the universal rule.
 
-Rationale: see `DECISIONS.md` 2026-05-10 "Cite handling unification."
-
-#### Tag boundary editing `[decided]`
+### Tag boundary editing
 
 The rules below all apply equivalently to `analytic` (in an
 `analytic_unit`). Pocket / Hat / Block use ProseMirror's default
@@ -840,8 +825,7 @@ containing card in document order — this includes the last `card_body`
 of a preceding card, since that's the candidate for being a blank
 trailing line that the user might want to delete.
 
-##### Empty tag-only container `[decided]`
-
+##### Empty tag-only container
 If the tag (or analytic) is empty AND it is the only child of its
 container (no body, no cite, no undertag), Backspace at the start
 *or* Delete at the end of the head deletes the whole container. If
@@ -849,8 +833,7 @@ that would leave the doc with no children at all, the container is
 replaced by an empty paragraph so the editor still has a textblock
 for the cursor. Whitespace-only heads count as empty for this rule.
 
-##### Empty tag with surviving siblings — merge into previous `[decided]`
-
+##### Empty tag with surviving siblings — merge into previous
 If the tag (or analytic) is empty (or whitespace-only) AND the
 container has other children (card_body, cite_paragraph, undertag,
 or an in-card analytic), Backspace at the head's start *or* Delete
@@ -866,32 +849,28 @@ remaining children into whatever doc-level node sits before it:
 Cursor lands at the merge boundary: end of the preceding content
 on Backspace, start of the merged content on Delete.
 
-##### Backspace at the start of a tag (non-empty tag) `[decided]`
-
+##### Backspace at the start of a tag (non-empty tag)
 Permitted only when the preceding paragraph is blank — delete the
 blank paragraph; the tag stays intact and the cursor remains at the
 start of the tag. Otherwise, prohibited (no-op). The rule applies
 regardless of whether the blank paragraph is at doc level or is a
 trailing card_body inside the previous card.
 
-##### Enter in the middle of a tag `[decided]`
-
+##### Enter in the middle of a tag
 Word's default behavior: split the tag at the cursor; the pre-cursor
 text becomes a new tag-shaped card inserted before the original; the
 post-cursor text remains in the original card with all its existing
 content (cite, body, etc.). Both halves keep tag styling. Cursor lands
 at the start of the post-cursor (continuation) tag.
 
-##### Forward Delete at the end of a tag (non-empty tag) `[decided]`
-
+##### Forward Delete at the end of a tag (non-empty tag)
 Permitted only when the next paragraph in document order is also a
 tag. Merges the two tags into one; the resulting card retains the
 later card's content (cite/body/etc.). When the next paragraph is
 anything else (cite, body, undertag, heading), the operation is
 prohibited.
 
-##### Backspace at the start of the first body slot `[decided]`
-
+##### Backspace at the start of the first body slot
 Cursor at offset 0 of the FIRST body slot in a card or analytic_unit
 (the body whose previous sibling is the container's anchor — typically
 a `cite_paragraph` immediately after the tag, but the rule applies to
@@ -912,8 +891,7 @@ Bodies that aren't the first slot (cursor at start of `body2` in
 correctly joins them with their previous sibling in the same
 container.
 
-##### Forward Delete at the end of the last body in a container `[decided]`
-
+##### Forward Delete at the end of the last body in a container
 Cursor at the end of the LAST child of a card / analytic_unit, where
 that last child is a body slot (card_body / undertag / cite_paragraph
 / in-card analytic — anything but the container's anchor):
@@ -933,20 +911,16 @@ Mirror of the "empty tag with surviving siblings — merge into
 previous" rule above, just initiated from the body side instead of
 the empty-head side.
 
-##### Enter at the end of a tag `[decided]`
-
+##### Enter at the end of a tag
 Creates a new card_body (Normal style) and moves the cursor into it.
 The card_body is inserted at the schema-correct position within the
 current card.
 
-##### Enter at the start of a tag `[decided]`
-
+##### Enter at the start of a tag
 Splits with an empty tag before the original — i.e., a new empty card
 (empty tag, no body) is inserted before the current card; the original
 card's content is unchanged; the cursor remains at the start of the
 original tag.
-
-Rationale: see `DECISIONS.md` 2026-05-10 "Tag boundary editing rules."
 
 ## 15. Companion-tool integration boundaries
 
@@ -968,16 +942,15 @@ operating on the schema. They cost essentially nothing to reimplement
 as native editor commands and the value is feature parity — users
 don't need to bounce to Word for any of them.
 
-Ship native versions of all the ribbon commands documented in
-`NOTES-verbatim.md` §3 that aren't subsumed by editor primitives we
-already have (e.g., `MoveUp`/`MoveDown` are subsumed by drag-and-drop;
-`SelectHeadingAndContent` is subsumed by the navigation panel). The
-remaining commands map directly to schema transforms.
+Native versions of every Verbatim ribbon command that isn't subsumed
+by editor primitives we already have (e.g., `MoveUp`/`MoveDown` are
+subsumed by drag-and-drop; `SelectHeadingAndContent` is subsumed by
+the navigation panel) map directly to schema transforms here.
 
-Status — what's wired (all in `src/editor/ribbon-commands.ts`
-unless noted, all routed through a single `RibbonCommandId` registry
-so the "Keyboard shortcuts" settings panel can rebind anything through
-one overrides surface — see DECISIONS 2026-05-12 (keybinding editor)):
+The ribbon commands (all in `src/editor/ribbon-commands.ts` unless
+noted) are routed through a single `RibbonCommandId` registry so the
+"Keyboard shortcuts" settings panel can rebind anything through one
+overrides surface:
 
 - **Structural-style hotkeys (F4 / F5 / F6 / F7 / Mod-F7 / Mod-F8).**
   Set the current paragraph or heading to Pocket / Hat / Block / Tag /
@@ -1002,8 +975,7 @@ one overrides surface — see DECISIONS 2026-05-12 (keybinding editor)):
   tag ↔ analytic is a same-tier swap (same structural role, only the
   cite/analytic semantic differs), so `convertCardToAnalyticUnit`,
   `convertAnalyticUnitToCard`, and the matching branch of
-  `asTransformed` deliberately preserve direct formatting. See
-  DECISIONS 2026-05-12.
+  `asTransformed` deliberately preserve direct formatting.
 - **Mod-B / Mod-I.** Toggle the `bold` / `italic` direct-formatting
   marks via `toggleMark`. Standard Word semantics.
 - **F2 — Paste Text (armed mode).** Browsers won't let a web app
@@ -1260,8 +1232,8 @@ following per-style typography flags). Tooltips display the active
 keyboard binding using the platform's modifier glyphs.
 
 **Empty Verbatim ribbon slots:** the Cleanup family (AutoNumberTags,
-ReformatAllCites, ConvertToDefaultStyles, …) isn't shipped yet. The
-same registry surface will hold them when they land. F12 (Clear),
+ReformatAllCites, ConvertToDefaultStyles, …) is planned for a later
+release. The same registry surface will hold them when they land. F12 (Clear),
 Shrink (`Mod-8`), Create Reference, and the F11 / F2 / F3 families
 are all wired through the registry already. (Verbatim's F11 was
 Highlight Yellow — single-color; ours is a fuller toggle-plus-picker

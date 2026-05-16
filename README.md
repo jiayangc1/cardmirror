@@ -14,14 +14,21 @@ the de facto Microsoft Word add-in for US policy/LD/PF debate).
 > important work; this web edition exists today so you can try the
 > editor without installing anything. Not yet recommended for actual
 > tournament-day use.
+>
+> **Desktop builds are unsigned.** Alpha builds aren't code-signed.
+> On Windows the SmartScreen filter shows a "Windows protected your
+> PC" dialog the first time you launch — click *More info* → *Run
+> anyway*. On macOS Gatekeeper refuses to open the app on first
+> launch ("can't be opened because Apple cannot check it for
+> malicious software"); right-click the app in Finder, choose
+> *Open*, then *Open* again in the confirmation dialog. Each is a
+> one-time prompt per machine.
 
 ## Where to read
 
 - [`PROJECT.md`](./PROJECT.md) — high-level orientation, headline design decisions.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — full design: schema, multi-doc workspace, read mode, send-to-speech, integration boundaries.
-- [`NOTES-verbatim.md`](./NOTES-verbatim.md) — Verbatim's docx data model + real-world observations from the example docs.
-- [`NOTES-custom-macros.md`](./NOTES-custom-macros.md) — Advanced Verbatim's custom macros, effect-level inventory.
-- [`DECISIONS.md`](./DECISIONS.md) — append-only implementation decision log.
+- [`CHANGELOG.md`](./CHANGELOG.md) — user-facing release notes.
 
 ## Installing and running (first-time guide)
 
