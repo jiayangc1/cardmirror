@@ -393,6 +393,7 @@ let multiDocSetFocusedFile:
  *  successful save in multi-doc mode. The shell knows the
  *  DocRecord's uid; the editor only knows it has a focused doc. */
 let multiDocClearFocusedJournal: (() => Promise<void>) | null = null;
+let multiDocNotifyFocusedSaved: (() => void) | null = null;
 /** Mode-switch hook: journal every open DocRecord across every
  *  slot's stack so the auto-recover-on-reload flow can rebuild
  *  the workspace in the new layout. */
@@ -429,6 +430,10 @@ export function enableMultiDocMode(opts: {
   getFocusedFile?: () => { filename: string; handle: unknown | null; format: 'cmir' | 'docx' | null } | null;
   setFocusedFile?: (file: { filename: string; handle: unknown | null; format: 'cmir' | 'docx' | null }) => void;
   clearFocusedJournal?: () => Promise<void>;
+  /** Called from single-doc save flows after a successful save so
+   *  the multi-pane shell can clear the focused DocRecord's dirty
+   *  flag (used by the per-pane close-confirm prompt). */
+  notifyFocusedSaved?: () => void;
   onRecoveredDoc?: (entry: {
     uid: string;
     filename: string;
@@ -453,6 +458,7 @@ export function enableMultiDocMode(opts: {
   multiDocGetFocusedFile = opts.getFocusedFile ?? null;
   multiDocSetFocusedFile = opts.setFocusedFile ?? null;
   multiDocClearFocusedJournal = opts.clearFocusedJournal ?? null;
+  multiDocNotifyFocusedSaved = opts.notifyFocusedSaved ?? null;
   multiDocOnRecoveredDoc = opts.onRecoveredDoc ?? null;
   multiDocJournalAll = opts.journalAll ?? null;
   // Hide the single-doc surfaces. The multi-pane shell mounts its
@@ -2563,7 +2569,7 @@ async function serializeForSave(
  * save (and the bytes hit disk / downloaded), `false` when they
  * cancelled the dialog or the OS file picker.
  */
-async function runSaveAsFlow(): Promise<boolean> {
+export async function runSaveAsFlow(): Promise<boolean> {
   const file = activeFile();
   const suggestedName = basenameWithoutExt(file.filename ?? 'untitled');
   const defaultFormat: 'cmir' | 'docx' = file.format ?? 'cmir';
@@ -2587,6 +2593,7 @@ async function runSaveAsFlow(): Promise<boolean> {
     flashSaveSuccess();
     markNonPristineStarter();
     markCurrentDocClean();
+    multiDocNotifyFocusedSaved?.();
     // Successful save — the on-disk file IS the latest version, the
     // journal is redundant. Best-effort delete.
     void clearJournalForActiveDoc();
@@ -2604,7 +2611,7 @@ async function runSaveAsFlow(): Promise<boolean> {
  * when we have no handle (brand-new doc, host without in-place save
  * support, etc.). Returns the same boolean as Save-As.
  */
-async function runSaveFlow(): Promise<boolean> {
+export async function runSaveFlow(): Promise<boolean> {
   const file = activeFile();
   if (!file.handle || !file.format || !getHost().supportsInPlaceSave) {
     return runSaveAsFlow();
@@ -2622,6 +2629,7 @@ async function runSaveFlow(): Promise<boolean> {
     flashSaveSuccess();
     markNonPristineStarter();
     markCurrentDocClean();
+    multiDocNotifyFocusedSaved?.();
     void clearJournalForActiveDoc();
     return true;
   } catch (err) {
@@ -2934,8 +2942,9 @@ async function handleUserCloseRequest(): Promise<void> {
 /** Four-button overlay for "user wants to close a dirty doc."
  *  Same DOM shape as `confirmNewDocOverwrite` but with separate
  *  Save and Save-As actions (in-place save vs pick-location) plus
- *  an explicit Discard. Esc / overlay-click cancel. */
-function confirmCloseUnsaved(): Promise<'save' | 'saveAs' | 'discard' | 'cancel'> {
+ *  an explicit Discard. Esc / overlay-click cancel. Exported for
+ *  multi-pane's per-pane close handler. */
+export function confirmCloseUnsaved(): Promise<'save' | 'saveAs' | 'discard' | 'cancel'> {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.className = 'pmd-route-overlay';

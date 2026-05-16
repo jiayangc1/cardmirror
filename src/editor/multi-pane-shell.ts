@@ -60,6 +60,9 @@ import {
   setReadModeStateResolver,
   setAutosaveStateResolver,
   attachClickBelowToEnd,
+  confirmCloseUnsaved,
+  runSaveFlow,
+  runSaveAsFlow,
 } from './index.js';
 
 type SlotId = 'slot1' | 'slot2' | 'slot3';
@@ -141,6 +144,7 @@ async function runAutosaveForRecord(record: DocRecord): Promise<void> {
     const threads = Array.from(getCommentsState(state).threads.values());
     const bytes = serializeNative(state.doc, threads.length ? { threads } : undefined);
     await host.saveExisting(record.handle, bytes);
+    record.dirty = false;
     // Successful save → drop the journal. Mirrors the single-doc
     // post-save journal cleanup so a re-crash doesn't surface a
     // recovery offer for a doc that's already on disk.
@@ -222,6 +226,11 @@ interface DocRecord {
   autosaveEnabled: boolean;
   /** Debounce timer for the per-record autosave write. */
   autosaveTimer: number | null;
+  /** True when this record has unsaved changes — set on any
+   *  doc-changing transaction, cleared on a successful save
+   *  (manual or autosave). Drives the per-pane close-confirm
+   *  prompt: a clean pane closes without prompting. */
+  dirty: boolean;
 }
 
 class Slot {
@@ -309,7 +318,7 @@ class Slot {
     this.chipCloseBtn.addEventListener('mousedown', (e) => e.preventDefault());
     this.chipCloseBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.closeVisible();
+      void this.closeVisible();
     });
     chip.appendChild(this.chipCloseBtn);
     this.paneEl.appendChild(chip);
@@ -445,11 +454,28 @@ class Slot {
   }
 
   /** Close the currently-visible doc. Reveals the next stack member
-   *  (or empties the slot). */
-  closeVisible(): void {
+   *  (or empties the slot). Prompts for save / discard / cancel if
+   *  the doc has unsaved changes; clean docs close immediately. */
+  async closeVisible(): Promise<void> {
     const idx = this.visibleIndex;
     if (idx < 0) return;
     const closing = this.stack[idx]!;
+    if (closing.dirty) {
+      // Focus this pane so the save commands (which route via
+      // `activeFile()`) target THIS doc, not whichever pane
+      // happened to be focused before the user clicked X.
+      this.shell.focusSlot(this);
+      const choice = await confirmCloseUnsaved();
+      if (choice === 'cancel') return;
+      if (choice === 'save') {
+        const ok = await runSaveFlow();
+        if (!ok) return;
+      } else if (choice === 'saveAs') {
+        const ok = await runSaveAsFlow();
+        if (!ok) return;
+      }
+      // discard: fall through; existing journal-clear path runs.
+    }
     this.detachVisible();
     if (closing.heavyUpdateTimer !== null) {
       cancelIdle(closing.heavyUpdateTimer);
@@ -594,7 +620,7 @@ class Slot {
       close.addEventListener('click', (e) => {
         e.stopPropagation();
         closeOpenStackDropdown();
-        this.closeRecord(rec);
+        void this.closeRecord(rec);
       });
       row.appendChild(close);
       dropdown.appendChild(row);
@@ -614,12 +640,21 @@ class Slot {
     setTimeout(() => document.addEventListener('pointerdown', onDoc), 0);
   }
 
-  /** Close a specific record (not necessarily the visible one). */
-  closeRecord(rec: DocRecord): void {
+  /** Close a specific record (not necessarily the visible one).
+   *  Prompts if the record has unsaved changes. */
+  async closeRecord(rec: DocRecord): Promise<void> {
     const idx = this.stack.indexOf(rec);
     if (idx < 0) return;
     if (idx === this.visibleIndex) {
-      this.closeVisible();
+      await this.closeVisible();
+      return;
+    }
+    if (rec.dirty) {
+      // Surface the doc so the user can see what they're being
+      // asked about, AND so save commands route to it.
+      this.showRecord(rec);
+      this.shell.focusSlot(this);
+      await this.closeVisible();
       return;
     }
     if (rec.heavyUpdateTimer !== null) {
@@ -1042,6 +1077,15 @@ class MultiPaneShell {
     setActiveView(rec.view);
   }
 
+  /** Clear the focused pane's `dirty` flag. Called from single-doc
+   *  save flows after a successful save so the per-pane close-X
+   *  prompt knows the doc no longer has unsaved changes. */
+  markFocusedSaved(): void {
+    const rec = this.focusedSlot?.visible;
+    if (!rec) return;
+    rec.dirty = false;
+  }
+
   /** The filename currently shown in the focused pane's chip, or
    *  null when no pane is focused. Used by Save-As to prefill
    *  with the active doc's name. */
@@ -1138,6 +1182,10 @@ class MultiPaneShell {
       format: entry.format,
       uid: entry.uid,
     });
+    // Recovery restores content that wasn't successfully saved on
+    // the previous session, so the doc is dirty by definition.
+    // Close-X prompts will fire until the user explicitly saves.
+    record.dirty = true;
     slot.push(record);
   }
 
@@ -1491,8 +1539,11 @@ function buildDocRecord(
       // transactions. Autosave is per-record now (each DocRecord
       // owns its own enabled flag + timer), so we schedule the
       // record's own save instead of the single-doc global path.
-      // No-ops when autosave is off for this record.
+      // No-ops when autosave is off for this record. Also flip
+      // the dirty flag so the pane's close-X knows there are
+      // unsaved changes to prompt about.
       if (tx.docChanged) {
+        record.dirty = true;
         scheduleAutosaveForRecord(record);
         scheduleJournalForRecord(record);
       }
@@ -1556,6 +1607,10 @@ function buildDocRecord(
     // toggle once the doc has been saved as .cmir.
     autosaveEnabled: false,
     autosaveTimer: null,
+    // Fresh doc: clean. Flipped on first doc-changing transaction;
+    // cleared on a successful save (per-record autosave OR the
+    // single-doc save flow firing through the focused-saved hook).
+    dirty: false,
   };
   // Publish (uid, view) so the speech-doc resolver can resolve uids
   // back to live views and (on Electron) so main learns which
@@ -1580,6 +1635,7 @@ export function mountMultiPaneShell(): void {
     onNewDoc: () => shell!.createNewDoc(),
     toggleReadMode: () => shell!.toggleFocusedReadMode(),
     toggleAutosave: () => shell!.toggleFocusedAutosave(),
+    notifyFocusedSaved: () => shell!.markFocusedSaved(),
     newSpeechDocument: () => { void shell!.createNewSpeechDocument(); },
     markActiveAsSpeech: () => shell!.markFocusedAsSpeech(),
     sendToSpeechAtCursor: () => shell!.sendToSpeech(false),
