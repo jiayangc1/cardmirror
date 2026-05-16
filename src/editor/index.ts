@@ -14,7 +14,7 @@ import { history, undo, redo } from 'prosemirror-history';
 import { baseKeymap } from 'prosemirror-commands';
 import { Node as PMNode, type Mark } from 'prosemirror-model';
 import { schema, newHeadingId } from '../schema/index.js';
-import { fromDocxFull, toDocx } from '../index.js';
+import { fromDocxFull, toDocx, serializeNative, parseNative } from '../index.js';
 import { transformForExport } from '../export/transform-for-export.js';
 import type { Thread } from './comments-plugin.js';
 import { NavigationPanel } from './nav-panel.js';
@@ -78,7 +78,7 @@ import {
 import { openWordCount } from './word-count-ui.js';
 import { wireColorPanel } from './color-panel.js';
 import { countReadAloudWords, formatReadTime, formatNumber } from './word-count.js';
-import { getHost, type OpenedFile } from './host/index.js';
+import { getHost, getElectronHost, type OpenedFile } from './host/index.js';
 
 const editorEl = document.getElementById('editor')!;
 const navEl = document.getElementById('nav-panel')!;
@@ -177,6 +177,15 @@ let multiDocSendToSpeechAtEnd: (() => void) | null = null;
 let multiDocGetFocusedFilename: (() => string | null) | null = null;
 let multiDocSetFocusedFilename: ((name: string) => void) | null = null;
 
+/** Full focused-file plumbing for the Save / Save-As flow — reads
+ *  the filename plus the on-disk handle and on-disk format. */
+let multiDocGetFocusedFile:
+  | (() => { filename: string; handle: unknown | null; format: 'cmir' | 'docx' | null } | null)
+  | null = null;
+let multiDocSetFocusedFile:
+  | ((file: { filename: string; handle: unknown | null; format: 'cmir' | 'docx' | null }) => void)
+  | null = null;
+
 /** Multi-pane shell hooks. Called by `multi-pane-shell.ts` at boot
  *  to install the overrides that redirect the single-doc open /
  *  mountView paths into per-pane routing. */
@@ -190,6 +199,8 @@ export function enableMultiDocMode(opts: {
   sendToSpeechAtEnd?: () => void;
   getFocusedFilename?: () => string | null;
   setFocusedFilename?: (name: string) => void;
+  getFocusedFile?: () => { filename: string; handle: unknown | null; format: 'cmir' | 'docx' | null } | null;
+  setFocusedFile?: (file: { filename: string; handle: unknown | null; format: 'cmir' | 'docx' | null }) => void;
 }): void {
   multiDocActive = true;
   multiDocOnFileOpen = opts.onFileOpen;
@@ -201,6 +212,8 @@ export function enableMultiDocMode(opts: {
   multiDocSendToSpeechAtEnd = opts.sendToSpeechAtEnd ?? null;
   multiDocGetFocusedFilename = opts.getFocusedFilename ?? null;
   multiDocSetFocusedFilename = opts.setFocusedFilename ?? null;
+  multiDocGetFocusedFile = opts.getFocusedFile ?? null;
+  multiDocSetFocusedFile = opts.setFocusedFile ?? null;
   // Hide the single-doc surfaces. The multi-pane shell mounts its
   // own DOM into #app, alongside #editor + #comments-column which
   // we hide here.
@@ -233,6 +246,7 @@ export function setActiveView(v: EditorView | null): void {
   refreshWordCount();
   refreshReadModeBtn();
   refreshSpeechMarkBtn();
+  updateWindowTitle();
 }
 
 /** Read-only accessor for the active view — exposed so other
@@ -361,6 +375,9 @@ const ribbonContext: RibbonContext = {
   openFile: () => {
     void runOpenFlow();
   },
+  save: () => {
+    void runSaveFlow();
+  },
   saveAs: () => {
     void runSaveAsFlow();
   },
@@ -419,6 +436,9 @@ async function onNewDocClicked(): Promise<void> {
   }
   mountView(makeStarterDoc());
   currentDocFilename = null;
+  currentDocHandle = null;
+  currentDocFormat = null;
+  updateWindowTitle();
 }
 
 /** Three-button overlay used by the single-doc "New document" flow.
@@ -1117,6 +1137,7 @@ function runViewlessRibbon(id: RibbonCommandId): void {
   switch (id) {
     case 'newDocument': ribbonContext.newDocument(); return;
     case 'openFile': ribbonContext.openFile(); return;
+    case 'save': ribbonContext.save(); return;
     case 'saveAs': ribbonContext.saveAs(); return;
     case 'openShortcutsReference': ribbonContext.openShortcutsReference(); return;
     case 'newSpeechDocument': ribbonContext.newSpeechDocument(); return;
@@ -1934,17 +1955,57 @@ function scheduleHeavyUpdate(): void {
 }
 
 /** Remembers the file the user imported, so Save As can default to
- *  its name. Set on import, untouched by export. */
+ *  its name. Set on import, updated on Save / Save-As. */
 let currentDocFilename: string | null = null;
+/** Opaque host handle for the current single-doc file. Set on
+ *  open (when the host hands one out) and on Save-As (when the user
+ *  commits to a location). The "Save" command writes to this handle
+ *  silently; absent → Save falls through to Save-As. */
+let currentDocHandle: unknown | null = null;
+/** On-disk format of the current single-doc file. Drives whether
+ *  "Save" routes through `toDocx` or `serializeNative`. `null` for
+ *  brand-new docs that have never been saved. */
+let currentDocFormat: 'cmir' | 'docx' | null = null;
 
-/** The "open a .docx" flow. Asks the host for a file, then routes
- *  it: multi-doc mode hands the result to the multi-pane shell
- *  (which shows the "send to slot N" inline picker); single-doc
- *  mode mounts it as the current view. */
+/** Filename-to-format inference. Used when opening files and when
+ *  defaulting the Save-As dialog's format radio. */
+function formatFromFilename(name: string | null | undefined): 'cmir' | 'docx' | null {
+  if (!name) return null;
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.cmir')) return 'cmir';
+  if (lower.endsWith('.docx')) return 'docx';
+  return null;
+}
+
+/** Combined open-file filter — accepts both formats by default so
+ *  the user can pick either. The native option is listed first so
+ *  it's the default filter selection (most apps default to "all
+ *  recognized" or the first filter; users can swap to "Word only"
+ *  if they want to narrow). */
+const OPEN_FILE_FILTERS = [
+  { name: 'CardMirror or Word documents', extensions: ['cmir', 'docx'] },
+  { name: 'CardMirror native (.cmir)', extensions: ['cmir'] },
+  { name: 'Microsoft Word (.docx)', extensions: ['docx'] },
+];
+
+/** Save-As filter — only the chosen format's extension. Built per
+ *  save call so the dialog drops to a single option matching the
+ *  format radio the user picked. */
+function saveFiltersForFormat(format: 'cmir' | 'docx'): { name: string; extensions: string[] }[] {
+  if (format === 'cmir') {
+    return [{ name: 'CardMirror native (.cmir)', extensions: ['cmir'] }];
+  }
+  return [{ name: 'Microsoft Word (.docx)', extensions: ['docx'] }];
+}
+
+/** The "open a doc" flow. Asks the host for a file, detects format
+ *  from the extension, and routes: multi-doc mode hands off to the
+ *  multi-pane shell (which shows the "send to slot N" picker);
+ *  single-doc mode mounts it as the current view. */
 async function runOpenFlow(): Promise<void> {
   let opened: OpenedFile | null;
   try {
-    opened = await getHost().openFile();
+    opened = await getHost().openFile({ filters: OPEN_FILE_FILTERS });
   } catch (err) {
     console.error('Open failed:', err);
     alert(`Failed to open: ${err instanceof Error ? err.message : err}`);
@@ -1960,82 +2021,156 @@ async function runOpenFlow(): Promise<void> {
     }
     return;
   }
+  const format = formatFromFilename(opened.name) ?? 'docx';
   try {
-    const { doc, threads } = await fromDocxFull(opened.bytes);
-    mountView(doc, threads);
+    let docNode: PMNode;
+    let docThreads: Thread[] | undefined;
+    if (format === 'cmir') {
+      const parsed = parseNative(opened.bytes);
+      docNode = parsed.doc;
+      docThreads = parsed.threads.length > 0 ? parsed.threads : undefined;
+    } else {
+      const result = await fromDocxFull(opened.bytes);
+      docNode = result.doc;
+      docThreads = result.threads;
+    }
+    mountView(docNode, docThreads);
     currentDocFilename = opened.name;
-    console.log(`Loaded ${opened.name}: ${countSummary(doc)}`);
+    currentDocHandle = opened.handle ?? null;
+    currentDocFormat = format;
+    updateWindowTitle();
+    console.log(`Loaded ${opened.name}: ${countSummary(docNode)}`);
   } catch (err) {
-    console.error('Failed to load docx:', err);
+    console.error('Failed to load doc:', err);
     alert(`Failed to load: ${err instanceof Error ? err.message : err}`);
   }
 }
 
-/** Default Save-As filename: the focused pane's filename in
- *  multi-doc, the imported file's name in single-doc, falling
- *  through to "untitled.docx". */
-function defaultSaveFilename(): string {
-  const raw =
-    (multiDocActive && multiDocGetFocusedFilename?.()) ||
-    currentDocFilename ||
-    'untitled.docx';
-  return raw.toLowerCase().endsWith('.docx') ? raw : `${raw}.docx`;
+/** Strip the known extensions off a filename so the Save-As dialog
+ *  can re-attach the right one based on the chosen format. */
+function basenameWithoutExt(name: string): string {
+  for (const ext of ['.cmir', '.docx']) {
+    if (name.toLowerCase().endsWith(ext)) return name.slice(0, -ext.length);
+  }
+  return name;
 }
 
-/** After Save-As commits, remember the user's chosen filename as
- *  the new default — in single-doc that's `currentDocFilename`; in
- *  multi-doc it propagates back into the focused pane's record so
- *  the chip label updates. */
-function rememberSavedFilename(name: string): void {
-  if (multiDocActive && multiDocSetFocusedFilename) {
-    multiDocSetFocusedFilename(name);
-  } else {
-    currentDocFilename = name;
+/** Read the active file's filename + handle + format. In multi-doc
+ *  mode this is the focused pane's record; in single-doc it's the
+ *  module-level `currentDoc*` values. */
+function activeFile(): { filename: string | null; handle: unknown | null; format: 'cmir' | 'docx' | null } {
+  if (multiDocActive && multiDocGetFocusedFile) {
+    const f = multiDocGetFocusedFile();
+    if (f) return { filename: f.filename, handle: f.handle, format: f.format };
   }
+  return { filename: currentDocFilename, handle: currentDocHandle, format: currentDocFormat };
+}
+
+/** Apply a save result back into the active file's record — chip
+ *  label, in-place-save handle, and format all update together. */
+function commitSaveResult(filename: string, handle: unknown | null, format: 'cmir' | 'docx'): void {
+  if (multiDocActive && multiDocSetFocusedFile) {
+    multiDocSetFocusedFile({ filename, handle, format });
+  } else {
+    currentDocFilename = filename;
+    currentDocHandle = handle;
+    currentDocFormat = format;
+  }
+  updateWindowTitle();
+}
+
+/** Sync `document.title` with the active filename so Electron's
+ *  native title bar reflects which doc is open. Cheap; called on
+ *  open / save / multi-doc focus change. */
+function updateWindowTitle(): void {
+  const f = activeFile();
+  document.title = f.filename ? `${f.filename} — CardMirror` : 'CardMirror';
+}
+
+/** Serialize the active doc into bytes in the given format. Shared
+ *  by the Save and Save-As flows. The `opts` arg controls export-
+ *  time filtering (read mode, drop analytics / undertags / comments). */
+async function serializeForSave(
+  format: 'cmir' | 'docx',
+  opts: {
+    includeComments: boolean;
+    includeAnalytics: boolean;
+    includeUndertags: boolean;
+    readMode: boolean;
+  },
+): Promise<Uint8Array> {
+  const docToExport = view ? view.state.doc : currentDoc;
+  const exportDocNode = transformForExport(docToExport, {
+    includeComments: opts.includeComments,
+    includeAnalytics: opts.includeAnalytics,
+    includeUndertags: opts.includeUndertags,
+    readMode: opts.readMode,
+  });
+  if (view) gcOrphanThreads(view);
+  const threads = opts.includeComments && view
+    ? Array.from(getCommentsState(view.state).threads.values())
+    : undefined;
+  if (format === 'cmir') {
+    return serializeNative(exportDocNode, threads ? { threads } : undefined);
+  }
+  return toDocx(exportDocNode, threads ? { threads } : undefined);
 }
 
 /**
  * Run the Save As flow. Returns `true` when the user committed to a
  * save (and the bytes hit disk / downloaded), `false` when they
- * cancelled the dialog or the OS file picker — including the case
- * where the user cancelled mid-stream. Extracted so the New-doc
- * confirmation flow can reuse it.
+ * cancelled the dialog or the OS file picker.
  */
 async function runSaveAsFlow(): Promise<boolean> {
-  const choice = await openSaveAs(defaultSaveFilename());
+  const file = activeFile();
+  const suggestedName = basenameWithoutExt(file.filename ?? 'untitled');
+  const defaultFormat: 'cmir' | 'docx' = file.format ?? 'cmir';
+  const choice = await openSaveAs({
+    initialFilename: suggestedName,
+    defaultFormat,
+  });
   if (!choice) return false;
   try {
-    // In multi-doc mode the focused pane drives Save — read its
-    // doc directly so we always export the right one regardless
-    // of when `currentDoc` was last synced.
-    const docToExport = view ? view.state.doc : currentDoc;
-    const exportDocNode = transformForExport(docToExport, {
+    const bytes = await serializeForSave(choice.format, {
       includeComments: choice.includeComments,
       includeAnalytics: choice.includeAnalytics,
       includeUndertags: choice.includeUndertags,
       readMode: choice.readMode,
     });
-    // Flush any pending comments GC before reading thread state.
-    // GC moved from the per-transaction `appendTransaction` to the
-    // 200ms idle debounce — so it's possible the user hits Save
-    // mid-burst with orphan threads still tracked. Run it sync now
-    // so the export only emits threads with surviving marks.
-    if (view) gcOrphanThreads(view);
-    // Pull threads from the comments plugin when the Save-As
-    // dialog said to include them; otherwise the exporter strips
-    // brackets and skips the parts entirely.
-    const threads = choice.includeComments && view
-      ? Array.from(getCommentsState(view.state).threads.values())
-      : undefined;
-    const bytes = await toDocx(exportDocNode, threads ? { threads } : undefined);
+    const result = await getHost().saveAs(choice.filename, bytes, {
+      filters: saveFiltersForFormat(choice.format),
+    });
+    if (!result) return false;
+    commitSaveResult(result.name, result.handle ?? null, choice.format);
+    return true;
+  } catch (err) {
+    console.error('Save failed:', err);
+    alert(`Save failed: ${err instanceof Error ? err.message : err}`);
+    return false;
+  }
+}
 
-    // Route through the platform host. BrowserHost uses File System
-    // Access API where available, falls back to a download link.
-    // Future ElectronHost / TauriHost write to the OS-chosen path
-    // and hand back a handle for future in-place saves.
-    const result = await getHost().saveAs(choice.filename, bytes);
-    if (!result) return false; // user cancelled
-    rememberSavedFilename(result.name);
+/**
+ * Run the "silent" Save flow — writes back to the existing on-disk
+ * file in its existing format, no dialog. Falls through to Save-As
+ * when we have no handle (brand-new doc, host without in-place save
+ * support, etc.). Returns the same boolean as Save-As.
+ */
+async function runSaveFlow(): Promise<boolean> {
+  const file = activeFile();
+  if (!file.handle || !file.format || !getHost().supportsInPlaceSave) {
+    return runSaveAsFlow();
+  }
+  try {
+    const bytes = await serializeForSave(file.format, {
+      // Silent saves preserve everything by default — the
+      // user-facing toggles only fire from the Save-As dialog.
+      includeComments: true,
+      includeAnalytics: true,
+      includeUndertags: true,
+      readMode: false,
+    });
+    await getHost().saveExisting(file.handle, bytes);
     return true;
   } catch (err) {
     console.error('Save failed:', err);
@@ -2047,6 +2182,33 @@ async function runSaveAsFlow(): Promise<boolean> {
 exportBtn.addEventListener('click', () => {
   void runSaveAsFlow();
 });
+
+// ─── Native menu wiring (Electron only) ────────────────────────────
+// When running inside the Electron shell, the menu bar's File items
+// fire IPC messages that we route through the same ribbon-command
+// handlers as keyboard shortcuts and ribbon buttons. Single point of
+// truth: ribbonContext.
+{
+  const electronHost = getElectronHost();
+  if (electronHost) {
+    electronHost.onMenuCommand((command) => {
+      switch (command) {
+        case 'newDocument':
+          ribbonContext.newDocument();
+          break;
+        case 'openFile':
+          ribbonContext.openFile();
+          break;
+        case 'save':
+          ribbonContext.save();
+          break;
+        case 'saveAs':
+          ribbonContext.saveAs();
+          break;
+      }
+    });
+  }
+}
 
 function countSummary(doc: PMNode): string {
   const counts: Record<string, number> = {};

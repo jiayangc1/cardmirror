@@ -27,9 +27,22 @@ import { closeHistory } from 'prosemirror-history';
 import { EditorView } from 'prosemirror-view';
 import { Node as PMNode } from 'prosemirror-model';
 import { schema, newHeadingId } from '../schema/index.js';
-import { fromDocxFull } from '../index.js';
+import { fromDocxFull, parseNative, NATIVE_FILE_EXTENSION } from '../index.js';
 import { settings } from './settings.js';
 import { getHost, type OpenedFile } from './host/index.js';
+
+type DocFormat = 'cmir' | 'docx';
+
+/** Decide which on-disk format a file is, given its filename.
+ *  Returns null for filenames with neither a `.cmir` nor `.docx`
+ *  extension (the caller can fall back to format detection by
+ *  content sniffing, or just default to docx). */
+function formatFromFilename(name: string): DocFormat | null {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.cmir')) return 'cmir';
+  if (lower.endsWith('.docx')) return 'docx';
+  return null;
+}
 import { NavigationPanel } from './nav-panel.js';
 import { EditorDragSurface } from './drag-editor-surface.js';
 import { dragController, rewriteHeadingIds } from './drag-controller.js';
@@ -62,6 +75,17 @@ function newDocUid(): string {
 interface DocRecord {
   uid: string;
   filename: string;
+  /** Opaque host handle (Electron: absolute path; browser: a
+   *  FileSystemFileHandle when one is available). `null` when the
+   *  doc has never been saved or was opened in a context that
+   *  doesn't expose handles. The Save command uses this to write
+   *  silently in place; Save-As updates it. */
+  handle: unknown | null;
+  /** Which on-disk format this doc lives in. Driven by the
+   *  filename extension on open / save. `null` for brand-new docs
+   *  that haven't been saved yet (Save will fall through to Save-
+   *  As, which prompts for a format). */
+  format: 'cmir' | 'docx' | null;
   view: EditorView;
   /** Root element holding `view.dom`. Mounted into / detached from
    *  the slot's body when this record becomes / stops being visible. */
@@ -879,16 +903,38 @@ class MultiPaneShell {
     return this.focusedSlot?.visible?.filename ?? null;
   }
 
+  /** Return the focused doc's filename + on-disk handle + format,
+   *  for the Save / Save-As flow. Returns null when no pane is
+   *  focused or the slot has no visible record. */
+  getFocusedFile(): { filename: string; handle: unknown | null; format: DocFormat | null } | null {
+    const rec = this.focusedSlot?.visible;
+    if (!rec) return null;
+    return { filename: rec.filename, handle: rec.handle, format: rec.format };
+  }
+
   /** Replace the focused pane's filename with `name` and refresh
-   *  the chip. Called by Save-As when the user commits a save
-   *  with a renamed file, so the in-app filename tracks the
-   *  on-disk name. */
+   *  the chip. */
   setFocusedFilename(name: string): void {
     const slot = this.focusedSlot;
     if (!slot) return;
     const rec = slot.visible;
     if (!rec) return;
     rec.filename = name;
+    slot.refreshChipFilename();
+  }
+
+  /** Update the focused pane's filename + handle + format together —
+   *  called from the editor's Save-As flow once the save commits.
+   *  Keeps the chip label, the in-place-save handle, and the format
+   *  in sync as the user renames or migrates formats. */
+  setFocusedFile(file: { filename: string; handle: unknown | null; format: DocFormat | null }): void {
+    const slot = this.focusedSlot;
+    if (!slot) return;
+    const rec = slot.visible;
+    if (!rec) return;
+    rec.filename = file.filename;
+    rec.handle = file.handle;
+    rec.format = file.format;
     slot.refreshChipFilename();
   }
 
@@ -1008,11 +1054,21 @@ class MultiPaneShell {
   }
 
   /** Parse + import + mount the host-provided OpenedFile into the
-   *  given slot. */
+   *  given slot. Detects format from the filename extension and
+   *  routes to the right parser. */
   private async loadOpenedIntoSlot(opened: OpenedFile, target: SlotId): Promise<void> {
-    const { doc } = await fromDocxFull(opened.bytes);
+    const format = formatFromFilename(opened.name) ?? 'docx';
+    let doc: PMNode;
+    if (format === 'cmir') {
+      ({ doc } = parseNative(opened.bytes));
+    } else {
+      ({ doc } = await fromDocxFull(opened.bytes));
+    }
     const slot = this.slots[target];
-    const record = buildDocRecord(opened.name, doc, slot);
+    const record = buildDocRecord(opened.name, doc, slot, {
+      handle: opened.handle ?? null,
+      format,
+    });
     slot.push(record);
   }
 
@@ -1023,7 +1079,10 @@ class MultiPaneShell {
     if (!target) return;
     const doc = makeBlankDoc();
     const slot = this.slots[target];
-    const record = buildDocRecord('Untitled.docx', doc, slot);
+    const record = buildDocRecord('Untitled', doc, slot, {
+      handle: null,
+      format: null,
+    });
     slot.push(record);
   }
 
@@ -1053,7 +1112,14 @@ class MultiPaneShell {
     const pocketTitle = filename.replace(/\.docx$/i, '');
     const doc = makeSpeechBlankDoc(pocketTitle);
     const slot = this.slots[target];
-    const record = buildDocRecord(filename, doc, slot);
+    // Speech docs default to docx (Verbatim-format) since the
+    // immediate use case is sharing with Verbatim-using teammates
+    // at tournaments. The user can Save As to `.cmir` if they want
+    // to migrate to native.
+    const record = buildDocRecord(filename, doc, slot, {
+      handle: null,
+      format: 'docx',
+    });
     slot.push(record);
     // `slot.push` focused the new view; place the cursor in the
     // trailing paragraph so the first ` press inserts BELOW the
@@ -1363,7 +1429,12 @@ let shell: MultiPaneShell | null = null;
 
 /** Build a fresh DocRecord — wraps the per-doc PM state, nav panel,
  *  editor drag surface, and DOM containers needed for slot mounting. */
-function buildDocRecord(filename: string, doc: PMNode, slot: Slot): DocRecord {
+function buildDocRecord(
+  filename: string,
+  doc: PMNode,
+  slot: Slot,
+  opts: { handle: unknown | null; format: DocFormat | null },
+): DocRecord {
   const editorEl = document.createElement('div');
   editorEl.className = 'pmd-pane-editor';
   const navEl = document.createElement('div');
@@ -1428,6 +1499,8 @@ function buildDocRecord(filename: string, doc: PMNode, slot: Slot): DocRecord {
   const record: DocRecord = {
     uid: newDocUid(),
     filename,
+    handle: opts.handle,
+    format: opts.format,
     view,
     editorEl,
     navPanel,
@@ -1457,5 +1530,7 @@ export function mountMultiPaneShell(): void {
     sendToSpeechAtEnd: () => shell!.sendToSpeech(true),
     getFocusedFilename: () => shell!.getFocusedFilename(),
     setFocusedFilename: (name) => shell!.setFocusedFilename(name),
+    getFocusedFile: () => shell!.getFocusedFile(),
+    setFocusedFile: (f) => shell!.setFocusedFile(f),
   });
 }

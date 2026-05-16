@@ -2,31 +2,44 @@
  * Electron preload script.
  *
  * Runs in an isolated bridging context between the main process and
- * the renderer. Used to expose a narrow `window.electronAPI`
- * surface via Electron's `contextBridge` so the renderer can call
- * into native code without having full Node access.
+ * the renderer. Exposes a narrow `window.electronAPI` surface via
+ * Electron's `contextBridge` so the renderer can call into native
+ * code without having full Node access.
  *
- * Phase 2 (today): intentionally empty. By not exposing anything,
- * `window.electronAPI` is `undefined` in the renderer and the
- * editor's `getHost()` falls back to `BrowserHost` — meaning Save
- * As inside the Electron window uses `showSaveFilePicker` (which
- * works fine in Electron since Chromium ships the API). The
- * window opens; CardMirror is fully usable.
- *
- * Phase 3 will add the native bridge here. The expected shape:
- *
- *   import { contextBridge, ipcRenderer } from 'electron';
- *   contextBridge.exposeInMainWorld('electronAPI', {
- *     openFile: () => ipcRenderer.invoke('host:open-file'),
- *     saveAs: (name, bytes) => ipcRenderer.invoke('host:save-as', name, bytes),
- *     saveExisting: (handle, bytes) => ipcRenderer.invoke('host:save-existing', handle, bytes),
- *     // ... menus, autosave, etc.
- *   });
- *
- * Paired with an `ElectronHost` implementation in
- * `src/editor/host/electron-host.ts` that calls these methods, and
- * a detection seam in `src/editor/host/index.ts` that picks it up
- * when `window.electronAPI` is defined.
+ * The shape exposed here matches the `ElectronAPI` interface
+ * declared inside `src/editor/host/electron-host.ts`. If you add a
+ * method here, mirror it there (and ideally in the cross-platform
+ * Host interface so BrowserHost grows the same capability).
  */
 
-export {};
+import { contextBridge, ipcRenderer } from 'electron';
+
+interface FileFilter {
+  name: string;
+  extensions: string[];
+}
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  openFile: (opts: { filters: FileFilter[] }) =>
+    ipcRenderer.invoke('host:open-file', opts),
+
+  saveAs: (
+    suggestedName: string,
+    bytes: Uint8Array,
+    opts: { filters: FileFilter[] },
+  ) => ipcRenderer.invoke('host:save-as', suggestedName, bytes, opts),
+
+  saveExisting: (handle: string, bytes: Uint8Array) =>
+    ipcRenderer.invoke('host:save-existing', handle, bytes),
+
+  /** Subscribe to native-menu commands. Main process broadcasts
+   *  `'menu-command'` events to the focused window's webContents
+   *  whenever the user picks File → Open / Save / etc. The
+   *  renderer routes them through its existing ribbon-command
+   *  registry. */
+  onMenuCommand(handler: (command: string) => void): () => void {
+    const listener = (_evt: unknown, command: string): void => handler(command);
+    ipcRenderer.on('menu-command', listener);
+    return () => ipcRenderer.removeListener('menu-command', listener);
+  },
+});

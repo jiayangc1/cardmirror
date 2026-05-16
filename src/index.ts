@@ -1,10 +1,12 @@
 /**
  * Public API for CardMirror.
  *
- * Three layers:
+ * Four layers:
  *   - Schema:   the ProseMirror schema (typed-tree document model).
  *   - Import:   .docx → schema doc.
  *   - Export:   schema doc → .docx.
+ *   - Native:   schema doc ↔ .cmir (CardMirror's lossless native
+ *               file format, no Verbatim round-trip).
  */
 
 export {
@@ -21,5 +23,17 @@ export { fromDocx, fromDocxFull, importDoc, importComments } from './import/inde
 
 export { toDocx, exportDoc } from './export/index.js';
 export type { ExportResult, ExportOptions } from './export/index.js';
+
+export {
+  serializeNative,
+  parseNative,
+  looksLikeNative,
+  NATIVE_FILE_EXTENSION,
+} from './native/index.js';
+export type {
+  NativeFile,
+  SerializeNativeOptions,
+  ParseNativeResult,
+} from './native/index.js';
 
 export { Docx } from './ooxml/docx.js';

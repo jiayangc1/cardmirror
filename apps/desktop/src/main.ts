@@ -1,74 +1,242 @@
 /**
  * CardMirror desktop — Electron main process.
  *
- * Phase 2 scope (this file's job today): launch a window that
- * loads the CardMirror web bundle. Dev mode points at the local
- * Vite server (`npm run desktop:dev` runs Vite + Electron
- * together); packaged builds load the static `dist/` bundle from
- * disk (production work lands in Phase 5).
+ * Responsibilities:
+ *   - Create and manage the BrowserWindow that hosts the renderer.
+ *   - Drive native open/save dialogs and read/write files from disk
+ *     in response to renderer IPC. (Renderer-side Host abstraction
+ *     in `src/editor/host/electron-host.ts`.)
+ *   - Define the native menu bar; menu picks dispatch to the
+ *     renderer as `'menu-command'` events, where they get routed
+ *     through the same ribbon-command registry as keyboard
+ *     shortcuts and ribbon buttons.
  *
- * Phase 3 will add native file dialogs / autosave / menus by
- * registering IPC handlers here and exposing them via preload.
+ * Phase 3 scope (this file's job): native file I/O + menus. Phase 4
+ * (autosave) and Phase 5 (packaged builds) layer on top.
  */
 
-import { app, BrowserWindow } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  MenuItemConstructorOptions,
+  dialog,
+  ipcMain,
+} from 'electron';
+import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
 const DEV_SERVER_URL = 'http://localhost:5173';
 
-function createWindow(): void {
+interface FileFilter {
+  name: string;
+  extensions: string[];
+}
+
+let mainWindow: BrowserWindow | null = null;
+
+function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
     title: 'CardMirror',
-    // Reasonable minimum so the multi-doc workspace stays usable.
     minWidth: 800,
     minHeight: 600,
     webPreferences: {
-      // The preload bridge lives at dist/preload.js after `tsc`.
-      // Both main and preload are emitted to the same output dir,
-      // so the path is relative to this compiled main.js.
       preload: path.join(__dirname, 'preload.js'),
-      // Modern Electron defaults: keep Node out of the renderer
-      // and isolate contexts. The renderer gets only what the
-      // preload script explicitly exposes via contextBridge.
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
   });
 
-  // `app.isPackaged` is true in production builds (electron-builder
-  // sets it via the asar packaging). Local `electron .` runs return
-  // false, so we treat that as "dev mode" and load from the Vite
-  // dev server. Production loads the static bundle.
   if (!app.isPackaged) {
     void win.loadURL(DEV_SERVER_URL);
-    // Detached devtools so they don't fight the multi-pane layout.
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
-    // Production: the static dist/ from `npm run build` lives at
-    // ../../../../dist relative to the compiled main.js
-    //   (apps/desktop/dist/main.js → ../../../../dist/index.html
-    //    = workspace-root/dist/index.html)
-    // When electron-builder packages this it copies the bundle in
-    // — for Phase 5 we'll switch to the asar-relative path.
-    void win.loadFile(path.join(__dirname, '..', '..', '..', '..', 'dist', 'index.html'));
+    void win.loadFile(
+      path.join(__dirname, '..', '..', '..', '..', 'dist', 'index.html'),
+    );
   }
+
+  // Track the focused window so menu commands fire at the right
+  // place when multiple windows exist (a Phase 6+ concern, but
+  // wiring it now costs nothing).
+  win.on('focus', () => {
+    mainWindow = win;
+  });
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+  });
+
+  mainWindow = win;
+  return win;
 }
 
+/** Find the BrowserWindow that owns the renderer making an IPC
+ *  call. Falls back to the focused window when sender lookup fails
+ *  (shouldn't, but be defensive). */
+function ownerWindow(sender: Electron.WebContents): BrowserWindow | null {
+  return (
+    BrowserWindow.fromWebContents(sender) ??
+    BrowserWindow.getFocusedWindow() ??
+    mainWindow
+  );
+}
+
+/** Convert IPC-transferred bytes (which can arrive as a plain
+ *  Uint8Array view, a Node Buffer, or even a structured-cloned
+ *  ArrayBuffer depending on Electron version) into a Buffer the
+ *  fs API will accept. */
+function bytesToBuffer(bytes: unknown): Buffer {
+  if (Buffer.isBuffer(bytes)) return bytes;
+  if (bytes instanceof Uint8Array) {
+    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  }
+  if (bytes instanceof ArrayBuffer) return Buffer.from(bytes);
+  throw new TypeError('Unsupported bytes payload — expected Uint8Array / ArrayBuffer / Buffer.');
+}
+
+// ─── IPC handlers ──────────────────────────────────────────────────
+
+ipcMain.handle('host:open-file', async (event, opts: { filters?: FileFilter[] }) => {
+  const win = ownerWindow(event.sender);
+  const result = await dialog.showOpenDialog(win ?? new BrowserWindow({ show: false }), {
+    properties: ['openFile'],
+    filters: opts?.filters?.length ? opts.filters : [],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  const filePath = result.filePaths[0]!;
+  const bytes = await fs.readFile(filePath);
+  return {
+    name: path.basename(filePath),
+    bytes: new Uint8Array(bytes),
+    handle: filePath,
+  };
+});
+
+ipcMain.handle(
+  'host:save-as',
+  async (
+    event,
+    suggestedName: string,
+    bytes: unknown,
+    opts: { filters?: FileFilter[] },
+  ) => {
+    const win = ownerWindow(event.sender);
+    const result = await dialog.showSaveDialog(win ?? new BrowserWindow({ show: false }), {
+      defaultPath: suggestedName,
+      filters: opts?.filters?.length ? opts.filters : [],
+    });
+    if (result.canceled || !result.filePath) return null;
+    await fs.writeFile(result.filePath, bytesToBuffer(bytes));
+    return {
+      name: path.basename(result.filePath),
+      handle: result.filePath,
+    };
+  },
+);
+
+ipcMain.handle('host:save-existing', async (_event, handle: string, bytes: unknown) => {
+  if (typeof handle !== 'string' || handle.length === 0) {
+    throw new Error('host:save-existing: handle must be a non-empty path string.');
+  }
+  await fs.writeFile(handle, bytesToBuffer(bytes));
+});
+
+// ─── Native menu bar ───────────────────────────────────────────────
+
+/** Send a menu-command IPC event to the currently focused window. */
+function dispatchMenuCommand(command: string): void {
+  const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  if (!win) return;
+  win.webContents.send('menu-command', command);
+}
+
+function buildMenu(): Menu {
+  const isMac = process.platform === 'darwin';
+
+  const fileMenu: MenuItemConstructorOptions = {
+    label: 'File',
+    submenu: [
+      {
+        label: 'New Document',
+        accelerator: 'CmdOrCtrl+Alt+N',
+        click: () => dispatchMenuCommand('newDocument'),
+      },
+      {
+        label: 'Open…',
+        accelerator: 'CmdOrCtrl+O',
+        click: () => dispatchMenuCommand('openFile'),
+      },
+      { type: 'separator' },
+      {
+        label: 'Save',
+        accelerator: 'CmdOrCtrl+S',
+        click: () => dispatchMenuCommand('save'),
+      },
+      {
+        label: 'Save As…',
+        accelerator: 'Shift+CmdOrCtrl+S',
+        click: () => dispatchMenuCommand('saveAs'),
+      },
+      { type: 'separator' },
+      isMac ? { role: 'close' } : { role: 'quit' },
+    ],
+  };
+
+  const template: MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about' as const },
+              { type: 'separator' as const },
+              { role: 'services' as const },
+              { type: 'separator' as const },
+              { role: 'hide' as const },
+              { role: 'hideOthers' as const },
+              { role: 'unhide' as const },
+              { type: 'separator' as const },
+              { role: 'quit' as const },
+            ],
+          },
+        ]
+      : []),
+    fileMenu,
+    { role: 'editMenu' },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    { role: 'windowMenu' },
+  ];
+
+  return Menu.buildFromTemplate(template);
+}
+
+// ─── App lifecycle ─────────────────────────────────────────────────
+
 void app.whenReady().then(() => {
+  Menu.setApplicationMenu(buildMenu());
   createWindow();
 
-  // macOS convention: clicking the dock icon when no windows are
-  // open reopens a window.
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
-// Quit when all windows are closed, except on macOS where apps
-// typically stay running until the user explicitly quits.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });

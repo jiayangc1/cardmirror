@@ -10,19 +10,24 @@
  */
 
 import { BrowserHost } from './browser-host.js';
+import { ElectronHost } from './electron-host.js';
 import type { Host } from './types.js';
 
-export type { Host, OpenedFile, SaveResult } from './types.js';
+export type {
+  Host,
+  OpenedFile,
+  SaveResult,
+  FileFilter,
+  OpenFileOptions,
+  SaveAsOptions,
+} from './types.js';
 
 declare global {
   interface Window {
     /** Present only when the renderer is running inside an Electron
-     *  shell that exposed the bridge from its preload script.
-     *  Existence-only check; the actual shape is owned by the
-     *  desktop app's preload code and the ElectronHost it pairs with. */
+     *  shell that exposed the bridge from its preload script. */
     electronAPI?: unknown;
-    /** Present only inside a Tauri-bundled webview. Same role as
-     *  `electronAPI` for the Tauri host (whenever that lands). */
+    /** Reserved for the eventual Tauri host. */
     __TAURI__?: unknown;
   }
 }
@@ -31,19 +36,22 @@ let cached: Host | null = null;
 
 export function getHost(): Host {
   if (cached) return cached;
-  // Order matters when more than one is present (shouldn't happen
-  // in practice, but be explicit): native wrappers win over plain
-  // browser since they expose richer capabilities.
+  // Native wrappers win over plain browser since they expose richer
+  // capabilities (real file paths, in-place saves, native menus).
   if (typeof window !== 'undefined' && window.electronAPI !== undefined) {
-    // ElectronHost will be loaded here once the desktop shell lands;
-    // until then we fall through to BrowserHost even when running
-    // under Electron. That's intentional — running today's bundle
-    // inside a hello-world Electron shell still works, just without
-    // the native dialogs / autosave goodies.
+    cached = new ElectronHost();
+    return cached;
   }
-  if (typeof window !== 'undefined' && window.__TAURI__ !== undefined) {
-    // Same story for the eventual Tauri host.
-  }
+  // Tauri detection will land here when the Tauri host is built.
   cached = new BrowserHost();
   return cached;
+}
+
+/** Get the singleton as an ElectronHost (or null if we aren't
+ *  running inside Electron). Used by the renderer to subscribe to
+ *  native menu events without bloating the cross-platform Host
+ *  surface. */
+export function getElectronHost(): ElectronHost | null {
+  const h = getHost();
+  return h.kind === 'electron' ? (h as ElectronHost) : null;
 }

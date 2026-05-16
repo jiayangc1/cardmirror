@@ -2863,6 +2863,7 @@ export type RibbonCommandId =
   | 'deleteTable'
   | 'newDocument'
   | 'openFile'
+  | 'save'
   | 'saveAs'
   | 'newSpeechDocument'
   | 'markActiveAsSpeech'
@@ -2929,6 +2930,7 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'deleteTable',
   'newDocument',
   'openFile',
+  'save',
   'saveAs',
   'newSpeechDocument',
   'markActiveAsSpeech',
@@ -2992,7 +2994,8 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   deleteTable: 'Delete Table',
   newDocument: 'New document',
   openFile: 'Open file',
-  saveAs: 'Save document',
+  save: 'Save',
+  saveAs: 'Save as…',
   newSpeechDocument: 'New speech document',
   markActiveAsSpeech: 'Mark / unmark active doc as the speech doc',
   sendToSpeechAtCursor: 'Send to speech (at cursor)',
@@ -3072,7 +3075,8 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   // → Keybindings.
   newDocument: 'Mod-Alt-n',
   openFile: 'Mod-o',
-  saveAs: 'Mod-s',
+  save: 'Mod-s',
+  saveAs: 'Mod-Shift-s',
   // Verbatim's "Send to speech" — bare backtick (next to 1 on US
   // layouts) for at-cursor, Alt-backtick for at-end-of-doc. Same
   // chord as the desktop app. Trade-off: a bare backtick keystroke
@@ -3153,6 +3157,7 @@ export interface RibbonContext {
    *  the corresponding ribbon button uses. */
   newDocument: () => void;
   openFile: () => void;
+  save: () => void;
   saveAs: () => void;
   /** Speech-doc commands (Verbatim's `Paperless.SendToSpeech` family).
    *  All four are wired via the speech-doc registry — when the host
@@ -3195,6 +3200,7 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   aiCreateCite: () => {},
   newDocument: () => {},
   openFile: () => {},
+  save: () => {},
   saveAs: () => {},
   newSpeechDocument: () => {},
   markActiveAsSpeech: () => {},
@@ -3372,6 +3378,12 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
       return (_state, dispatch) => {
         if (!dispatch) return true;
         ctx.openFile();
+        return true;
+      };
+    case 'save':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.save();
         return true;
       };
     case 'saveAs':

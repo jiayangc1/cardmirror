@@ -10,11 +10,29 @@
  * to be pending at a time (browsers serialize them anyway).
  */
 
-import type { Host, OpenedFile, SaveResult } from './types.js';
+import type {
+  FileFilter,
+  Host,
+  OpenFileOptions,
+  OpenedFile,
+  SaveAsOptions,
+  SaveResult,
+} from './types.js';
 
-/** Chrome's File System Access API is gated by feature detection;
- *  declare the shape we use so we don't have to `as unknown as` it
- *  everywhere. */
+const DOCX_MIME =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** Best-effort MIME guess for a given extension. The browser's
+ *  showSaveFilePicker uses MIME → extension mapping to label the
+ *  format dropdown; getting this right makes the dialog read
+ *  naturally. */
+function mimeForExtension(ext: string): string {
+  if (ext === 'docx') return DOCX_MIME;
+  if (ext === 'cmir') return 'application/json';
+  return 'application/octet-stream';
+}
+
+/** Chrome's File System Access API is gated by feature detection. */
 interface ShowSaveFilePickerOptions {
   suggestedName?: string;
   types?: { description: string; accept: Record<string, string[]> }[];
@@ -30,24 +48,53 @@ type ShowSaveFilePicker = (
   opts: ShowSaveFilePickerOptions,
 ) => Promise<FileSystemFileHandle>;
 
-const DOCX_MIME =
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+function getShowSaveFilePicker(): ShowSaveFilePicker | undefined {
+  return (window as unknown as { showSaveFilePicker?: ShowSaveFilePicker })
+    .showSaveFilePicker;
+}
+
+function filtersToAcceptAttribute(filters?: FileFilter[]): string {
+  if (!filters || filters.length === 0) return '';
+  const exts = new Set<string>();
+  for (const f of filters) {
+    for (const e of f.extensions) exts.add(`.${e}`);
+  }
+  return Array.from(exts).join(',');
+}
+
+function filtersToSavePickerTypes(filters?: FileFilter[]): ShowSaveFilePickerOptions['types'] {
+  if (!filters || filters.length === 0) return undefined;
+  return filters.map((f) => {
+    const accept: Record<string, string[]> = {};
+    for (const ext of f.extensions) {
+      const mime = mimeForExtension(ext);
+      const existing = accept[mime] ?? [];
+      existing.push(`.${ext}`);
+      accept[mime] = existing;
+    }
+    return { description: f.name, accept };
+  });
+}
 
 export class BrowserHost implements Host {
   readonly kind = 'browser' as const;
 
-  /** Lazily-created hidden file input. Reused across opens; on each
-   *  open we set up a one-shot listener that resolves the pending
-   *  promise. */
+  get supportsInPlaceSave(): boolean {
+    // showSaveFilePicker gives us a writable handle that survives
+    // back to disk. Without it, fallback saves go through a
+    // download link and there's no persistent reference.
+    return typeof getShowSaveFilePicker() === 'function';
+  }
+
+  /** Lazily-created hidden file input. Reused across opens. */
   private fileInput: HTMLInputElement | null = null;
 
-  /** When a previous openFile() is mid-dialog, queue follow-up
-   *  callers behind a chain so two near-simultaneous opens don't
-   *  step on each other's event listeners. */
+  /** Serialize concurrent openFile() calls so two near-simultaneous
+   *  opens don't step on each other's event listeners. */
   private openInFlight: Promise<OpenedFile | null> = Promise.resolve(null);
 
-  async openFile(): Promise<OpenedFile | null> {
-    const next = this.openInFlight.then(() => this.openOnce());
+  async openFile(opts: OpenFileOptions = {}): Promise<OpenedFile | null> {
+    const next = this.openInFlight.then(() => this.openOnce(opts));
     this.openInFlight = next.then(
       () => null,
       () => null,
@@ -55,8 +102,16 @@ export class BrowserHost implements Host {
     return next;
   }
 
-  private openOnce(): Promise<OpenedFile | null> {
+  private openOnce(opts: OpenFileOptions): Promise<OpenedFile | null> {
     const input = this.ensureFileInput();
+    // Reapply the accept attribute from the caller's filters on
+    // every open — different call sites may want different filters
+    // (the ribbon Open accepts both formats; a hypothetical
+    // "import .docx only" command could pass just docx).
+    const accept = filtersToAcceptAttribute(opts.filters);
+    if (accept) input.setAttribute('accept', accept);
+    else input.removeAttribute('accept');
+
     return new Promise((resolve, reject) => {
       // Browser quirk: if the user picks the same filename twice in
       // a row, the second `change` event won't fire unless `.value`
@@ -86,15 +141,10 @@ export class BrowserHost implements Host {
       };
 
       // Cancellation has no native event in browsers — the user
-      // closes the dialog and nothing fires. We use the trick of
-      // listening for window `focus` (returns when the OS dialog
-      // closes) plus a short tick to check if any file was picked.
-      // If not, resolve null.
+      // closes the dialog and nothing fires. Listen for window
+      // `focus` (returns when the OS dialog closes); if no file was
+      // picked, resolve null.
       const onCancelMaybe = (): void => {
-        // The `change` event reliably fires BEFORE focus returns
-        // when a file is picked, so a short defer is enough to
-        // disambiguate. If `change` is going to fire it'll have
-        // fired by the time this runs.
         window.setTimeout(() => {
           if (settled) return;
           if (!input.files || input.files.length === 0) {
@@ -115,34 +165,17 @@ export class BrowserHost implements Host {
   async saveAs(
     suggestedName: string,
     bytes: Uint8Array,
+    opts: SaveAsOptions = {},
   ): Promise<SaveResult | null> {
-    // Copy into a regular ArrayBuffer so Blob's BlobPart contract
-    // is happy. Some TypedArray backing buffers are SharedArrayBuffer
-    // in worker contexts; Blob doesn't accept those directly.
-    const ab = new ArrayBuffer(bytes.byteLength);
-    new Uint8Array(ab).set(bytes);
-    const blob = new Blob([ab], { type: DOCX_MIME });
+    const blob = bytesToBlob(bytes, suggestedName);
 
-    // Preferred path: File System Access API. Chromium-based
-    // browsers (Chrome / Edge / Opera / Arc / Brave) give us a real
-    // native save dialog with the suggested name pre-filled and
-    // write straight to disk. We also get back a handle we can
-    // later pass to an in-place Save (once that lands).
-    const showSaveFilePicker = (window as unknown as {
-      showSaveFilePicker?: ShowSaveFilePicker;
-    }).showSaveFilePicker;
-
+    const showSaveFilePicker = getShowSaveFilePicker();
     if (typeof showSaveFilePicker === 'function') {
       let handle: FileSystemFileHandle;
       try {
         handle = await showSaveFilePicker({
           suggestedName,
-          types: [
-            {
-              description: 'Word document',
-              accept: { [DOCX_MIME]: ['.docx'] },
-            },
-          ],
+          types: filtersToSavePickerTypes(opts.filters),
         });
       } catch (e) {
         // AbortError = user cancelled the OS dialog. Quietly bail.
@@ -160,12 +193,7 @@ export class BrowserHost implements Host {
       };
     }
 
-    // Fallback: synthesize a download link. Safari, Firefox, mobile
-    // browsers, anything without the File System Access API. The
-    // user gets a download (no native save dialog with location
-    // chooser, unless their browser is configured to prompt — most
-    // aren't). We can't return a handle here because there's no
-    // persistent reference to the saved location.
+    // Fallback: synthesize a download link.
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -175,17 +203,36 @@ export class BrowserHost implements Host {
     return { name: suggestedName };
   }
 
+  async saveExisting(handle: unknown, bytes: Uint8Array): Promise<void> {
+    if (!handle || typeof (handle as FileSystemFileHandle).createWritable !== 'function') {
+      throw new Error('BrowserHost: saveExisting requires a File System Access handle.');
+    }
+    const fh = handle as FileSystemFileHandle;
+    const blob = bytesToBlob(bytes, fh.name ?? '');
+    const writable = await fh.createWritable();
+    await writable.write(blob);
+    await writable.close();
+  }
+
   private ensureFileInput(): HTMLInputElement {
     if (this.fileInput) return this.fileInput;
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.docx';
     input.hidden = true;
-    // Off-screen but not display:none — some browsers ignore .click()
-    // on display:none inputs. `hidden` is the modern equivalent that
-    // still lets click() work.
     document.body.appendChild(input);
     this.fileInput = input;
     return input;
   }
+}
+
+/** Build a Blob from a Uint8Array, picking a reasonable MIME type
+ *  from the filename extension. */
+function bytesToBlob(bytes: Uint8Array, filename: string): Blob {
+  // Copy into a regular ArrayBuffer so Blob's BlobPart contract is
+  // happy. Some TypedArray backing buffers are SharedArrayBuffer in
+  // worker contexts; Blob doesn't accept those directly.
+  const ab = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(ab).set(bytes);
+  const ext = filename.toLowerCase().split('.').pop() ?? '';
+  return new Blob([ab], { type: mimeForExtension(ext) });
 }
