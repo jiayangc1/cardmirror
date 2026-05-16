@@ -1812,6 +1812,10 @@ function makeStarterDoc(): PMNode {
     ),
     blank(),
     paraText(
+      'Done with the tour? Turn off ⚙ → General → "Onboarding doc for new documents" and future New Document presses (plus any newly spawned windows) will open blank instead of landing on this guide.',
+    ),
+    blank(),
+    paraText(
       'When you\'re ready, open a real .docx with the 📂 icon — or just start editing this one. Welcome aboard!',
     ),
   ]);
