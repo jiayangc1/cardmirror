@@ -68,6 +68,16 @@ interface InitialDocPayload {
 }
 const pendingInitialDocs = new Map<number, InitialDocPayload>();
 
+/** Window id of the first window of this app session. Set once on
+ *  the first `createWindow` call and never updated. Used by the
+ *  renderer's startup-recovery flow to gate the "offer to restore
+ *  unsaved journals" UI: only the first window of a session should
+ *  surface that UI — a subsequent spawned-blank window would
+ *  otherwise offer to recover the docs the user already has open
+ *  in the OTHER windows of this same session, which is confusing
+ *  and useless. */
+let firstWindowId: number | null = null;
+
 /** Per-window allow-list for the next `close` event. The window
  *  close interception forwards the close to the renderer for
  *  confirmation; once the renderer has decided the window should
@@ -96,6 +106,13 @@ function createWindow(initialDoc?: InitialDocPayload): BrowserWindow {
   // the renderer's `host:get-initial-doc` call at boot finds it.
   if (initialDoc) {
     pendingInitialDocs.set(win.id, initialDoc);
+  }
+
+  // First window of the app session is the only one allowed to
+  // surface the startup-recovery UI; subsequent windows report
+  // false via `host:is-first-window` and skip the prompt.
+  if (firstWindowId === null) {
+    firstWindowId = win.id;
   }
 
   if (!app.isPackaged) {
@@ -362,6 +379,12 @@ ipcMain.handle('host:get-initial-doc', async (event) => {
   if (!payload) return null;
   pendingInitialDocs.delete(win.id);
   return payload;
+});
+
+ipcMain.handle('host:is-first-window', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return false;
+  return win.id === firstWindowId;
 });
 
 // ─── Mode-switch: journal-and-close other windows ─────────────────

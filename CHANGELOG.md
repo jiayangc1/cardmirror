@@ -25,6 +25,13 @@ internal refactors live in commit messages, not here.
   status-bar reset button remains the discoverable affordance).
 - Keyboard-shortcut command labels (Settings → Keybindings) now
   use consistent title casing across the board.
+- Opening a doc now starts both the editor and the nav pane
+  scrolled to the top, instead of inheriting the previous doc's
+  scroll position.
+- A "New document" window spawned while CardMirror is already
+  running no longer offers to "recover" the docs you have open
+  in other windows. Only the first window of an app session
+  surfaces the startup-recovery sidebar.
 - The AI alt-text generator now ships surrounding context with the
   image — the enclosing card's tag and cite, plus the paragraphs
   immediately before and after the image — so descriptions reflect

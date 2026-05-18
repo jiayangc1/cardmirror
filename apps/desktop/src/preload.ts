@@ -76,6 +76,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
    *  window was opened blank. */
   getInitialDoc: () => ipcRenderer.invoke('host:get-initial-doc'),
 
+  /** True iff this is the first window of the current app session.
+   *  Used by the renderer to gate the startup-recovery UI — only
+   *  the first window should surface unsaved-journal restoration;
+   *  windows spawned later in the session would otherwise offer to
+   *  recover docs already open in OTHER windows of the same
+   *  session. */
+  isFirstWindow: () => ipcRenderer.invoke('host:is-first-window'),
+
   /** Mode-switch helper: tell main to broadcast
    *  `'mode-switch:please-close'` to every other open window and
    *  resolve once they've all closed. */

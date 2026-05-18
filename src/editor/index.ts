@@ -2229,6 +2229,14 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
   // decoration set in their correct on/off state for the
   // persisted setting.
   applyReadMode(settings.get('readMode'));
+  // Reset scroll on both the nav pane and the page so a
+  // freshly-mounted doc starts at the top — single-doc's editor
+  // scrolls the page itself (not its own container), so window
+  // scroll is the right knob. Without this, opening one doc and
+  // then another lands you at whatever scroll position the
+  // previous doc was last in.
+  navPanel.scrollToTop();
+  window.scrollTo(0, 0);
 }
 
 /** Publish `#editor`'s current width as `--pmd-card-intrinsic-width`
@@ -3121,12 +3129,23 @@ async function initSingleDocBoot(): Promise<void> {
       return;
     }
   }
-  // First window of the session (or web edition): show the
-  // onboarding starter and surface any leftover recovery
-  // journals.
+  // No spawn payload — either this is the first window of an app
+  // session or it's a blank window spawned later (e.g., the user
+  // clicked "New document" while two other windows were already
+  // open). Mount the starter doc in either case, but ONLY surface
+  // the recovery sidebar on the first window: spawned-blank
+  // windows would otherwise offer to recover the docs the user
+  // already has open in OTHER windows of the same session, which
+  // is both confusing and useless.
   mountView(currentDoc);
   syncSingleDocSpeechRegistration();
-  await runStartupRecovery();
+  let isFirst = true;
+  try {
+    isFirst = await getHost().isFirstWindow();
+  } catch (err) {
+    console.warn('isFirstWindow failed; defaulting to true:', err);
+  }
+  if (isFirst) await runStartupRecovery();
 }
 
 /** Mount a SpawnWindowPayload into this freshly-spawned window.

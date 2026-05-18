@@ -411,6 +411,13 @@ export class NavigationPanel {
    * Also triggers a synchronous re-render and updates the latest doc
    * snapshot — call after a transaction has applied.
    */
+  /** Scroll the outline back to the top. Called by the editor on
+   *  doc load so a freshly-opened doc doesn't inherit the previous
+   *  doc's nav-pane scroll offset. */
+  scrollToTop(): void {
+    this.listEl.scrollTop = 0;
+  }
+
   applyMaxLevelToNewHeadings(): void {
     const view = this.view;
     if (!view) return;

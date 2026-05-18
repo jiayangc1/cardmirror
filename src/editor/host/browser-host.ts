@@ -302,6 +302,14 @@ export class BrowserHost implements Host {
     return null;
   }
 
+  async isFirstWindow(): Promise<boolean> {
+    // The web edition is single-tab from the editor's POV — there's
+    // no spawn mechanism so each tab boots fresh and IS the first
+    // window of its session. Returning true preserves the existing
+    // recovery prompt on every web load.
+    return true;
+  }
+
   private ensureFileInput(): HTMLInputElement {
     if (this.fileInput) return this.fileInput;
     const input = document.createElement('input');

@@ -188,6 +188,14 @@ export interface Host {
    *  the first window of a session (or the host doesn't support
    *  the spawn handshake). */
   getInitialDoc(): Promise<SpawnWindowPayload | null>;
+
+  /** True iff this is the first window of the current app session.
+   *  Used by the renderer to decide whether to surface the
+   *  startup-recovery UI — only the first window should, since
+   *  later windows would otherwise offer to "recover" docs the
+   *  user already has open in earlier windows of the same session.
+   *  On hosts that don't multi-window (web), always true. */
+  isFirstWindow(): Promise<boolean>;
 }
 
 /** Payload exchanged between a spawning window and the freshly-

@@ -44,6 +44,7 @@ interface ElectronAPI {
   deleteJournal(uid: string): Promise<void>;
   spawnWindow(payload: SpawnWindowPayload | null): Promise<void>;
   getInitialDoc(): Promise<SpawnWindowPayload | null>;
+  isFirstWindow(): Promise<boolean>;
   journalAndCloseOtherWindows(): Promise<void>;
   closeSelf(): Promise<void>;
   onPleaseCloseForModeSwitch(handler: () => void): () => void;
@@ -154,6 +155,10 @@ export class ElectronHost implements Host {
         ? result.bytes
         : new Uint8Array(result.bytes as ArrayBufferLike),
     };
+  }
+
+  async isFirstWindow(): Promise<boolean> {
+    return await api().isFirstWindow();
   }
 
   /** Mode-switch helper. Asks main to broadcast a please-close
