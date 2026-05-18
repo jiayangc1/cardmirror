@@ -35,7 +35,7 @@ install desktop software.
 
 **▶ Try the live web preview: <https://ant981228.github.io/cardmirror/>**
 
-> **🚧 Status: alpha preview.** CardMirror is in active development.
+> **🚧 Status: alpha preview.** CardMirror is inactive development.
 > Expect rough edges, missing features, and occasional breakage.
 > Keep a Verbatim copy of anything that matters until the editor
 > proves itself on your workflow — not recommended for actual
@@ -162,7 +162,7 @@ to run. Node is a regular desktop installer.
   and click the blue **"LTS"** download button. Open the `.pkg`
   file from Downloads and click through the installer.
 - **Windows** — open [nodejs.org](https://nodejs.org/) and click the
-  green **"LTS"** download button. Open the `.msi` file from
+  blue **"LTS"** download button. Open the `.msi` file from
   Downloads and click through the installer.
 - **Linux** — the easiest path is the official installer at
   [nodejs.org/en/download](https://nodejs.org/en/download/) — pick
