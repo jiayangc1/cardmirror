@@ -57,6 +57,10 @@ internal refactors live in commit messages, not here.
   running no longer offers to "recover" the docs you have open
   in other windows. Only the first window of an app session
   surfaces the startup-recovery sidebar.
+- Clicking an image now shows a visible selected state — a 2px
+  accent outline so it's obvious the click registered before
+  pressing Delete / Copy. Unsupported-format placeholder spans
+  also get a subtle background tint when selected.
 - The caret no longer hides behind the fixed ribbon (top) or
   status bar (bottom) after Enter / arrow / new-heading actions.
   The browser's auto-scroll-into-view now reserves space for both
