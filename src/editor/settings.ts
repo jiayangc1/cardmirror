@@ -214,6 +214,14 @@ export interface Settings {
    *  when running dark mode. Turn on to make the document area
    *  follow the chrome theme as well. */
   themeAppliesToDocument: boolean;
+  /** Show a pill in the center of the ribbon displaying the
+   *  active doc's filename. Off by default — the OS title bar
+   *  carries this info on most platforms. Useful when the
+   *  title bar is hidden, unstyled, or non-existent (tiling
+   *  window managers without decorations, frameless windows,
+   *  embedded web edition). Single-doc only; multi-pane shows
+   *  per-pane chips regardless of this setting. */
+  showDocNameChip: boolean;
   /** UI motion preference. `'auto'` (default) follows the OS
    *  `prefers-reduced-motion` media query and gives the user the
    *  motion-reduction state their system advertises. `'on'` always
@@ -625,6 +633,7 @@ const DEFAULTS: Settings = {
   defaultSaveFormat: 'docx',
   theme: 'system',
   themeAppliesToDocument: false,
+  showDocNameChip: false,
   reduceMotion: 'auto',
   overrideHighlightColor: false,
   overrideHighlightSlots: ['#ffff00'],
@@ -916,6 +925,14 @@ export const SETTING_METADATA: SettingMeta[] = [
     label: 'Apply theme to the document area',
     description:
       "Off by default: when the theme is dark (or system-resolved dark), only the chrome — ribbon, nav, status bar — goes dark. The document area stays light, so cards still read like paper. Turn on to make the document itself follow the theme.",
+    kind: 'toggle',
+    category: 'appearance',
+  },
+  {
+    key: 'showDocNameChip',
+    label: 'Show doc name in ribbon',
+    description:
+      "Off by default. When on, the active document's filename appears as a pill in the center of the ribbon — useful when the OS title bar is hidden, unstyled, or non-existent (tiling window managers, frameless windows, web embeds). Hidden in multi-pane mode because each per-pane chip already shows its slot's filename.",
     kind: 'toggle',
     category: 'appearance',
   },
@@ -1300,6 +1317,7 @@ function sanitize(s: Settings): Settings {
     theme:
       s.theme === 'light' || s.theme === 'dark' ? s.theme : 'system',
     themeAppliesToDocument: !!s.themeAppliesToDocument,
+    showDocNameChip: !!s.showDocNameChip,
     reduceMotion:
       s.reduceMotion === 'on' || s.reduceMotion === 'off' ? s.reduceMotion : 'auto',
     overrideHighlightColor: !!s.overrideHighlightColor,

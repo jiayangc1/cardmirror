@@ -16,15 +16,6 @@
           <button id="autosave-btn" type="button" aria-pressed="false"
                   title="Autosave is off — click to turn on" aria-label="Toggle autosave">⏱</button>
         </div>
-        <!-- Active doc filename chip. Single-doc only: in multi-pane
-             mode each pane shows its own filename in its per-pane
-             chip, so a global chip here would be redundant. CSS
-             hides this in multi-pane via `body.pmd-multi-doc`.
-             The text is updated alongside `document.title` whenever
-             the active file changes (open, save-as, etc.). -->
-        <div id="doc-name-chip" class="pmd-doc-name-chip" title="">
-          <span class="pmd-doc-name-chip-text" id="doc-name-chip-text"></span>
-        </div>
         <!-- Speech-doc buttons. Same 2-row stack rhythm as the file
              buttons so they line up. Visible only in multi-doc mode
              (a CSS rule hides the whole stack in single-doc — the
@@ -173,7 +164,24 @@
                   title="Add a comment on the selection" aria-label="Add comment">+</button>
         </div>
       </div>
-      <div class="ribbon-section ribbon-center"></div>
+      <div class="ribbon-section ribbon-center">
+        <!-- Active doc filename chip. Opt-in via Settings →
+             Appearance → "Show doc name in ribbon" (default off),
+             gated by `html.pmd-doc-name-chip-on`. Even when on, the
+             chip is auto-hidden in multi-pane mode (each per-pane
+             chip already shows its slot's filename) and when the
+             active doc has no filename yet. The ribbon resizer
+             will hide it after the formatting panel when the
+             ribbon runs out of horizontal room. -->
+        <!-- Starts `hidden` — the chip shouldn't appear (even as an
+             empty pill) until JS confirms there's a filename to put
+             in it. `updateWindowTitle` toggles `[hidden]` on / off
+             based on the active filename; the setting class on <html>
+             gates the chip behind the user opt-in. -->
+        <div id="doc-name-chip" class="pmd-doc-name-chip" title="" hidden>
+          <span class="pmd-doc-name-chip-text" id="doc-name-chip-text"></span>
+        </div>
+      </div>
       <div class="ribbon-section ribbon-right">
         <!-- Settings on top, reference (keyboard-shortcut cheat sheet)
              below — stacked like the doc-ops / view-ops panels on

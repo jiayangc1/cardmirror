@@ -1427,6 +1427,21 @@ systemDarkMedia.addEventListener('change', () => {
  *               flattens animations and transitions.
  *    - 'off'   → `data-motion="normal"`; CSS keeps full motion
  *               even when the OS asks for reduced. */
+/** Apply the `showDocNameChip` setting to `<html>`. The chip's CSS
+ *  display is gated on this class — without it, the chip is
+ *  force-hidden with `!important` and the ribbon resizer can't
+ *  override it back on. Off by default.
+ *
+ *  Also refreshes the chip's filename text + `[hidden]` state via
+ *  `updateWindowTitle` so that flipping the setting on with no
+ *  active doc shows nothing (rather than an empty pill — the
+ *  chip's HTML default is `hidden`, and we want toggle-on to
+ *  preserve that until a doc with a filename is loaded). */
+function applyShowDocNameChip(on: boolean): void {
+  document.documentElement.classList.toggle('pmd-doc-name-chip-on', on);
+  updateWindowTitle();
+}
+
 function applyReduceMotion(pref: 'auto' | 'on' | 'off'): void {
   if (pref === 'on') {
     document.documentElement.setAttribute('data-motion', 'reduce');
@@ -1547,6 +1562,7 @@ let lastRibbonOverrides = settings.get('ribbonKeyOverrides');
 // setting changes (and once now to handle the persisted value).
 settings.subscribe((s) => {
   applyTheme(s.theme, s.themeAppliesToDocument);
+  applyShowDocNameChip(s.showDocNameChip);
   applyReduceMotion(s.reduceMotion);
   applyReadMode(s.readMode);
   applyNavPaneVisible(s.navPaneVisible);
@@ -1613,9 +1629,10 @@ function initRibbonResizer(): void {
   const panelIds: string[][] = [
     ['cite-panel'],              // (a) Character styles
     ['formatting-panel'],        // (b) Structural styles
-    ['format-menu-panel'],       // (c) Table / image / sub / sup / strike
-    ['doc-ops-panel'],           // (d) Paragraph integrity
-    ['font-size-up-btn',         // (e) Font-size step buttons
+    ['doc-name-chip'],           // (c) Active-doc filename pill (opt-in)
+    ['format-menu-panel'],       // (d) Table / image / sub / sup / strike
+    ['doc-ops-panel'],           // (e) Paragraph integrity
+    ['font-size-up-btn',         // (f) Font-size step buttons
      'font-size-down-btn'],
   ];
   let hideCount = 0;
@@ -1656,6 +1673,7 @@ function initRibbonResizer(): void {
 initRibbonResizer();
 
 applyTheme(settings.get('theme'), settings.get('themeAppliesToDocument'));
+applyShowDocNameChip(settings.get('showDocNameChip'));
 applyReduceMotion(settings.get('reduceMotion'));
 applyReadMode(settings.get('readMode'));
 applyZoom(settings.get('zoomPct'));

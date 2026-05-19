@@ -646,17 +646,18 @@ html:has(body.pmd-speech-banner-visible) {
 }
 body:not(.pmd-multi-doc):not(.pmd-multi-window) #speech-stack { display: none; }
 
-/* Active-doc filename chip. Single-doc only — multi-pane has its
-   own per-pane chip in the pane chrome. Caps width so a very long
-   filename doesn't expand the ribbon-left section past the
-   formatting / cite panels; ellipsis-truncates with the full name
-   in the `title` tooltip. */
+/* Active-doc filename chip. Lives in the ribbon-center section
+   so it sits in the blank space between the comments-toggle
+   (left of center) and the settings button (right of center).
+   Opt-in via Settings → Appearance; CSS-gated below.
+   `max-width` caps a long filename so the chip doesn't shove the
+   right-side controls; ellipsis-truncates with the full name in
+   the `title` tooltip. */
 .pmd-doc-name-chip {
   display: inline-flex;
   align-items: center;
-  max-width: 14rem;
-  padding: 0.25rem 0.55rem;
-  margin-left: 0.4rem;
+  max-width: 22rem;
+  padding: 0.25rem 0.7rem;
   border: 1px solid var(--pmd-c-border-soft);
   border-radius: 999px;
   background: var(--pmd-c-surface);
@@ -670,10 +671,17 @@ body:not(.pmd-multi-doc):not(.pmd-multi-window) #speech-stack { display: none; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Hidden when no filename has been set (untitled / fresh doc, or
-   onboarding before save-as). JS toggles via `[hidden]`. */
+/* Visibility cascade:
+   - Off by default — the setting class on <html> is absent, so this
+     `!important` rule force-hides the chip and the ribbon resizer
+     can't override it back on. The chip also takes no layout space,
+     which keeps the resizer's overflow math accurate.
+   - On + no filename (untitled / fresh doc) — JS sets [hidden].
+   - On + filename + multi-pane — the body class hides it because
+     each per-pane chip already shows the slot's filename.
+   - On + filename + single-doc — visible (the normal case). */
+html:not(.pmd-doc-name-chip-on) #doc-name-chip { display: none !important; }
 .pmd-doc-name-chip[hidden] { display: none; }
-/* Hidden in multi-pane — each pane chip shows its own filename. */
 body.pmd-multi-doc #doc-name-chip { display: none; }
 
 /* Speech-doc banner. Shown in single-doc multi-window mode when THIS

@@ -31,16 +31,19 @@ internal refactors live in commit messages, not here.
   when installed; remaining groups are "Microsoft Office
   defaults", "Apple defaults", "Open-source / cross-platform",
   and "Generic". Groups whose fonts aren't available are hidden.
-- **Active doc filename always visible.** A new chip in the
-  ribbon (right after the file-ops buttons, 📂🆕💾⏱) shows the
-  active doc's filename. Useful on platforms / layouts where
-  the OS title bar isn't visible: tiling window managers without
-  decorations, hidden-title-bar themes, web edition embedded in
-  another page, etc. Long filenames ellipsis-truncate with the
-  full name in the tooltip. The chip hides when there's no
-  filename yet (untitled / fresh doc before Save-As) and in
-  multi-pane mode (each per-pane chip already shows the slot's
-  doc).
+- **Active doc filename in a ribbon pill (opt-in).** New Settings
+  → Appearance → "Show doc name in ribbon" toggle (default off).
+  When on, the active doc's filename appears as a pill centered in
+  the ribbon between the comments toggle and the settings button.
+  Useful on platforms / layouts where the OS title bar isn't
+  visible: tiling window managers without decorations,
+  hidden-title-bar themes, web edition embedded in another page,
+  etc. Long filenames ellipsis-truncate with the full name in the
+  tooltip. The chip hides when there's no filename yet
+  (untitled / fresh doc before Save-As), in multi-pane mode (each
+  per-pane chip already shows the slot's doc), and falls out of
+  the ribbon's progressive-hide cascade between paragraph styles
+  and the format-menu cluster when the ribbon runs out of room.
 - **Multi-pane window title summarizes all open slots.** The OS
   window title in multi-pane mode used to show just the focused
   doc's filename. It now shows every non-empty slot's filename
