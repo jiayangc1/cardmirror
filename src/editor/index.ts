@@ -1408,6 +1408,26 @@ systemDarkMedia.addEventListener('change', () => {
   }
 });
 
+/** Apply the `reduceMotion` setting onto the document root as
+ *  `data-motion`. CSS rules in `style.css` consume the attribute
+ *  and gate animations / transitions. Three states:
+ *    - 'auto'  → no attribute; the CSS uses the
+ *               `prefers-reduced-motion` media query to follow the
+ *               OS preference.
+ *    - 'on'    → `data-motion="reduce"`; CSS unconditionally
+ *               flattens animations and transitions.
+ *    - 'off'   → `data-motion="normal"`; CSS keeps full motion
+ *               even when the OS asks for reduced. */
+function applyReduceMotion(pref: 'auto' | 'on' | 'off'): void {
+  if (pref === 'on') {
+    document.documentElement.setAttribute('data-motion', 'reduce');
+  } else if (pref === 'off') {
+    document.documentElement.setAttribute('data-motion', 'normal');
+  } else {
+    document.documentElement.removeAttribute('data-motion');
+  }
+}
+
 function applyDisplayColors(c: DisplayColors): void {
   for (const key of DISPLAY_COLOR_KEYS) {
     document.documentElement.style.setProperty(`--pmd-color-${key}`, c[key]);
@@ -1518,6 +1538,7 @@ let lastRibbonOverrides = settings.get('ribbonKeyOverrides');
 // setting changes (and once now to handle the persisted value).
 settings.subscribe((s) => {
   applyTheme(s.theme, s.themeAppliesToDocument);
+  applyReduceMotion(s.reduceMotion);
   applyReadMode(s.readMode);
   applyNavPaneVisible(s.navPaneVisible);
   applyZoom(s.zoomPct);
@@ -1626,6 +1647,7 @@ function initRibbonResizer(): void {
 initRibbonResizer();
 
 applyTheme(settings.get('theme'), settings.get('themeAppliesToDocument'));
+applyReduceMotion(settings.get('reduceMotion'));
 applyReadMode(settings.get('readMode'));
 applyZoom(settings.get('zoomPct'));
 applyDisplaySizes(settings.get('displaySizes'));

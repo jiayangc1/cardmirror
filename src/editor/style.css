@@ -5766,3 +5766,62 @@ html.pmd-emphasis-box .pmd-pane-editor .pmd-emphasis {
    problem of CSS breakpoints — at any chrome scale / OS font /
    visible-panel mix, we only hide a panel once content literally
    doesn't fit, and re-show as soon as it does. */
+
+/* ---- Reduced motion ----
+ *
+ * `settings.reduceMotion` ('auto' / 'on' / 'off') resolves to a
+ * `data-motion` attribute on `<html>` via `applyReduceMotion` in
+ * index.ts. The two rules below implement the cascade:
+ *
+ *   - `data-motion="reduce"` (user picked 'On'): unconditionally
+ *     flatten animations and transitions. Highest priority.
+ *   - `data-motion` absent (user picked 'Auto' or never set):
+ *     follow the OS via `prefers-reduced-motion: reduce`. The
+ *     `:root:not([data-motion="normal"])` guard lets a user with
+ *     OS reduced-motion ON force motion BACK ON via the setting
+ *     ('Off').
+ *
+ * The `0.01ms` duration is the de-facto-standard "effectively zero"
+ * value — completes within one frame, never produces a visible
+ * tween, and avoids the edge cases of `0ms` causing browsers to
+ * skip animation events entirely. Properties listed cover all the
+ * motion the editor ships: CSS `transition` / `animation`, plus
+ * `scroll-behavior` (so smooth scroll snaps instead of animating). */
+:root[data-motion="reduce"] *,
+:root[data-motion="reduce"] *::before,
+:root[data-motion="reduce"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="normal"]) *,
+  :root:not([data-motion="normal"]) *::before,
+  :root:not([data-motion="normal"]) *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The drag-pickup pill (the floating blue chip that tracks the
+   cursor while a nav heading is being dragged) doesn't degrade
+   gracefully under reduce-motion: with its scale-up entrance
+   flattened, the pointermove-driven position updates read as
+   visual jitter rather than as a smoothly tracking pill. Hide
+   it entirely when motion is reduced — the source item dims to
+   35 % opacity (`.pmd-nav-item-dragging`) and the drop indicator
+   line shows where the drop will land, so the user still has
+   clear "I'm in pickup mode" and "I'm about to drop here"
+   affordances without the cursor-tracking chrome. */
+:root[data-motion="reduce"] .pmd-nav-pickup-pill {
+  display: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="normal"]) .pmd-nav-pickup-pill {
+    display: none !important;
+  }
+}

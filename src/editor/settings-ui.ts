@@ -33,34 +33,60 @@ import { buildKeybindingsEditor } from './keybindings-editor.js';
 import { getHost, getElectronHost } from './host/index.js';
 
 /**
- * Available body fonts. A mix of Microsoft Office defaults (likely
- * installed on Windows / Mac with Office), open-source Linux-friendly
- * alternatives (Liberation, DejaVu, Noto), and CSS generic categories
- * (always available). Fonts not installed on the user's system fall
- * back to the next item in the CSS font-family chain.
+ * Available body fonts, organized into labeled groups. The dropdown
+ * uses `<optgroup>` so the user can find a font by category. Fonts
+ * not installed on the system are filtered out per-group via
+ * `isFontAvailable`; if every font in a group is unavailable the
+ * whole group is suppressed.
+ *
+ * The "Recommended for readability" group leads — the British
+ * Dyslexia Association's 2023 Style Guide endorses wide-x-height
+ * sans-serifs with disambiguated letterforms (Verdana, Tahoma,
+ * Comic Sans MS) for body text aimed at dyslexic readers. None of
+ * these are bundled — they're either Windows / macOS system fonts
+ * or shipped with Office. Bundling SIL OFL alternatives
+ * (Atkinson Hyperlegible, Lexend, OpenDyslexic) for systems that
+ * don't have any of these is queued separately in WISHLIST.
  */
-const COMMON_FONTS = [
-  // Microsoft Office defaults
-  'Calibri',
-  'Cambria',
-  'Times New Roman',
-  'Arial',
-  'Georgia',
-  'Verdana',
-  // Apple defaults
-  'Helvetica',
-  // Open-source Linux/cross-platform
-  'Liberation Serif',
-  'Liberation Sans',
-  'DejaVu Serif',
-  'DejaVu Sans',
-  'Noto Serif',
-  'Noto Sans',
-  // CSS generic categories (always available, browser picks system default)
-  'serif',
-  'sans-serif',
-  'monospace',
+interface FontGroup {
+  label: string;
+  fonts: string[];
+}
+
+const FONT_GROUPS: FontGroup[] = [
+  {
+    label: 'Recommended for readability',
+    fonts: ['Verdana', 'Tahoma', 'Comic Sans MS'],
+  },
+  {
+    label: 'Microsoft Office defaults',
+    fonts: ['Calibri', 'Cambria', 'Times New Roman', 'Arial', 'Georgia'],
+  },
+  {
+    label: 'Apple defaults',
+    fonts: ['Helvetica'],
+  },
+  {
+    label: 'Open-source / cross-platform',
+    fonts: [
+      'Liberation Serif',
+      'Liberation Sans',
+      'DejaVu Serif',
+      'DejaVu Sans',
+      'Noto Serif',
+      'Noto Sans',
+    ],
+  },
+  {
+    label: 'Generic',
+    fonts: ['serif', 'sans-serif', 'monospace'],
+  },
 ];
+
+/** Flat list of every named font we know about. Used by
+ *  `sanitizeBodyFont` (via the membership check) and for any caller
+ *  that just wants "is this a recognized font name?" semantics. */
+const COMMON_FONTS = FONT_GROUPS.flatMap((g) => g.fonts);
 
 /** Human-readable label for each display-size key. */
 const DISPLAY_SIZE_LABELS: Record<keyof DisplaySizes, string> = {
@@ -370,6 +396,10 @@ class SettingsModal {
       row.appendChild(text);
       row.appendChild(buildThemeEditor());
       return row;
+    } else if (meta.kind === 'reduceMotion') {
+      row.appendChild(text);
+      row.appendChild(buildReduceMotionEditor());
+      return row;
     } else if (meta.kind === 'colorOverrides') {
       row.appendChild(text);
       row.appendChild(buildColorOverridesEditor());
@@ -675,25 +705,35 @@ function buildBodyFontEditor(): HTMLElement {
   function populate(): void {
     select.innerHTML = '';
     const current = settings.get('bodyFont');
-    // Filter to fonts that are actually installed (or that we can't
-    // detect — generics always pass). Always include the user's
-    // current selection even if it's not detected, so a saved-but-
-    // unavailable font is still visible & re-selectable.
-    const available = COMMON_FONTS.filter(isFontAvailable);
-    const options = available.includes(current)
-      ? available
-      : [current, ...available];
-    for (const font of options) {
+    const GENERICS = new Set([
+      'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui',
+    ]);
+    function buildOption(font: string): HTMLOptionElement {
       const opt = document.createElement('option');
       opt.value = font;
       opt.textContent = font;
       // Render each option in the font itself so the user can preview
       // before committing. Generic CSS keywords (serif, sans-serif,
       // monospace) must NOT be quoted; named fonts must be.
-      const isGeneric = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui'].includes(font);
-      opt.style.fontFamily = isGeneric ? font : `"${font}", sans-serif`;
+      opt.style.fontFamily = GENERICS.has(font) ? font : `"${font}", sans-serif`;
       if (font === current) opt.selected = true;
-      select.appendChild(opt);
+      return opt;
+    }
+    // If the user's current selection isn't in any group (e.g., a
+    // saved-but-unavailable bundled font, or a name the user typed
+    // by hand), show it as a stand-alone option above the groups so
+    // it's still visible and re-selectable.
+    const currentInGroups = FONT_GROUPS.some((g) => g.fonts.includes(current));
+    if (!currentInGroups) {
+      select.appendChild(buildOption(current));
+    }
+    for (const group of FONT_GROUPS) {
+      const available = group.fonts.filter(isFontAvailable);
+      if (available.length === 0) continue;
+      const og = document.createElement('optgroup');
+      og.label = group.label;
+      for (const font of available) og.appendChild(buildOption(font));
+      select.appendChild(og);
     }
   }
 
@@ -1132,6 +1172,37 @@ function buildThemeEditor(): HTMLElement {
   }
   function refresh(): void {
     const cur = settings.get('theme');
+    for (const btn of wrap.querySelectorAll<HTMLButtonElement>('.pmd-theme-editor-btn')) {
+      btn.setAttribute('aria-pressed', btn.dataset['value'] === cur ? 'true' : 'false');
+    }
+  }
+  refresh();
+  const unsub = settings.subscribe(refresh);
+  onDetached(wrap, () => unsub());
+  return wrap;
+}
+
+/** Three-button segmented control for the `reduceMotion` setting,
+ *  visually parallel to the theme editor. System / On / Off. */
+function buildReduceMotionEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-theme-editor';
+  const options: { value: 'auto' | 'on' | 'off'; label: string }[] = [
+    { value: 'auto', label: 'System' },
+    { value: 'on', label: 'On' },
+    { value: 'off', label: 'Off' },
+  ];
+  for (const o of options) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pmd-theme-editor-btn';
+    btn.textContent = o.label;
+    btn.dataset['value'] = o.value;
+    btn.addEventListener('click', () => settings.set('reduceMotion', o.value));
+    wrap.appendChild(btn);
+  }
+  function refresh(): void {
+    const cur = settings.get('reduceMotion');
     for (const btn of wrap.querySelectorAll<HTMLButtonElement>('.pmd-theme-editor-btn')) {
       btn.setAttribute('aria-pressed', btn.dataset['value'] === cur ? 'true' : 'false');
     }

@@ -214,6 +214,14 @@ export interface Settings {
    *  when running dark mode. Turn on to make the document area
    *  follow the chrome theme as well. */
   themeAppliesToDocument: boolean;
+  /** UI motion preference. `'auto'` (default) follows the OS
+   *  `prefers-reduced-motion` media query and gives the user the
+   *  motion-reduction state their system advertises. `'on'` always
+   *  reduces motion (animations and transitions become instant);
+   *  `'off'` always plays full motion even if the OS asked for
+   *  reduced. Resolved into a `data-motion` attribute on the
+   *  document root; CSS rules in `style.css` consume it. */
+  reduceMotion: 'auto' | 'on' | 'off';
   /** Per-token UI color overrides. Keyed by CSS-variable name
    *  WITHOUT the `--` prefix (e.g. `"pmd-c-accent"`); values are
    *  CSS color strings the user picked in the accessibility
@@ -617,6 +625,7 @@ const DEFAULTS: Settings = {
   defaultSaveFormat: 'docx',
   theme: 'system',
   themeAppliesToDocument: false,
+  reduceMotion: 'auto',
   overrideHighlightColor: false,
   overrideHighlightSlots: ['#ffff00'],
   overrideShadingColor: false,
@@ -759,6 +768,7 @@ export interface SettingMeta {
     | 'colorSlots'
     | 'colorOverrides'
     | 'theme'
+    | 'reduceMotion'
     | 'password'
     | 'clod'
     | 'aiCitePrompt'
@@ -930,6 +940,14 @@ export const SETTING_METADATA: SettingMeta[] = [
       'Pick the color used for Analytic and Undertag text.',
     kind: 'displayColors',
     category: 'appearance',
+  },
+  {
+    key: 'reduceMotion',
+    label: 'Reduce motion',
+    description:
+      "Disable UI animations and transitions (drag-pickup vacuum, popover slides, etc.). 'System' follows your OS preference; 'On' always reduces motion; 'Off' overrides the OS and plays full motion.",
+    kind: 'reduceMotion',
+    category: 'accessibility',
   },
   {
     key: 'overrideHighlightColor',
@@ -1282,6 +1300,8 @@ function sanitize(s: Settings): Settings {
     theme:
       s.theme === 'light' || s.theme === 'dark' ? s.theme : 'system',
     themeAppliesToDocument: !!s.themeAppliesToDocument,
+    reduceMotion:
+      s.reduceMotion === 'on' || s.reduceMotion === 'off' ? s.reduceMotion : 'auto',
     overrideHighlightColor: !!s.overrideHighlightColor,
     overrideHighlightSlots: sanitizeColorSlots(
       s.overrideHighlightSlots,

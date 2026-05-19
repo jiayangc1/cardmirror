@@ -6,6 +6,24 @@ internal refactors live in commit messages, not here.
 
 ## Unreleased
 
+- **Accessibility — Reduce motion.** Settings → Accessibility →
+  Reduce motion: System / On / Off. System (default) follows the
+  OS `prefers-reduced-motion` preference. On flattens all
+  animations and transitions in the UI (drag-pickup vacuum,
+  popover slides, save-flash pulse, smooth scrolls) to effectively
+  instant. Off forces full motion even when the OS asks for
+  reduced — useful for users on an OS where the setting is
+  always-on but they prefer animations in this app.
+- **Accessibility — Body-font readability presets.** The Settings
+  → Appearance → Body font dropdown now groups options by
+  category: "Recommended for readability" (Verdana, Tahoma, Comic
+  Sans MS — the British Dyslexia Association's 2023 endorsed
+  sans-serifs for body text), "Microsoft Office defaults", "Apple
+  defaults", "Open-source / cross-platform", and "Generic".
+  Groups whose fonts aren't installed are hidden. Bundling SIL
+  OFL alternatives (Atkinson Hyperlegible, Lexend, OpenDyslexic)
+  is queued separately so users on systems without any of the
+  readability-tuned fonts above still have an option.
 - **Fixed: Nav-pane / find-bar jumps land precisely on big docs.**
   Cards use `content-visibility: auto` with a 200 px placeholder
   height, so `scrollIntoView` to a heading far down a long doc
