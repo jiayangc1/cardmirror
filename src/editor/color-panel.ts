@@ -46,6 +46,11 @@ export interface ColorPanelHandle {
    *  Used by the keybinding-driven ribbon commands so users can arm
    *  the paintbrush without clicking the ribbon button. */
   togglePaintbrush(mode: PaintbrushMode): void;
+  /** Open the color-picker dropdown anchored at the ribbon's arrow
+   *  button for the given mode. Used by the keybinding-driven
+   *  picker-open commands. Anchors at the arrow-button DOM element
+   *  so the dropdown lands in the same place as a ribbon click. */
+  openPicker(mode: PaintbrushMode): void;
 }
 
 interface ColorControlSetup {
@@ -193,6 +198,13 @@ export function wireColorPanel(viewRef: ViewRef): ColorPanelHandle {
   return {
     togglePaintbrush: (mode: PaintbrushMode) => {
       setPaintbrush(activePaintbrush === mode ? null : mode);
+    },
+    openPicker: (mode: PaintbrushMode) => {
+      const setup = controls.find((c) => c.paintbrushMode === mode);
+      if (!setup) return;
+      const anchor = document.getElementById(setup.arrowBtnId) as HTMLButtonElement | null;
+      if (!anchor) return;
+      openPicker(anchor, setup, viewRef);
     },
   };
 }

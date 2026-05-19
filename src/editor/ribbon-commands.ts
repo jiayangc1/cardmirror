@@ -2940,7 +2940,22 @@ export type RibbonCommandId =
   | 'openFind'
   | 'openFindReplace'
   | 'openFindByProximity'
-  | 'toggleNavPane';
+  | 'toggleNavPane'
+  // Commands that ship without a default binding — added so users
+  // can wire them up via Settings → Keybindings. Each maps to a
+  // ribbon button or menu item that wasn't previously bindable.
+  | 'adjustFontSizeUp'
+  | 'adjustFontSizeDown'
+  | 'applyFontColor'
+  | 'openSettings'
+  | 'toggleParagraphIntegrity'
+  | 'openHighlightPicker'
+  | 'openShadingPicker'
+  | 'openFontColorPicker'
+  | 'openFontSizePicker'
+  | 'openDocToolsMenu'
+  | 'openCardToolsMenu'
+  | 'openTableMenu';
 
 export const STRUCTURAL_RIBBON_COMMAND_IDS: StructuralRibbonCommandId[] = [
   'setPocket',
@@ -3018,6 +3033,19 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'openFindReplace',
   'openFindByProximity',
   'toggleNavPane',
+  // Newly bindable ribbon actions (no default keys).
+  'adjustFontSizeUp',
+  'adjustFontSizeDown',
+  'applyFontColor',
+  'openSettings',
+  'toggleParagraphIntegrity',
+  'openHighlightPicker',
+  'openShadingPicker',
+  'openFontColorPicker',
+  'openFontSizePicker',
+  'openDocToolsMenu',
+  'openCardToolsMenu',
+  'openTableMenu',
 ];
 
 export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
@@ -3092,6 +3120,18 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   openFindReplace: 'Find and Replace',
   openFindByProximity: 'Find by Proximity (No Category Boost)',
   toggleNavPane: 'Show / Hide Navigation Pane',
+  adjustFontSizeUp: 'Increase Font Size by 1pt',
+  adjustFontSizeDown: 'Decrease Font Size by 1pt',
+  applyFontColor: 'Apply Font Color',
+  openSettings: 'Open Settings',
+  toggleParagraphIntegrity: 'Toggle Paragraph Integrity',
+  openHighlightPicker: 'Open Highlight Color Picker',
+  openShadingPicker: 'Open Background Color Picker',
+  openFontColorPicker: 'Open Font Color Picker',
+  openFontSizePicker: 'Open Font Size Picker',
+  openDocToolsMenu: 'Open Doc Tools Menu',
+  openCardToolsMenu: 'Open Card Tools Menu',
+  openTableMenu: 'Open Table Menu',
 };
 
 /**
@@ -3207,6 +3247,22 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   // ribbon + nav-pane × + pull-tab; the keybinding is a power-
   // user convenience layer, not a discoverable default.
   toggleNavPane: '',
+  // Newly bindable ribbon actions. None get a default key — they're
+  // all already reachable via the ribbon, so a default chord would
+  // just be noise. Users who want a hotkey can pick one in
+  // Settings → Keybindings.
+  adjustFontSizeUp: '',
+  adjustFontSizeDown: '',
+  applyFontColor: '',
+  openSettings: '',
+  toggleParagraphIntegrity: '',
+  openHighlightPicker: '',
+  openShadingPicker: '',
+  openFontColorPicker: '',
+  openFontSizePicker: '',
+  openDocToolsMenu: '',
+  openCardToolsMenu: '',
+  openTableMenu: '',
 };
 
 /**
@@ -3314,6 +3370,24 @@ export interface RibbonContext {
    *  (transient), so toggling in one window leaves siblings
    *  untouched. */
   toggleNavPane: () => void;
+  /** Most-recently-picked font color (hex, no `#`, e.g. `"FF0000"`)
+   *  or `null` when the user has chosen "Automatic" / no explicit
+   *  color. Read at invocation time by the `applyFontColor` command
+   *  so a keybinding applies whatever color the user last picked
+   *  in the ribbon swatch. */
+  lastFontColor: () => string | null;
+  /** Host-side actions exposed for keybinding parity with their
+   *  ribbon-button counterparts. All optional (default no-op) so
+   *  tests and headless callers don't have to wire them up. */
+  openSettings: () => void;
+  toggleParagraphIntegrity: () => void;
+  openHighlightPicker: () => void;
+  openShadingPicker: () => void;
+  openFontColorPicker: () => void;
+  openFontSizePicker: () => void;
+  openDocToolsMenu: () => void;
+  openCardToolsMenu: () => void;
+  openTableMenu: () => void;
 }
 
 const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
@@ -3359,6 +3433,16 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   openFindReplace: () => {},
   openFindByProximity: () => {},
   toggleNavPane: () => {},
+  lastFontColor: () => null,
+  openSettings: () => {},
+  toggleParagraphIntegrity: () => {},
+  openHighlightPicker: () => {},
+  openShadingPicker: () => {},
+  openFontColorPicker: () => {},
+  openFontSizePicker: () => {},
+  openDocToolsMenu: () => {},
+  openCardToolsMenu: () => {},
+  openTableMenu: () => {},
 };
 
 function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
@@ -3632,6 +3716,71 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
       return (_state, dispatch) => {
         if (!dispatch) return true;
         ctx.toggleNavPane();
+        return true;
+      };
+    // ─── No-default-binding commands (parity for ribbon actions
+    //     that previously had inline click handlers only) ────────
+    case 'adjustFontSizeUp':
+      return adjustFontSize(1, ctx.effectivePtForNode);
+    case 'adjustFontSizeDown':
+      return adjustFontSize(-1, ctx.effectivePtForNode);
+    case 'applyFontColor':
+      // Apply the user's most-recently-picked font color (null =
+      // strip the font_color mark / revert to theme default).
+      return (state, dispatch, view) =>
+        setFontColor(ctx.lastFontColor())(state, dispatch, view);
+    case 'openSettings':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.openSettings();
+        return true;
+      };
+    case 'toggleParagraphIntegrity':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.toggleParagraphIntegrity();
+        return true;
+      };
+    case 'openHighlightPicker':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.openHighlightPicker();
+        return true;
+      };
+    case 'openShadingPicker':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.openShadingPicker();
+        return true;
+      };
+    case 'openFontColorPicker':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.openFontColorPicker();
+        return true;
+      };
+    case 'openFontSizePicker':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.openFontSizePicker();
+        return true;
+      };
+    case 'openDocToolsMenu':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.openDocToolsMenu();
+        return true;
+      };
+    case 'openCardToolsMenu':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.openCardToolsMenu();
+        return true;
+      };
+    case 'openTableMenu':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.openTableMenu();
         return true;
       };
   }

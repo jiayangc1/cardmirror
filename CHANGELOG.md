@@ -31,6 +31,16 @@ internal refactors live in commit messages, not here.
   when installed; remaining groups are "Microsoft Office
   defaults", "Apple defaults", "Open-source / cross-platform",
   and "Generic". Groups whose fonts aren't available are hidden.
+- **Every ribbon action is now bindable.** Twelve previously
+  click-only ribbon actions are now registered commands in the
+  keybinding registry, available in Settings → Keybindings. None
+  ship with a default binding — they're all already reachable via
+  the ribbon, so a default chord would just be noise. The new
+  bindable commands: increase / decrease font size by 1 pt,
+  apply font color, open settings, toggle paragraph integrity,
+  open each color picker dropdown (highlight / shading / font
+  color), open the font-size picker, and open the doc / card /
+  table tools menus.
 - **Active doc filename in a ribbon pill (opt-in).** New Settings
   → Appearance → "Show doc name in ribbon" toggle (default off).
   When on, the active doc's filename appears as a pill centered in

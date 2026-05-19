@@ -751,6 +751,24 @@ const ribbonContext: RibbonContext = {
   toggleNavPane: () => {
     settings.set('navPaneVisible', !settings.get('navPaneVisible'));
   },
+  // ─── No-default-binding hooks ────────────────────────────────
+  // Each routes through the same button's existing click handler
+  // (via `.click()`) — the keybinding then follows the exact same
+  // UX as a ribbon click, including dropdown positioning and any
+  // selection-aware branching. Wired this way so we don't have to
+  // duplicate the host-side menu construction in two places.
+  lastFontColor: () => settings.get('lastFontColor'),
+  openSettings: () => settingsBtn.click(),
+  toggleParagraphIntegrity: () => {
+    settings.set('paragraphIntegrity', !settings.get('paragraphIntegrity'));
+  },
+  openHighlightPicker: () => colorPanel?.openPicker('highlight'),
+  openShadingPicker: () => colorPanel?.openPicker('shading'),
+  openFontColorPicker: () => colorPanel?.openPicker('fontcolor'),
+  openFontSizePicker: () => fontSizePickerBtn?.click(),
+  openDocToolsMenu: () => docMenuBtn?.click(),
+  openCardToolsMenu: () => cardMenuBtn?.click(),
+  openTableMenu: () => tableMenuBtn?.click(),
 };
 
 openBtn.addEventListener('click', () => {
