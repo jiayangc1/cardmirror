@@ -8,44 +8,58 @@
  */
 
 import type { Transaction } from 'prosemirror-state';
+import { AddMarkStep, RemoveMarkStep } from 'prosemirror-transform';
 
 /**
- * Union of every step's mapped range in the new doc, across the
+ * Union of every step's affected range in the new doc, across the
  * given transactions. Returns `null` when none of the transactions
  * changed the doc.
  *
- * Each `Step.getMap().forEach` callback yields `(oldFrom, oldTo,
- * newFrom, newTo)`; we collect the new-side bounds because the
- * walk happens against the post-state doc.
+ * For structural steps (ReplaceStep, etc.), the range comes from
+ * `Step.getMap().forEach` (which yields `(oldFrom, oldTo, newFrom,
+ * newTo)`; we collect the new-side bounds because the walk happens
+ * against the post-state doc).
+ *
+ * For mark steps (AddMarkStep / RemoveMarkStep), `getMap` returns
+ * `StepMap.empty` — the step doesn't shift any positions — so
+ * `forEach` yields nothing. Callers like `cite-classifier-plugin`
+ * and `named-style-normalizer-plugin` care about mark changes
+ * (a cite_mark add should promote the containing paragraph to
+ * `cite_paragraph`), so we extract the mark step's
+ * `from`/`to` directly and contribute those to the union too.
  */
 export function changedRange(
   transactions: readonly Transaction[],
 ): { from: number; to: number } | null {
   let from = Infinity;
   let to = -Infinity;
+  const expand = (lo: number, hi: number): void => {
+    if (lo < from) from = lo;
+    if (hi > to) to = hi;
+  };
   for (const tr of transactions) {
     if (!tr.docChanged) continue;
     for (let i = 0; i < tr.steps.length; i++) {
-      const stepMap = tr.steps[i]!.getMap();
-      // Each step's `newFrom`/`newTo` are valid in the doc state
-      // AFTER applying step `i`, NOT in the final state. For a
-      // single-step typing tr that's the same thing — but for a
-      // multi-step tr (send-to-speech, an undo / redo of one,
-      // anything that splits structurally and inserts), the
-      // intermediate ranges can extend past the final doc's
-      // bounds. Map each step's range through subsequent step
-      // maps so the result lands in the final state's
-      // coordinates; otherwise callers like
-      // `cite-classifier-plugin`'s `nodesBetween` walk off the
-      // end of the doc and throw "Cannot read properties of
-      // undefined (reading 'nodeSize')".
+      const step = tr.steps[i]!;
+      // Subsequent steps' mappings shift earlier steps' coordinates
+      // forward into the final state. For a single-step tr this is
+      // a no-op slice; for multi-step trs (send-to-speech, structural
+      // edits) it keeps the range valid in the final doc.
       const subMapping = tr.mapping.slice(i + 1);
+      const stepMap = step.getMap();
       stepMap.forEach((_oldFrom, _oldTo, newFrom, newTo) => {
-        const mappedFrom = subMapping.map(newFrom, -1);
-        const mappedTo = subMapping.map(newTo, 1);
-        if (mappedFrom < from) from = mappedFrom;
-        if (mappedTo > to) to = mappedTo;
+        expand(subMapping.map(newFrom, -1), subMapping.map(newTo, 1));
       });
+      // Mark-only steps don't shift positions, so their stepMap is
+      // empty and the loop above contributes nothing. Surface their
+      // explicit from/to so mark-add/remove transactions still
+      // produce a non-null `changedRange`. Without this, plugins
+      // gated on the range (cite-classifier, named-style-normalizer)
+      // silently skip mark-only transactions, leaving e.g. a
+      // cite_mark-added body paragraph un-promoted to cite_paragraph.
+      if (step instanceof AddMarkStep || step instanceof RemoveMarkStep) {
+        expand(subMapping.map(step.from, -1), subMapping.map(step.to, 1));
+      }
     }
   }
   if (from === Infinity) return null;

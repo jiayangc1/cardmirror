@@ -31,6 +31,19 @@ internal refactors live in commit messages, not here.
   when installed; remaining groups are "Microsoft Office
   defaults", "Apple defaults", "Open-source / cross-platform",
   and "Generic". Groups whose fonts aren't available are hidden.
+- **Fixed: Copy Last Cite now finds cite_mark text you just
+  applied.** Adding the cite mark to a word in a body paragraph
+  is supposed to promote that paragraph to a `cite_paragraph`
+  (the cite classifier plugin does this automatically). But the
+  classifier was gated on a "did the doc change?" range that
+  excluded mark-only transactions — `AddMarkStep` doesn't shift
+  any positions, so its step-map was empty and the classifier
+  bailed early. Result: the paragraph stayed a regular
+  `paragraph`, and Copy Last Cite fell through to whatever older
+  `cite_paragraph` it could find further up the doc. The same
+  silent-skip affected the named-style normalizer (it would
+  miss underline/cite/emphasis conflicts created via mark-add
+  transactions). Both now see mark-only transactions.
 - **F8 / Apply Cite Style now expands to the word at the cursor**
   when there's no selection — matching the behavior F10 / Apply
   Emphasis Style already had. Previously pressing F8 with the

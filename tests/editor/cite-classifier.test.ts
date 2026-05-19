@@ -154,6 +154,29 @@ describe('cite classifier plugin', () => {
     const twice = withPlugin(once);
     expect(once.eq(twice)).toBe(true);
   });
+
+  // Regression: applying F8 / Apply Cite Style runs `tr.addMark`,
+  // whose `AddMarkStep.getMap()` returns `StepMap.empty`. If
+  // `changedRange` only looks at step maps, the classifier never
+  // sees the mark add and the containing paragraph stays a
+  // `paragraph` instead of getting promoted. This breaks downstream
+  // features that key off the cite_paragraph type (e.g. Copy Last
+  // Cite, which then falls back to an older cite further up the
+  // doc).
+  it('promotes a paragraph when cite_mark is added via addMark', () => {
+    const doc = makeDoc(paragraphOf(plain('Test Cite Flow')));
+    const state = EditorState.create({ doc, plugins: [citeClassifierPlugin] });
+    // Apply cite_mark to "Cite" (the second word). The paragraph's
+    // text starts at pos 1; "Test " is 5 chars, so "Cite" is
+    // [6, 10) in doc coordinates.
+    const tr = state.tr.addMark(
+      6,
+      10,
+      schema.marks['cite_mark']!.create(),
+    );
+    const next = state.apply(tr);
+    expect(next.doc.firstChild!.type.name).toBe('cite_paragraph');
+  });
 });
 
 // ---- named-style normalizer ----
