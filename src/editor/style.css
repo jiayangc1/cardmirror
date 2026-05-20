@@ -5974,15 +5974,16 @@ html.pmd-emphasis-box .pmd-pane-editor .pmd-emphasis {
 .pmd-timer-panel {
   display: grid;
   grid-template-columns: auto auto auto auto auto;
-  /* Each row matches one ribbon-button height (1.45rem) — same
-     rhythm as the ribbon-button-stack. Total height ≈ 2.92rem
-     (2 rows × 1.45rem + 2px gap), which lines up with the
-     formatting / cite / file-ops stacks. */
+  /* Pin each row to 1.45rem (matches the file-ops stack's
+     individual button height) and lock the panel to the same
+     total height as a 2-button stack: 1.45 + 1.45 + 2px gap =
+     2.92rem. With `align-self: center` the panel sits at the
+     same vertical baseline as the rest of the ribbon's
+     2-row button stacks. */
   grid-template-rows: 1.45rem 1.45rem;
+  height: 2.92rem;
   gap: 2px;
   flex: 0 0 auto;
-  /* Vertically center against the ribbon's own button stacks
-     rather than stretching to the ribbon's full 4rem height. */
   align-self: center;
   /* Lives at the LEFT edge of the ribbon — separator on the
      right side instead of the left. */
@@ -5990,6 +5991,7 @@ html.pmd-emphasis-box .pmd-pane-editor .pmd-emphasis {
   padding-right: 0.4rem;
   border-right: 1px solid var(--pmd-c-border-soft);
   align-items: stretch;
+  box-sizing: border-box;
   font-family: 'Calibri', 'Helvetica Neue', sans-serif;
 }
 .pmd-timer-panel[hidden] { display: none; }
@@ -6001,10 +6003,12 @@ html.pmd-emphasis-box .pmd-pane-editor .pmd-emphasis {
   cursor: pointer;
   font-family: inherit;
   font-weight: 600;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--pmd-c-text);
   padding: 0 0.3rem;
   line-height: 1;
+  box-sizing: border-box;
+  min-height: 0;
   /* Explicit centering so a glyph (▶, ↻, etc.) sits on the same
      baseline as the text labels next to it — browser-default
      button alignment isn't quite right when mixing icon + text
@@ -6017,40 +6021,38 @@ html.pmd-emphasis-box .pmd-pane-editor .pmd-emphasis {
   background: var(--pmd-c-hover);
 }
 
-/* Reset — col 1, both rows. Icon ↻ (universal reset glyph) so the
-   button fits comfortably in a narrow column without the rotated-
-   text clipping that "RESET" had at ~2.92rem panel height. */
+/* Reset — col 1, spans BOTH rows + the inter-row gap so the
+   button visibly reads as full panel height. Icon ↻ (universal
+   reset glyph) scaled up to fill the column — no rotated-text
+   clipping. */
 .pmd-timer-reset {
   grid-column: 1;
   grid-row: 1 / span 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.15rem;
-  padding: 0 0.2rem;
-  min-width: 1.4rem;
+  font-size: 1.4rem;
+  padding: 0 0.25rem;
+  min-width: 1.5rem;
 }
 
-/* Big speech-timer display — col 2, both rows. Spans the full
-   2.92rem panel height; font sized to fit comfortably inside
-   that with room for the border + a hair of vertical padding. */
+/* Big speech-timer display — col 2, both rows. Sized so the
+   digit glyphs + border fit comfortably inside 2.92rem. */
 .pmd-timer-display {
   grid-column: 2;
   grid-row: 1 / span 2;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 3.5rem;
-  padding: 0 0.4rem;
+  min-width: 3.2rem;
+  padding: 0 0.35rem;
   border: 1px solid var(--pmd-c-border);
   border-radius: 3px;
   background: var(--pmd-c-bg);
   color: var(--pmd-c-text);
-  font-size: 1.2rem;
+  font-size: 1.15rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.03em;
   line-height: 1;
+  box-sizing: border-box;
   cursor: text;
   user-select: text;
 }
