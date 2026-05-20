@@ -5936,6 +5936,186 @@ html.pmd-emphasis-box .pmd-pane-editor .pmd-emphasis {
    visible-panel mix, we only hide a panel once content literally
    doesn't fit, and re-show as soon as it does. */
 
+/* ---- Built-in countdown timer ----
+ *
+ * Panel sits at the rightmost end of the ribbon after the
+ * settings / reference stack. Visibility is gated on the
+ * `timerVisible` setting (per-window transient).
+ *
+ * Children are positioned via grid placement (no inner-grid
+ * wrappers) so compact mode can re-arrange the cells without
+ * restructuring the DOM:
+ *
+ *   Expanded — 5 columns × 2 rows:
+ *     col 1: Reset (rows 1–2)
+ *     col 2: Display (rows 1–2)
+ *     col 3: Start (row 1) | Preset-2 / "6" (row 2)
+ *     col 4: Preset-1 / "9" (row 1) | Preset-3 / "3" (row 2)
+ *     col 5: Aff (row 1) | Neg (row 2)
+ *
+ *   Compact — 4 columns × 2 rows (presets hidden):
+ *     col 1+2: Display (rows 1–2)
+ *     col 3: Start (row 1) | Reset (row 2, no longer rotated)
+ *     col 4: Aff (row 1) | Neg (row 2)
+ */
+.pmd-timer-panel {
+  display: grid;
+  grid-template-columns: auto auto auto auto auto;
+  grid-template-rows: 1fr 1fr;
+  gap: 0.15rem;
+  flex: 0 0 auto;
+  /* Lives at the LEFT edge of the ribbon — separator on the
+     right side instead of the left. */
+  margin-right: 0.4rem;
+  padding-right: 0.4rem;
+  border-right: 1px solid var(--pmd-c-border-soft);
+  align-items: stretch;
+  align-self: stretch;
+  font-family: 'Calibri', 'Helvetica Neue', sans-serif;
+}
+.pmd-timer-panel[hidden] { display: none; }
+
+.pmd-timer-panel button {
+  background: var(--pmd-c-bg);
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--pmd-c-text);
+  padding: 0;
+}
+.pmd-timer-panel button:hover:not(:disabled) {
+  background: var(--pmd-c-surface);
+}
+
+/* Reset — col 1, both rows. Vertical text reads bottom-to-top. */
+.pmd-timer-reset {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  padding: 0.4rem 0.2rem;
+  min-width: 1.6rem;
+}
+
+/* Big speech-timer display — col 2, both rows. */
+.pmd-timer-display {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 7rem;
+  padding: 0 0.6rem;
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 4px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+  font-size: 2.1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  cursor: text;
+  user-select: text;
+}
+.pmd-timer-display[contenteditable="true"] {
+  outline: 2px solid var(--pmd-c-accent);
+  outline-offset: -2px;
+}
+
+/* Start / Pause — col 3, row 1. */
+.pmd-timer-start {
+  grid-column: 3;
+  grid-row: 1;
+  font-size: 0.95rem;
+  min-width: 2rem;
+}
+.pmd-timer-start[aria-pressed="true"] {
+  background: var(--pmd-c-accent);
+  color: var(--pmd-c-text-on-accent);
+}
+
+/* Presets — col 4 row 1 (9), col 3 row 2 (6), col 4 row 2 (3). */
+.pmd-timer-preset {
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 2rem;
+}
+#timer-preset-1-btn { grid-column: 4; grid-row: 1; }
+#timer-preset-2-btn { grid-column: 3; grid-row: 2; }
+#timer-preset-3-btn { grid-column: 4; grid-row: 2; }
+
+/* Prep buttons — col 5. Aff on row 1 (blue), Neg on row 2 (red). */
+.pmd-timer-prep {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 4rem;
+  padding: 0.15rem 0.4rem;
+  line-height: 1.1;
+}
+.pmd-timer-prep-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+}
+.pmd-timer-prep-time {
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+.pmd-timer-aff {
+  color: var(--pmd-c-aff, #1e6fcc);
+  border-color: var(--pmd-c-aff, #1e6fcc);
+  grid-column: 5;
+  grid-row: 1;
+}
+.pmd-timer-neg {
+  color: var(--pmd-c-neg, #c53030);
+  border-color: var(--pmd-c-neg, #c53030);
+  grid-column: 5;
+  grid-row: 2;
+}
+.pmd-timer-prep-active {
+  background: var(--pmd-c-surface);
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+/* Flash-red animation at the configured remaining thresholds. */
+@keyframes pmd-timer-flash-pulse {
+  0%, 100% { background: var(--pmd-c-bg); color: var(--pmd-c-text); }
+  50%      { background: #c53030; color: white; }
+}
+.pmd-timer-display.pmd-timer-flash {
+  animation: pmd-timer-flash-pulse 600ms ease-in-out infinite;
+}
+
+/* Compact mode: drop the 3 preset buttons; reset moves under
+   start (no longer vertical); display + prep shift left. */
+.pmd-timer-panel.pmd-timer-compact .pmd-timer-preset {
+  display: none;
+}
+.pmd-timer-panel.pmd-timer-compact .pmd-timer-display {
+  grid-column: 1 / span 2;
+}
+.pmd-timer-panel.pmd-timer-compact .pmd-timer-reset {
+  grid-column: 3;
+  grid-row: 2;
+  writing-mode: initial;
+  transform: none;
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  min-width: 0;
+}
+.pmd-timer-panel.pmd-timer-compact .pmd-timer-aff {
+  grid-column: 4;
+}
+.pmd-timer-panel.pmd-timer-compact .pmd-timer-neg {
+  grid-column: 4;
+}
+
 /* ---- Reduced motion ----
  *
  * `settings.reduceMotion` ('auto' / 'on' / 'off') resolves to a

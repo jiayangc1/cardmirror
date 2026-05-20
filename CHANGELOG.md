@@ -31,6 +31,24 @@ internal refactors live in commit messages, not here.
   when installed; remaining groups are "Microsoft Office
   defaults", "Apple defaults", "Open-source / cross-platform",
   and "Generic". Groups whose fonts aren't available are hidden.
+- **Built-in countdown timer.** Native replacement for Verbatim's
+  bundled timer. New ⏱ button in the right side of the ribbon
+  (next to ⚙) toggles a timer panel into the ribbon's left edge.
+  The panel has a big speech-timer display, Start/Pause, three
+  speech-duration presets (default 9/6/3 minutes), Aff and Neg
+  prep clocks (default 10 minutes each, blue and red), and a
+  Reset column that re-fills the prep balances. Click a preset
+  to load it (paused — hit ▶ to start). Click Aff or Neg to make
+  that side's prep clock the active countdown. Type into the big
+  display while paused to set a custom duration. Prep balances
+  persist across closes; speech timer doesn't. Cross-window
+  sync via BroadcastChannel — open the timer in two windows and
+  they stay in lockstep. New Settings → Appearance entries:
+  **Timer profile** (High school 3/5/8 + 8 min prep, College
+  3/6/9 + 10 min prep, Pomodoro 25/15/5, Custom), **Compact
+  timer layout** (drops the preset buttons, tucks Reset under
+  Start), and **Flash timer when countdown is low** (flashes the
+  display red as remaining drops below 5 / 3 / 1 seconds).
 - **"About this install" block at the bottom of Settings →
   General.** A read-only diagnostic section below a divider
   showing app version, host (Desktop / Web), operating system,

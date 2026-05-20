@@ -18,6 +18,7 @@ import { fromDocxFull, toDocx, serializeNative, parseNative } from '../index.js'
 import { transformForExport } from '../export/transform-for-export.js';
 import type { Thread } from './comments-plugin.js';
 import { NavigationPanel } from './nav-panel.js';
+import { mountTimerUI } from './timer-ui.js';
 import { openSettings } from './settings-ui.js';
 import { openReference } from './reference-ui.js';
 import {
@@ -1698,6 +1699,23 @@ initRibbonResizer();
 applyTheme(settings.get('theme'), settings.get('themeAppliesToDocument'));
 applyShowDocNameChip(settings.get('showDocNameChip'));
 applyReduceMotion(settings.get('reduceMotion'));
+// Build the timer panel + button bindings. Visibility is gated
+// on `timerVisible` (transient per-window setting); the panel
+// stays hidden in the DOM until the user toggles ⏱ in the
+// ribbon.
+mountTimerUI();
+const timerToggleBtn = document.getElementById('timer-toggle-btn') as HTMLButtonElement | null;
+if (timerToggleBtn) {
+  function refreshTimerToggle(): void {
+    const on = settings.get('timerVisible');
+    timerToggleBtn!.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  refreshTimerToggle();
+  settings.subscribe(refreshTimerToggle);
+  timerToggleBtn.addEventListener('click', () => {
+    settings.set('timerVisible', !settings.get('timerVisible'));
+  });
+}
 applyReadMode(settings.get('readMode'));
 applyZoom(settings.get('zoomPct'));
 applyDisplaySizes(settings.get('displaySizes'));

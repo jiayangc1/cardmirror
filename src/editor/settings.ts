@@ -46,6 +46,11 @@ const TRANSIENT_SETTING_KEYS = new Set<string>([
   // intent; on the web edition there's only one tab so it's
   // effectively a session preference.
   'navPaneVisible',
+  // Timer panel visibility is per-window: the user opens the timer
+  // strip in whichever window they're running the round from.
+  // Hiding the timer panel in one window shouldn't hide it in
+  // every window the user has open.
+  'timerVisible',
 ]);
 
 /** Reader profile for read-time estimates: name + words-per-minute. */
@@ -245,6 +250,27 @@ export interface Settings {
    *  to other windows — each window starts with the pane visible
    *  and the user can hide it independently. */
   navPaneVisible: boolean;
+  /** Built-in countdown timer settings. */
+  timerVisible: boolean;
+  /** Profile preset for timer durations. 'custom' = the user
+   *  edited individual fields, so changing a single field
+   *  doesn't snap them back to a named profile's values. */
+  timerProfile: 'highSchool' | 'college' | 'pomodoro' | 'custom';
+  /** Three speech-timer preset durations in minutes. */
+  timerSpeechPresets: number[];
+  /** Per-side prep total in minutes. Reset refills both prep
+   *  clocks to this value. */
+  timerPrepMinutes: number;
+  /** When the speech timer's remaining time crosses one of the
+   *  configured `timerFlashSeconds`, the display flashes red.
+   *  Off → no flashing regardless of remaining. */
+  timerFlashEnabled: boolean;
+  /** Remaining-time thresholds (in seconds) at which the display
+   *  flashes red when `timerFlashEnabled` is on. Default 5/3/1. */
+  timerFlashSeconds: number[];
+  /** Compact layout: drops the 9/6/3 preset column and stacks
+   *  Reset under Start/Pause. */
+  timerCompact: boolean;
   /** When read mode is toggled (either direction), scroll the
    *  editor to the very top of the doc and place the cursor at
    *  the start. Default off — toggling read mode keeps the
@@ -641,6 +667,13 @@ const DEFAULTS: Settings = {
   overrideShadingSlots: ['#d2d2d2'],
   customColorOverrides: {},
   navPaneVisible: true,
+  timerVisible: false,
+  timerProfile: 'college',
+  timerSpeechPresets: [9, 6, 3],
+  timerPrepMinutes: 10,
+  timerFlashEnabled: true,
+  timerFlashSeconds: [5, 3, 1],
+  timerCompact: false,
   jumpToDocTopOnReadModeToggle: false,
   findResultsExpanded: false,
   findRememberLastQuery: false,
@@ -778,6 +811,7 @@ export interface SettingMeta {
     | 'colorOverrides'
     | 'theme'
     | 'reduceMotion'
+    | 'timerProfile'
     | 'password'
     | 'clod'
     | 'aiCitePrompt'
@@ -956,6 +990,30 @@ export const SETTING_METADATA: SettingMeta[] = [
     description:
       'Pick the color used for Analytic and Undertag text.',
     kind: 'displayColors',
+    category: 'appearance',
+  },
+  {
+    key: 'timerProfile',
+    label: 'Timer profile',
+    description:
+      "Preset durations for the built-in timer. High school = 3/5/8 speech presets + 8 min prep. College = 3/6/9 + 10 min prep. Pomodoro = 25/15/5 (work / long break / short break). 'Custom' = use the individual fields below (not yet exposed in this UI; toggle profile to apply a preset).",
+    kind: 'timerProfile',
+    category: 'appearance',
+  },
+  {
+    key: 'timerCompact',
+    label: 'Compact timer layout',
+    description:
+      "Drops the 9 / 6 / 3 speech-preset buttons and tucks Reset under Start / Pause. Useful when the ribbon is tight.",
+    kind: 'toggle',
+    category: 'appearance',
+  },
+  {
+    key: 'timerFlashEnabled',
+    label: 'Flash timer when countdown is low',
+    description:
+      "Flash the speech-timer display red when remaining time crosses one of the configured thresholds (5 / 3 / 1 seconds by default).",
+    kind: 'toggle',
     category: 'appearance',
   },
   {
@@ -1338,6 +1396,19 @@ function sanitize(s: Settings): Settings {
     // dismissed it during the session (transient — see
     // TRANSIENT_SETTING_KEYS).
     navPaneVisible: s.navPaneVisible === false ? false : true,
+    timerVisible: !!s.timerVisible,
+    timerProfile:
+      s.timerProfile === 'highSchool' || s.timerProfile === 'pomodoro' || s.timerProfile === 'custom'
+        ? s.timerProfile
+        : 'college',
+    timerSpeechPresets: sanitizeNumberTriple(s.timerSpeechPresets, [9, 6, 3]),
+    timerPrepMinutes:
+      typeof s.timerPrepMinutes === 'number' && s.timerPrepMinutes > 0 && s.timerPrepMinutes <= 999
+        ? Math.floor(s.timerPrepMinutes)
+        : 10,
+    timerFlashEnabled: s.timerFlashEnabled === false ? false : true,
+    timerFlashSeconds: sanitizeFlashSeconds(s.timerFlashSeconds),
+    timerCompact: !!s.timerCompact,
     jumpToDocTopOnReadModeToggle: !!s.jumpToDocTopOnReadModeToggle,
     findResultsExpanded: !!s.findResultsExpanded,
     findRememberLastQuery:
@@ -1605,6 +1676,31 @@ export const CUSTOMIZABLE_COLOR_TOKENS: readonly CustomizableColorToken[] = [
   { group: 'Document text', name: 'pmd-color-analytic', label: 'Analytic text' },
   { group: 'Document text', name: 'pmd-color-undertag', label: 'Undertag text' },
 ];
+
+/** Validate a 3-tuple of positive integer minutes for the
+ *  timer's speech presets. Fills missing / invalid entries with
+ *  the fallback. */
+function sanitizeNumberTriple(raw: unknown, fallback: number[]): number[] {
+  const out = [...fallback];
+  if (!Array.isArray(raw)) return out;
+  for (let i = 0; i < 3; i++) {
+    const v = raw[i];
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 999) {
+      out[i] = Math.floor(v);
+    }
+  }
+  return out;
+}
+
+/** Validate a list of flash-threshold seconds. Filters to positive
+ *  integers ≤ 3600 (1 hour); falls back to [5, 3, 1] if empty. */
+function sanitizeFlashSeconds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [5, 3, 1];
+  const cleaned = raw
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 3600)
+    .map((v) => Math.floor(v));
+  return cleaned.length > 0 ? cleaned : [5, 3, 1];
+}
 
 function sanitizeFindCategoryOrder(
   raw: unknown,

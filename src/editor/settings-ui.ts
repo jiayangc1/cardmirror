@@ -419,6 +419,10 @@ class SettingsModal {
       row.appendChild(text);
       row.appendChild(buildReduceMotionEditor());
       return row;
+    } else if (meta.kind === 'timerProfile') {
+      row.appendChild(text);
+      row.appendChild(buildTimerProfileEditor());
+      return row;
     } else if (meta.kind === 'colorOverrides') {
       row.appendChild(text);
       row.appendChild(buildColorOverridesEditor());
@@ -1283,6 +1287,53 @@ function buildThemeEditor(): HTMLElement {
   }
   function refresh(): void {
     const cur = settings.get('theme');
+    for (const btn of wrap.querySelectorAll<HTMLButtonElement>('.pmd-theme-editor-btn')) {
+      btn.setAttribute('aria-pressed', btn.dataset['value'] === cur ? 'true' : 'false');
+    }
+  }
+  refresh();
+  const unsub = settings.subscribe(refresh);
+  onDetached(wrap, () => unsub());
+  return wrap;
+}
+
+/** Profile picker for the built-in timer. Selecting a named
+ *  profile auto-fills `timerSpeechPresets` and `timerPrepMinutes`
+ *  with that profile's values; 'Custom' leaves them as-is. */
+function buildTimerProfileEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-theme-editor';
+  const options: { value: Settings['timerProfile']; label: string }[] = [
+    { value: 'highSchool', label: 'High school' },
+    { value: 'college', label: 'College' },
+    { value: 'pomodoro', label: 'Pomodoro' },
+    { value: 'custom', label: 'Custom' },
+  ];
+  const PRESETS: Record<Exclude<Settings['timerProfile'], 'custom'>, { speech: number[]; prep: number }> = {
+    highSchool: { speech: [3, 5, 8], prep: 8 },
+    college: { speech: [3, 6, 9], prep: 10 },
+    // Standard Pomodoro: 25 min work, 5 min short break, 15 min long break.
+    // Listed in the "biggest first" order the timer uses for its presets.
+    pomodoro: { speech: [25, 15, 5], prep: 0 },
+  };
+  for (const o of options) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pmd-theme-editor-btn';
+    btn.textContent = o.label;
+    btn.dataset['value'] = o.value;
+    btn.addEventListener('click', () => {
+      settings.set('timerProfile', o.value);
+      if (o.value !== 'custom') {
+        const p = PRESETS[o.value];
+        settings.set('timerSpeechPresets', p.speech as never);
+        settings.set('timerPrepMinutes', p.prep);
+      }
+    });
+    wrap.appendChild(btn);
+  }
+  function refresh(): void {
+    const cur = settings.get('timerProfile');
     for (const btn of wrap.querySelectorAll<HTMLButtonElement>('.pmd-theme-editor-btn')) {
       btn.setAttribute('aria-pressed', btn.dataset['value'] === cur ? 'true' : 'false');
     }
