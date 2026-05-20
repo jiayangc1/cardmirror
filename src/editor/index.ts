@@ -1450,14 +1450,19 @@ systemDarkMedia.addEventListener('change', () => {
  *  force-hidden with `!important` and the ribbon resizer can't
  *  override it back on. Off by default.
  *
- *  Also refreshes the chip's filename text + `[hidden]` state via
- *  `updateWindowTitle` so that flipping the setting on with no
- *  active doc shows nothing (rather than an empty pill — the
- *  chip's HTML default is `hidden`, and we want toggle-on to
- *  preserve that until a doc with a filename is loaded). */
+ *  Note: we deliberately do NOT call `updateWindowTitle` here.
+ *  At boot this function runs BEFORE `currentDocFilename`'s
+ *  module-level declaration is initialized (the apply functions
+ *  live near the top of the module; the per-doc state lives near
+ *  the bottom), and reading it through `activeFile()` would
+ *  throw "Cannot access 'currentDocFilename' before
+ *  initialization". The chip's text + `[hidden]` attribute are
+ *  always set by `updateWindowTitle` via `mountView →
+ *  setActiveView` at boot, and by every later save / open /
+ *  focus-change, so the chip's state is always current by the
+ *  time the user toggles this setting. */
 function applyShowDocNameChip(on: boolean): void {
   document.documentElement.classList.toggle('pmd-doc-name-chip-on', on);
-  updateWindowTitle();
 }
 
 function applyReduceMotion(pref: 'auto' | 'on' | 'off'): void {
