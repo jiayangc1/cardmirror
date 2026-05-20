@@ -2935,6 +2935,9 @@ export type RibbonCommandId =
   | 'zoomIn'
   | 'zoomOut'
   | 'zoomReset'
+  | 'chromeScaleUp'
+  | 'chromeScaleDown'
+  | 'chromeScaleReset'
   | 'togglePaintbrushHighlight'
   | 'togglePaintbrushShading'
   | 'openFind'
@@ -3027,6 +3030,9 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'zoomIn',
   'zoomOut',
   'zoomReset',
+  'chromeScaleUp',
+  'chromeScaleDown',
+  'chromeScaleReset',
   'togglePaintbrushHighlight',
   'togglePaintbrushShading',
   'openFind',
@@ -3114,6 +3120,9 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   zoomIn: 'Zoom In',
   zoomOut: 'Zoom Out',
   zoomReset: 'Reset Zoom to 100%',
+  chromeScaleUp: 'Chrome Scale Up',
+  chromeScaleDown: 'Chrome Scale Down',
+  chromeScaleReset: 'Reset Chrome Scale to 100%',
   togglePaintbrushHighlight: 'Toggle Highlight Paint Mode',
   togglePaintbrushShading: 'Toggle Background-Color Paint Mode',
   openFind: 'Find',
@@ -3230,6 +3239,15 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   zoomIn: 'Mod-=',
   zoomOut: 'Mod--',
   zoomReset: '',
+  // Chrome scale — Mod-Alt versions of the editor-zoom chord.
+  // Same physical keys with Alt added: reads as "zoom the whole
+  // page, not just the doc". Wired to Chromium's per-frame
+  // setZoomFactor on Electron (identical mechanism to the
+  // browser's built-in Ctrl-+); no-op on the web edition (use
+  // the browser's own page-zoom there).
+  chromeScaleUp: 'Mod-Alt-=',
+  chromeScaleDown: 'Mod-Alt--',
+  chromeScaleReset: 'Mod-Alt-0',
   // Paintbrush toggles — no obvious convention here, so register
   // them in the keybinding registry without a default. Users who
   // want a hotkey for sticky highlight / shading can bind one in
@@ -3354,6 +3372,14 @@ export interface RibbonContext {
   zoomIn: () => void;
   zoomOut: () => void;
   zoomReset: () => void;
+  /** Chrome scale — page-zoom analog of the editor zoom above.
+   *  Bumps the persisted `chromeScalePct` setting (50–200, step
+   *  10); on Electron this propagates to Chromium's
+   *  `webFrame.setZoomFactor` so the whole page (chrome + doc)
+   *  reflows at the new factor. No-op on the web edition. */
+  chromeScaleUp: () => void;
+  chromeScaleDown: () => void;
+  chromeScaleReset: () => void;
   /** Paint-mode toggles for highlight / background-color. Mirror
    *  what clicking the ribbon's main color button does when the
    *  selection is empty (arming sticky paint until the next click
@@ -3427,6 +3453,9 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   zoomIn: () => {},
   zoomOut: () => {},
   zoomReset: () => {},
+  chromeScaleUp: () => {},
+  chromeScaleDown: () => {},
+  chromeScaleReset: () => {},
   togglePaintbrushHighlight: () => {},
   togglePaintbrushShading: () => {},
   openFind: () => {},
@@ -3680,6 +3709,24 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
       return (_state, dispatch) => {
         if (!dispatch) return true;
         ctx.zoomReset();
+        return true;
+      };
+    case 'chromeScaleUp':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.chromeScaleUp();
+        return true;
+      };
+    case 'chromeScaleDown':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.chromeScaleDown();
+        return true;
+      };
+    case 'chromeScaleReset':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.chromeScaleReset();
         return true;
       };
     case 'togglePaintbrushHighlight':

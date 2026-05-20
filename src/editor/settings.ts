@@ -361,6 +361,15 @@ export interface Settings {
   hideEmphasisBordersInReadMode: boolean;
   /** Editor zoom level as a percentage (50–200, step 10). */
   zoomPct: number;
+  /** Chrome (page) zoom for the whole window, as a percentage
+   *  (50–200, step 10). Wired to Chromium's `webFrame.setZoom-
+   *  Factor` on Electron, which reflows the page exactly the
+   *  way the browser's built-in Ctrl-+ chord does — chrome AND
+   *  doc content both scale uniformly. Stacks multiplicatively
+   *  with `zoomPct`: if the doc looks too big at a higher
+   *  chromeScalePct, dial `zoomPct` down to compensate. No-op
+   *  on the web edition (use the browser's own page-zoom). */
+  chromeScalePct: number;
   /**
    * Readers used for read-time estimates. The full list shows up in the
    * Word Count Selection function (Ctrl+F11). The first two readers are
@@ -721,6 +730,7 @@ const DEFAULTS: Settings = {
   readMode: false,
   hideEmphasisBordersInReadMode: false,
   zoomPct: 100,
+  chromeScalePct: 100,
   readers: [
     { name: 'Reader 1', wpm: 200 },
     { name: 'Reader 2', wpm: 250 },
@@ -1478,6 +1488,7 @@ function sanitize(s: Settings): Settings {
     readMode: !!s.readMode,
     hideEmphasisBordersInReadMode: !!s.hideEmphasisBordersInReadMode,
     zoomPct: clamp(Math.round(s.zoomPct / 10) * 10, 50, 200),
+    chromeScalePct: clamp(Math.round(s.chromeScalePct / 10) * 10, 50, 200),
     readers: sanitizeReaders(s.readers),
     displaySizes: sanitizeDisplaySizes(s.displaySizes),
     displayTypography: sanitizeDisplayTypography(s.displayTypography),

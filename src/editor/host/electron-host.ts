@@ -74,6 +74,10 @@ interface ElectronAPI {
   /** Open the OS file manager at the crash-dumps folder (mirrors
    *  Help → Open Crash Dumps Folder). */
   openCrashDumpsFolder(): Promise<void>;
+  /** Chromium page-zoom factor for this window (1.0 = 100%).
+   *  Synchronous renderer-side call into Electron's `webFrame`. */
+  setZoomFactor(factor: number): void;
+  getZoomFactor(): number;
 }
 
 function api(): ElectronAPI {
@@ -261,5 +265,18 @@ export class ElectronHost implements Host {
 
   async openCrashDumpsFolder(): Promise<void> {
     await api().openCrashDumpsFolder();
+  }
+
+  /** Page-zoom factor for this window. Same mechanism as the
+   *  browser's Ctrl-+ — reflows the whole document including
+   *  the editor surface, so chrome and doc content scale
+   *  uniformly. The renderer reapplies this on every boot from
+   *  the persisted `chromeScalePct` setting. */
+  setZoomFactor(factor: number): void {
+    api().setZoomFactor(factor);
+  }
+
+  getZoomFactor(): number {
+    return api().getZoomFactor();
   }
 }

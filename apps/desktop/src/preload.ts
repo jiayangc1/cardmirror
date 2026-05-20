@@ -12,7 +12,7 @@
  * Host interface so BrowserHost grows the same capability).
  */
 
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webFrame } from 'electron';
 
 interface FileFilter {
   name: string;
@@ -182,4 +182,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('menu-command', listener);
     return () => ipcRenderer.removeListener('menu-command', listener);
   },
+
+  /** Chrome scale — Chromium's per-frame page-zoom factor.
+   *  Identical mechanism to the browser's Ctrl-+ / Ctrl-- chord:
+   *  reflows the whole document including the editor surface,
+   *  so the renderer's existing rem-based chrome and pt-based
+   *  doc content both scale uniformly. Persisted per-window for
+   *  the window's lifetime; the renderer reapplies the saved
+   *  factor on every boot. */
+  setZoomFactor: (factor: number): void => {
+    webFrame.setZoomFactor(factor);
+  },
+  getZoomFactor: (): number => webFrame.getZoomFactor(),
 });

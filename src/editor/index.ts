@@ -734,6 +734,9 @@ const ribbonContext: RibbonContext = {
   zoomIn: () => setZoom(settings.get('zoomPct') + 10),
   zoomOut: () => setZoom(settings.get('zoomPct') - 10),
   zoomReset: () => setZoom(100),
+  chromeScaleUp: () => setChromeScale(settings.get('chromeScalePct') + 10),
+  chromeScaleDown: () => setChromeScale(settings.get('chromeScalePct') - 10),
+  chromeScaleReset: () => setChromeScale(100),
   togglePaintbrushHighlight: () => {
     if (!view) return;
     colorPanel?.togglePaintbrush('highlight');
@@ -1349,6 +1352,26 @@ function applyZoom(pct: number): void {
   zoomResetBtn.disabled = pct === 100;
 }
 
+/** Chrome scale — the whole-page zoom analog of `setZoom`. Wired
+ *  to Chromium's per-frame `webFrame.setZoomFactor` on Electron,
+ *  so the chord behaves exactly the way the browser's built-in
+ *  Ctrl-+ does (chrome + doc reflow uniformly). No-op on the web
+ *  edition; the user has the browser's own zoom for that. */
+function setChromeScale(pct: number): void {
+  const clamped = Math.max(50, Math.min(200, Math.round(pct / 10) * 10));
+  settings.set('chromeScalePct', clamped);
+}
+
+function applyChromeScale(pct: number): void {
+  const host = getElectronHost();
+  if (!host) return;
+  try {
+    host.setZoomFactor(pct / 100);
+  } catch (err) {
+    console.warn('setZoomFactor failed:', err);
+  }
+}
+
 /**
  * Push displaySizes into CSS custom properties on `#editor`. CSS rules
  * for each named style use `font-size: var(--pmd-size-<name>)`, so
@@ -1596,6 +1619,7 @@ settings.subscribe((s) => {
   applyReadMode(s.readMode);
   applyNavPaneVisible(s.navPaneVisible);
   applyZoom(s.zoomPct);
+  applyChromeScale(s.chromeScalePct);
   applyDisplaySizes(s.displaySizes);
   applyDisplayTypography(s.displayTypography);
   applyDisplayColors(s.displayColors);
@@ -1752,6 +1776,7 @@ if (timerToggleBtn) {
 }
 applyReadMode(settings.get('readMode'));
 applyZoom(settings.get('zoomPct'));
+applyChromeScale(settings.get('chromeScalePct'));
 applyDisplaySizes(settings.get('displaySizes'));
 applyDisplayTypography(settings.get('displayTypography'));
 applyDisplayColors(settings.get('displayColors'));
