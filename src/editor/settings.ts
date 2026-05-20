@@ -252,11 +252,26 @@ export interface Settings {
   navPaneVisible: boolean;
   /** Built-in countdown timer settings. */
   timerVisible: boolean;
-  /** Profile preset for timer durations. 'custom' = the user
-   *  edited individual fields, so changing a single field
-   *  doesn't snap them back to a named profile's values. */
-  timerProfile: 'highSchool' | 'college' | 'pomodoro' | 'custom';
-  /** Three speech-timer preset durations in minutes. */
+  /** Currently-active timer profile. All three profiles are
+   *  user-customizable (see `timerProfiles`); there's no
+   *  separate "custom" — edits go straight to the active
+   *  profile's saved slot. */
+  timerProfile: 'highSchool' | 'college' | 'pomodoro';
+  /** Per-profile saved durations. Picking a profile loads its
+   *  speech-preset triple + prep total into the live settings
+   *  (`timerSpeechPresets` / `timerPrepMinutes`); editing a
+   *  value updates BOTH the live setting AND the active
+   *  profile's saved slot here. Defaults match each profile's
+   *  conventional values: High school 3/5/8 + 8 prep, College
+   *  3/6/9 + 10 prep, Pomodoro 25/15/5 + 0 prep. */
+  timerProfiles: Record<'highSchool' | 'college' | 'pomodoro', {
+    speechPresets: number[];
+    prepMinutes: number;
+  }>;
+  /** The active profile's speech-preset triple, lifted to the
+   *  top level so the timer state + UI read it from one
+   *  predictable spot instead of indexing into
+   *  `timerProfiles[timerProfile]`. */
   timerSpeechPresets: number[];
   /** Per-side prep total in minutes. Reset refills both prep
    *  clocks to this value. */
@@ -676,7 +691,12 @@ const DEFAULTS: Settings = {
   navPaneVisible: true,
   timerVisible: false,
   timerProfile: 'college',
-  timerSpeechPresets: [9, 6, 3],
+  timerProfiles: {
+    highSchool: { speechPresets: [3, 5, 8], prepMinutes: 8 },
+    college: { speechPresets: [3, 6, 9], prepMinutes: 10 },
+    pomodoro: { speechPresets: [25, 15, 5], prepMinutes: 0 },
+  },
+  timerSpeechPresets: [3, 6, 9],
   timerPrepMinutes: 10,
   timerFlashEnabled: true,
   timerFlashSeconds: [5, 3, 1],
@@ -820,6 +840,7 @@ export interface SettingMeta {
     | 'theme'
     | 'reduceMotion'
     | 'timerProfile'
+    | 'timerProfileDurations'
     | 'timerPrepLabel'
     | 'password'
     | 'clod'
@@ -1005,8 +1026,16 @@ export const SETTING_METADATA: SettingMeta[] = [
     key: 'timerProfile',
     label: 'Timer profile',
     description:
-      "Preset durations for the built-in timer. High school = 3/5/8 speech presets + 8 min prep. College = 3/6/9 + 10 min prep. Pomodoro = 25/15/5 (work / long break / short break). 'Custom' = use the individual fields below (not yet exposed in this UI; toggle profile to apply a preset).",
+      "Picks which set of durations the timer is currently running on. Each profile remembers its own customizations, so changing values below saves to the active profile (no separate 'custom' option). Defaults: High school = 3/5/8 + 8 min prep, College = 3/6/9 + 10 min prep, Pomodoro = 25/15/5 + 0 prep.",
     kind: 'timerProfile',
+    category: 'appearance',
+  },
+  {
+    key: 'timerProfiles',
+    label: 'Timer durations',
+    description:
+      "Edit the active profile's three speech-preset durations (in minutes, biggest first — this becomes the top-right 9 / 6 / 3 buttons on the panel) and the per-side prep total. Changes save into the currently-selected profile only.",
+    kind: 'timerProfileDurations',
     category: 'appearance',
   },
   {
@@ -1415,10 +1444,11 @@ function sanitize(s: Settings): Settings {
     navPaneVisible: s.navPaneVisible === false ? false : true,
     timerVisible: !!s.timerVisible,
     timerProfile:
-      s.timerProfile === 'highSchool' || s.timerProfile === 'pomodoro' || s.timerProfile === 'custom'
+      s.timerProfile === 'highSchool' || s.timerProfile === 'pomodoro'
         ? s.timerProfile
         : 'college',
-    timerSpeechPresets: sanitizeNumberTriple(s.timerSpeechPresets, [9, 6, 3]),
+    timerProfiles: sanitizeTimerProfiles(s.timerProfiles),
+    timerSpeechPresets: sanitizeNumberTriple(s.timerSpeechPresets, [3, 6, 9]),
     timerPrepMinutes:
       typeof s.timerPrepMinutes === 'number' && s.timerPrepMinutes > 0 && s.timerPrepMinutes <= 999
         ? Math.floor(s.timerPrepMinutes)
@@ -1709,6 +1739,42 @@ function sanitizeNumberTriple(raw: unknown, fallback: number[]): number[] {
     if (typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 999) {
       out[i] = Math.floor(v);
     }
+  }
+  return out;
+}
+
+/** Validate the per-profile saved-config map. Each profile id
+ *  gets a `{ speechPresets, prepMinutes }` object back; missing
+ *  / malformed slots fall back to the profile's conventional
+ *  defaults. */
+function sanitizeTimerProfiles(
+  raw: unknown,
+): Settings['timerProfiles'] {
+  const defaults: Settings['timerProfiles'] = {
+    highSchool: { speechPresets: [3, 5, 8], prepMinutes: 8 },
+    college: { speechPresets: [3, 6, 9], prepMinutes: 10 },
+    pomodoro: { speechPresets: [25, 15, 5], prepMinutes: 0 },
+  };
+  if (!raw || typeof raw !== 'object') return defaults;
+  const src = raw as Record<string, unknown>;
+  const out: Settings['timerProfiles'] = {
+    highSchool: defaults.highSchool,
+    college: defaults.college,
+    pomodoro: defaults.pomodoro,
+  };
+  for (const id of ['highSchool', 'college', 'pomodoro'] as const) {
+    const entry = src[id];
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    out[id] = {
+      speechPresets: sanitizeNumberTriple(e['speechPresets'], defaults[id].speechPresets),
+      prepMinutes:
+        typeof e['prepMinutes'] === 'number' &&
+        e['prepMinutes'] >= 0 &&
+        e['prepMinutes'] <= 999
+          ? Math.floor(e['prepMinutes'])
+          : defaults[id].prepMinutes,
+    };
   }
   return out;
 }

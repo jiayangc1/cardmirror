@@ -424,6 +424,10 @@ class SettingsModal {
       row.appendChild(text);
       row.appendChild(buildTimerProfileEditor());
       return row;
+    } else if (meta.kind === 'timerProfileDurations') {
+      row.appendChild(text);
+      row.appendChild(buildTimerProfileDurationsEditor());
+      return row;
     } else if (meta.kind === 'timerPrepLabel') {
       row.appendChild(text);
       row.appendChild(buildTimerPrepLabelEditor());
@@ -1302,9 +1306,11 @@ function buildThemeEditor(): HTMLElement {
   return wrap;
 }
 
-/** Profile picker for the built-in timer. Selecting a named
- *  profile auto-fills `timerSpeechPresets` and `timerPrepMinutes`
- *  with that profile's values; 'Custom' leaves them as-is. */
+/** Profile picker for the built-in timer. Each profile carries
+ *  its own saved durations (see `timerProfiles` in settings);
+ *  picking a profile loads that profile's saved
+ *  `speechPresets` + `prepMinutes` into the live settings and
+ *  refills the prep clocks. */
 function buildTimerProfileEditor(): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'pmd-theme-editor';
@@ -1312,15 +1318,7 @@ function buildTimerProfileEditor(): HTMLElement {
     { value: 'highSchool', label: 'High school' },
     { value: 'college', label: 'College' },
     { value: 'pomodoro', label: 'Pomodoro' },
-    { value: 'custom', label: 'Custom' },
   ];
-  const PRESETS: Record<Exclude<Settings['timerProfile'], 'custom'>, { speech: number[]; prep: number }> = {
-    highSchool: { speech: [3, 5, 8], prep: 8 },
-    college: { speech: [3, 6, 9], prep: 10 },
-    // Standard Pomodoro: 25 min work, 5 min short break, 15 min long break.
-    // Listed in the "biggest first" order the timer uses for its presets.
-    pomodoro: { speech: [25, 15, 5], prep: 0 },
-  };
   for (const o of options) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -1329,19 +1327,14 @@ function buildTimerProfileEditor(): HTMLElement {
     btn.dataset['value'] = o.value;
     btn.addEventListener('click', () => {
       settings.set('timerProfile', o.value);
-      if (o.value !== 'custom') {
-        const p = PRESETS[o.value];
-        settings.set('timerSpeechPresets', p.speech as never);
-        settings.set('timerPrepMinutes', p.prep);
-        // Re-fill the live prep clocks to the new profile's
-        // total — otherwise the buttons keep showing the
-        // previous profile's remaining (e.g. switching from
-        // College → High School with the buttons still at
-        // "10:00" instead of the new "8:00"). Profile switch
-        // is conceptually a "set up a fresh round," so a full
-        // reset is what the user expects.
-        resetTimer(p.prep * 60 * 1000);
-      }
+      const p = settings.get('timerProfiles')[o.value];
+      settings.set('timerSpeechPresets', p.speechPresets as never);
+      settings.set('timerPrepMinutes', p.prepMinutes);
+      // Re-fill the live prep clocks to the new profile's total
+      // — otherwise the buttons keep showing the previous
+      // profile's remaining. Profile switch is conceptually
+      // "set up a fresh round," so reset.
+      resetTimer(p.prepMinutes * 60 * 1000);
     });
     wrap.appendChild(btn);
   }
@@ -1353,6 +1346,91 @@ function buildTimerProfileEditor(): HTMLElement {
   }
   refresh();
   const unsub = settings.subscribe(refresh);
+  onDetached(wrap, () => unsub());
+  return wrap;
+}
+
+/** Inline number-input editor for the active profile's three
+ *  speech-preset durations + per-side prep total. Edits write
+ *  to BOTH the live setting (`timerSpeechPresets` /
+ *  `timerPrepMinutes`) AND the active profile's saved slot
+ *  inside `timerProfiles`, so switching to another profile and
+ *  back picks the user's customization up again. */
+function buildTimerProfileDurationsEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-timer-durations-editor';
+
+  function makeField(label: string, getValue: () => number, onChange: (v: number) => void): HTMLElement {
+    const field = document.createElement('label');
+    field.className = 'pmd-timer-durations-field';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'pmd-timer-durations-label';
+    labelEl.textContent = label;
+    field.appendChild(labelEl);
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = '0';
+    input.max = '999';
+    input.step = '1';
+    input.className = 'pmd-timer-durations-input';
+    input.dataset['label'] = label;
+    input.value = String(getValue());
+    input.addEventListener('input', () => {
+      const v = parseInt(input.value, 10);
+      if (!Number.isFinite(v) || v < 0 || v > 999) return;
+      onChange(v);
+    });
+    field.appendChild(input);
+    const unit = document.createElement('span');
+    unit.className = 'pmd-timer-durations-unit';
+    unit.textContent = 'min';
+    field.appendChild(unit);
+    return field;
+  }
+
+  function buildFields(): void {
+    wrap.innerHTML = '';
+    const active = settings.get('timerProfile');
+    const profileCfg = settings.get('timerProfiles')[active];
+    const presets = profileCfg.speechPresets;
+    for (let i = 0; i < 3; i++) {
+      const labels = ['Speech 1', 'Speech 2', 'Speech 3'];
+      const field = makeField(
+        labels[i]!,
+        () => presets[i] ?? 0,
+        (v) => {
+          const profiles = { ...settings.get('timerProfiles') };
+          const cur = profiles[active];
+          const nextPresets = cur.speechPresets.slice();
+          nextPresets[i] = v;
+          profiles[active] = { ...cur, speechPresets: nextPresets };
+          settings.set('timerProfiles', profiles);
+          settings.set('timerSpeechPresets', nextPresets as never);
+        },
+      );
+      wrap.appendChild(field);
+    }
+    const prepField = makeField(
+      'Prep',
+      () => profileCfg.prepMinutes,
+      (v) => {
+        const profiles = { ...settings.get('timerProfiles') };
+        const cur = profiles[active];
+        profiles[active] = { ...cur, prepMinutes: v };
+        settings.set('timerProfiles', profiles);
+        settings.set('timerPrepMinutes', v);
+        // Prep-total change refills the live prep clocks (same
+        // semantics as the profile-switch case).
+        resetTimer(v * 60 * 1000);
+      },
+    );
+    wrap.appendChild(prepField);
+  }
+
+  buildFields();
+  // Re-render on settings change so switching the active profile
+  // refreshes the displayed values to that profile's saved durations.
+  const unsub = settings.subscribe(buildFields);
   onDetached(wrap, () => unsub());
   return wrap;
 }

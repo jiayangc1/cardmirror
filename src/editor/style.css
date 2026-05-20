@@ -6133,6 +6133,42 @@ html.pmd-emphasis-box .pmd-pane-editor .pmd-emphasis {
   box-shadow: inset 0 0 0 1px currentColor;
 }
 
+/* Timer-durations editor in Settings → Appearance: a horizontal
+   row of small number inputs, one per speech preset + one for
+   prep. Each input is labeled "Speech 1 / 2 / 3" or "Prep" with
+   a "min" unit suffix to make units obvious without doubling
+   the row height. */
+.pmd-timer-durations-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.8rem;
+  align-items: center;
+}
+.pmd-timer-durations-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+.pmd-timer-durations-label {
+  color: var(--pmd-c-text-muted);
+}
+.pmd-timer-durations-input {
+  width: 3rem;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 3px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+  font: inherit;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pmd-timer-durations-unit {
+  color: var(--pmd-c-text-muted);
+  font-size: 0.75rem;
+}
+
 /* Prep-label style — driven by `data-prep-label` on the panel.
    - 'both' (default): A: / N: prefix + blue / red color.
    - 'text': prefix present, colors stripped back to the
