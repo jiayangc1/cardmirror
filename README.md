@@ -35,7 +35,7 @@ install desktop software.
 
 **▶ Try the live web preview: <https://ant981228.github.io/cardmirror/>**
 
-> **🚧 Status: alpha preview.** CardMirror is inactive development.
+> **🚧 Status: alpha preview.** CardMirror is in active development.
 > Expect rough edges, missing features, and occasional breakage.
 > Keep a Verbatim copy of anything that matters until the editor
 > proves itself on your workflow — not recommended for actual
