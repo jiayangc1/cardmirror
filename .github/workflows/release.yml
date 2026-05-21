@@ -36,14 +36,23 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Extract release notes from CHANGELOG.md
-        # `awk` pulls the section between the matching version
-        # header and the next `## ` header. Falls back to an empty
-        # file if no matching section is found, in which case the
-        # next step creates the draft with a placeholder body and
-        # the maintainer fills it in manually. Strip a leading
-        # `v` from the tag because CHANGELOG uses bare versions
-        # (`## 0.1.0-alpha.3 — DATE`) while tags carry the `v`
-        # prefix (`v0.1.0-alpha.3`).
+        # Two-step extraction:
+        #   1. `awk` pulls the section between the matching version
+        #      header and the next `## ` header. Falls back to an
+        #      empty file if no matching section exists; the next
+        #      step then creates the draft with a placeholder body.
+        #      Strip a leading `v` from the tag because CHANGELOG
+        #      uses bare versions (`## 0.1.0-alpha.3 — DATE`) while
+        #      tags carry the `v` prefix.
+        #   2. `unwrap` collapses CHANGELOG's hand-wrapped lines
+        #      within each bullet into a single line. GitHub
+        #      renders single newlines in release notes as `<br>`,
+        #      which makes our ~62-col wrapping show up as visible
+        #      line breaks mid-sentence. Joining continuation lines
+        #      (indented more than the bullet's `-` marker, with
+        #      non-blank content) into the bullet itself preserves
+        #      the visual paragraph while keeping nested bullets,
+        #      headings, and blank lines as-is.
         id: notes
         run: |
           TAG="${GITHUB_REF_NAME}"
@@ -53,7 +62,32 @@ jobs:
               $0 ~ "^## " ver { flag=1; next }
               /^## / && flag { flag=0 }
               flag { print }
-            ' CHANGELOG.md > release-notes.md
+            ' CHANGELOG.md | awk '
+              function flush() {
+                if (buf != "") {
+                  for (i = 0; i < indent; i++) printf " "
+                  printf "- %s\n", buf
+                  buf = ""
+                  indent = -1
+                }
+              }
+              BEGIN { buf = ""; indent = -1 }
+              /^( *)- / {
+                flush()
+                match($0, /^( *)- /)
+                indent = RLENGTH - 2
+                buf = substr($0, RLENGTH + 1)
+                next
+              }
+              indent >= 0 && /^[ \t]+[^ \t]/ {
+                # Continuation: strip leading whitespace, join.
+                sub(/^[ \t]+/, "")
+                buf = buf " " $0
+                next
+              }
+              { flush(); print }
+              END { flush() }
+            ' > release-notes.md
           else
             : > release-notes.md
           fi
