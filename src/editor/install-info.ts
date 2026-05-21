@@ -25,15 +25,35 @@ export interface InstallInfoEntry {
 export function getInstallInfo(): InstallInfoEntry[] {
   const hostKind = getHost().kind;
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-  return [
+  const entries: InstallInfoEntry[] = [
     { label: 'Version', value: pkg.version },
     {
       label: 'Host',
       value: hostKind === 'electron' ? 'Desktop (Electron)' : 'Web browser',
     },
     { label: 'Operating system', value: detectOS(ua) },
-    { label: 'User agent', value: ua, mono: true },
   ];
+  // Pull Electron / Chromium versions out of the UA into their own
+  // labelled rows. They're visible in the UA string below, but
+  // having them as named fields makes "is the user running the
+  // version they think they are?" a one-line check during bug
+  // triage instead of a UA-parsing exercise. Web edition omits the
+  // Electron row (no Electron) — Chromium still applies.
+  const chromiumVersion = matchVersion(ua, /Chrome\/(\S+?)\b/);
+  const electronVersion = matchVersion(ua, /Electron\/(\S+?)\b/);
+  if (chromiumVersion) {
+    entries.push({ label: 'Chromium', value: chromiumVersion });
+  }
+  if (electronVersion) {
+    entries.push({ label: 'Electron', value: electronVersion });
+  }
+  entries.push({ label: 'User agent', value: ua, mono: true });
+  return entries;
+}
+
+function matchVersion(ua: string, re: RegExp): string | null {
+  const m = ua.match(re);
+  return m ? m[1] ?? null : null;
 }
 
 /** Best-effort OS detection from a user-agent string. The UA is the

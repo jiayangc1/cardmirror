@@ -17,6 +17,24 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
+- **Help → Check for Updates now reports a result.** Every click
+  now resolves to one of three dialogs: "You're on the latest
+  version" (with the version number), "Update available" (with a
+  button to open the release page on GitHub so you can read what's
+  in it; the actual download proceeds in the background), or
+  "Couldn't check: <reason>" with the Releases URL as a manual
+  fallback. The previous silent-no-feedback behavior is gone.
+- **About this install panel** (Settings → General) now lists
+  Chromium and Electron versions as separate fields, alongside the
+  existing app version + OS + user-agent. Makes "is the user
+  running the version they think they are?" a one-line check
+  during bug triage instead of a UA-parsing exercise.
+- **Release workflow no longer races itself.** alpha.2's release
+  produced two separate drafts because three OS matrix jobs
+  concurrently saw "no release for this tag" and each created its
+  own. A new `prepare-release` job runs first to create the draft,
+  then the matrix jobs upload to it. No user-facing change; cleaner
+  release ergonomics.
 - **macOS scrolling, typing, and nav-pane click latency now
   match the in-browser feel.** alpha.2 on macOS was materially
   slower than the web edition on the same machine. Two

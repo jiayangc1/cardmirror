@@ -804,32 +804,14 @@ function buildMenu(): Menu {
       submenu: [
         {
           label: 'Check for Updates…',
-          // Manual update check. Same path as the on-launch one; the
-          // user-driven 'update-not-available' branch shows a
-          // confirmation so they know the check ran.
-          click: () => {
-            if (!app.isPackaged) {
-              const win = BrowserWindow.getFocusedWindow();
-              if (win) {
-                void dialog.showMessageBox(win, {
-                  type: 'info',
-                  message: 'Update checks are only active in packaged builds.',
-                });
-              }
-              return;
-            }
-            autoUpdater.once('update-not-available', () => {
-              const win = BrowserWindow.getFocusedWindow();
-              if (!win) return;
-              void dialog.showMessageBox(win, {
-                type: 'info',
-                message: `You're on the latest version.`,
-              });
-            });
-            autoUpdater.checkForUpdates().catch((err) => {
-              console.warn('Manual update check failed:', err);
-            });
-          },
+          // Manual update check. Every click resolves to exactly one
+          // of three dialogs — no silent paths. The persistent
+          // `startAutoUpdate` handlers still run too (they own the
+          // background download + "update ready, restart now?"
+          // dialog after the download completes); our `.once`
+          // handlers here are user-driven feedback for the check
+          // *itself*.
+          click: runManualUpdateCheck,
         },
         {
           label: 'Open Crash Dumps Folder',
@@ -896,6 +878,120 @@ function buildMenu(): Menu {
 // the GitHub Releases provider configured. In development (no
 // `app.isPackaged`) the check is a no-op so we don't 404 against a
 // missing config file. Failures are logged, never alerted.
+
+/** Public GitHub Releases page — fallback link surfaced in update
+ *  dialogs so users always have a manual-download path. */
+const RELEASES_URL = 'https://github.com/ant981228/cardmirror/releases';
+
+/** Best-effort dialog-parent lookup. Prefers the focused window,
+ *  but if the user has alt-tabbed away between clicking
+ *  "Check for Updates" and the response arriving, falls back to the
+ *  first available window. Returns `null` only when no windows
+ *  exist at all (effectively never for the manual-check path). */
+function dialogParentWindow(): BrowserWindow | null {
+  return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
+}
+
+/** Re-entrancy guard so rapid double-clicks of "Check for Updates"
+ *  don't register multiple sets of `.once` handlers that all fire
+ *  on the same response. */
+let manualCheckInFlight = false;
+
+/** Help → Check for Updates click handler. Runs the manual update
+ *  flow and resolves to exactly one of three dialogs:
+ *   - "You're on the latest version." (update-not-available)
+ *   - "Update available." (update-available, with link to the
+ *     Releases page so the user can read what's in the new
+ *     version — the actual download proceeds in the background
+ *     via the persistent `startAutoUpdate` handlers).
+ *   - "Couldn't check for updates: <reason>." (error event OR
+ *     promise rejection — both can happen and the cleanup()
+ *     guard ensures we only fire one dialog).
+ *  In dev (`!app.isPackaged`) shows an info dialog explaining
+ *  that updates only run in packaged builds. */
+function runManualUpdateCheck(): void {
+  if (!app.isPackaged) {
+    const win = dialogParentWindow();
+    if (win) {
+      void dialog.showMessageBox(win, {
+        type: 'info',
+        message: 'Update checks are only active in packaged builds.',
+      });
+    }
+    return;
+  }
+  if (manualCheckInFlight) return;
+  manualCheckInFlight = true;
+
+  // Mutual cleanup: whichever event fires first wins the dialog;
+  // the others get unregistered so a single check produces one
+  // response. The .once() registrations also self-clean, but we
+  // unsubscribe explicitly to avoid the surviving handlers firing
+  // on a *later* check (e.g., the next time the user clicks).
+  const cleanup = (): void => {
+    manualCheckInFlight = false;
+    autoUpdater.off('update-not-available', onNotAvailable);
+    autoUpdater.off('update-available', onAvailable);
+    autoUpdater.off('error', onError);
+  };
+
+  const onNotAvailable = (): void => {
+    cleanup();
+    const win = dialogParentWindow();
+    if (!win) return;
+    void dialog.showMessageBox(win, {
+      type: 'info',
+      title: 'No updates',
+      message: "You're on the latest version.",
+      detail: `CardMirror ${app.getVersion()}`,
+    });
+  };
+
+  const onAvailable = (info: { version: string }): void => {
+    cleanup();
+    const win = dialogParentWindow();
+    if (!win) return;
+    void dialog
+      .showMessageBox(win, {
+        type: 'info',
+        buttons: ['Open release page', 'Close'],
+        defaultId: 0,
+        cancelId: 1,
+        title: 'Update available',
+        message: `CardMirror ${info.version} is available.`,
+        detail:
+          'Downloading in the background. When the download finishes you can restart to install, or quit normally and it will install on next launch.',
+      })
+      .then((result) => {
+        if (result.response === 0) {
+          void shell.openExternal(`${RELEASES_URL}/tag/v${info.version}`);
+        }
+      });
+  };
+
+  const onError = (err: Error): void => {
+    cleanup();
+    const win = dialogParentWindow();
+    if (!win) return;
+    void dialog.showMessageBox(win, {
+      type: 'warning',
+      title: "Couldn't check for updates",
+      message: "Couldn't check for updates.",
+      detail: `${err.message || String(err)}\n\nYou can grab the latest build manually from:\n${RELEASES_URL}`,
+    });
+  };
+
+  autoUpdater.once('update-not-available', onNotAvailable);
+  autoUpdater.once('update-available', onAvailable);
+  autoUpdater.once('error', onError);
+
+  autoUpdater.checkForUpdates().catch((err: unknown) => {
+    // `checkForUpdates()` rejecting and the `error` event both
+    // signal failure; whichever fires first wins the dialog
+    // (cleanup() unregisters the other before it can fire).
+    onError(err instanceof Error ? err : new Error(String(err)));
+  });
+}
 
 function startAutoUpdate(): void {
   if (!app.isPackaged) return;

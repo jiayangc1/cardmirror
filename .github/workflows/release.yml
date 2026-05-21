@@ -1,10 +1,21 @@
 name: Release
 
 # Triggered when a git tag matching `v*.*.*` (e.g. `v0.1.0-alpha.1`)
-# is pushed. Builds desktop installers on macOS, Windows, and Linux
-# in parallel and publishes them as assets on the matching GitHub
-# Release. The first matrix job to finish creates the Release;
-# subsequent jobs upload their platform's artifacts to it.
+# is pushed. Two stages:
+#
+#   1. `prepare-release` (one runner) creates an empty draft on
+#      GitHub Releases for the tag. Idempotent — if a draft already
+#      exists (e.g., a re-triggered run), it's a no-op.
+#   2. `build` (3-OS matrix) builds desktop installers and uploads
+#      them to the draft via electron-builder's GitHub provider.
+#
+# The two-stage shape avoids the matrix-race we hit on alpha.2:
+# without a pre-existing draft, three matrix jobs concurrently
+# checked GitHub Releases, all saw "no release for this tag," and
+# each created its own draft — assets ended up split across two
+# drafts that needed manual reconciliation. The dependent
+# `prepare-release` step makes sure every matrix job sees the same
+# draft.
 #
 # Builds are unsigned for the alpha. README documents the
 # right-click → Open / More info → Run anyway workaround for the
@@ -16,8 +27,34 @@ on:
       - 'v*.*.*'
 
 jobs:
+  prepare-release:
+    name: Create draft release for tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure draft release exists
+        # `gh release view` exits non-zero if no release exists for
+        # the tag, so the `||` falls through to creating one. If the
+        # release already exists (e.g., a re-run of the workflow),
+        # we leave it as-is — assets uploaded by subsequent steps
+        # are added to whatever's there.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release for $TAG already exists; leaving it in place."
+          else
+            gh release create "$TAG" --draft --title "$TAG" --generate-notes
+            echo "Created draft release $TAG."
+          fi
+
   build:
     name: Build & publish (${{ matrix.os }})
+    needs: prepare-release
     strategy:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
@@ -65,6 +102,9 @@ jobs:
       - name: Build and publish desktop installer
         env:
           # electron-builder reads GH_TOKEN (not GITHUB_TOKEN) for
-          # GitHub Releases publishing.
+          # GitHub Releases publishing. The `prepare-release` job
+          # above already created the draft for this tag, so
+          # electron-builder's "always" publish mode finds and
+          # uploads to it instead of racing to create a new draft.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm --prefix apps/desktop run release

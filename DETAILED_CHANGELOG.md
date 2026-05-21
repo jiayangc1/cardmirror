@@ -7,6 +7,77 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Manual update check: three-dialog feedback.** The Help →
+  Check for Updates click handler in `apps/desktop/src/main.ts`
+  used to register only an `update-not-available` handler;
+  `update-available` and `error` paths were silent (auto-update
+  proceeded in the background, errors went to `console.warn`).
+  Replaced the inline click handler with a `runManualUpdateCheck()`
+  function that registers `.once` handlers for all three events
+  plus a `catch` on the `checkForUpdates()` promise, with a
+  mutual-cleanup pattern so exactly one dialog fires per check.
+  Dialogs:
+  - **Not available**: "You're on the latest version." + version.
+  - **Available**: "Update available: vX.Y.Z." With buttons
+    "Open release page" (deep-links to the tag's release page via
+    `shell.openExternal`) and "Close." The download still proceeds
+    in the background via the persistent `startAutoUpdate`
+    handlers, which will show the existing "Update ready,
+    restart now?" dialog when finished.
+  - **Error**: "Couldn't check for updates: <message>" with the
+    Releases URL as a manual-download fallback.
+  Re-entrancy guard (`manualCheckInFlight`) prevents rapid double-
+  clicks from registering duplicate handler sets. Auto-check
+  errors on launch still go to `console.warn` per the wishlist —
+  popping a dialog on every offline boot would be obnoxious.
+
+- **`getFocusedWindow()` null guard via `dialogParentWindow()`.**
+  Both the manual update-check dialogs above and the existing
+  startAutoUpdate `update-downloaded` handler look up the dialog
+  parent via `BrowserWindow.getFocusedWindow()`. If the user
+  alt-tabs away between clicking "Check for Updates" and the
+  response arriving, that returns `null` and the previous code
+  silently early-returned, dropping the dialog on the floor.
+  Centralized the lookup in `dialogParentWindow()` which falls
+  back to `BrowserWindow.getAllWindows()[0]` — worst case the
+  dialog attaches to "some" CardMirror window instead of the
+  focused one, which is far better than the dialog never
+  appearing.
+
+- **About panel surfaces Chromium and Electron versions.**
+  `src/editor/install-info.ts` parses `Chrome/X.Y.Z` and
+  `Electron/A.B.C` out of `navigator.userAgent` and lists them
+  as their own labelled rows above the full UA string. The
+  underlying versions were already discoverable by reading the
+  UA, but separate rows make "is the user actually running the
+  version they think they are?" a one-line check during bug
+  triage. Web edition shows Chromium but no Electron row.
+
+  Context for this: a user-reported "Linux build shows version
+  0.1.0-alpha.1 on alpha.2 install" bug whose code-path
+  investigation came back clean — `pkg.version` is Vite-inlined
+  from the root `package.json` at build time, the alpha.2 tag's
+  `package.json` was `0.1.0-alpha.2`, the AppImage filename
+  itself is `cardmirror-0.1.0-alpha.2.AppImage`. The most plausible
+  explanation is the user had an earlier alpha.1 AppImage still
+  installed (AppImages don't auto-update). Adding the separate
+  version rows is the defensive measure that makes future
+  version-mismatch confusion easier to diagnose.
+
+- **Release workflow: two-stage to avoid the matrix-race.**
+  alpha.2's release produced two separate drafts because the
+  three OS matrix jobs concurrently saw "no release for this tag"
+  and each created its own — Mac + Windows assets ended up on
+  one draft and Linux's on another, requiring manual
+  reconciliation. New `prepare-release` job runs first on a
+  single Ubuntu runner, idempotently creates a draft release via
+  `gh release create $TAG --draft --title $TAG --generate-notes`
+  (no-op if a release for the tag already exists), and the
+  `build` matrix job `needs: prepare-release` so it never starts
+  until the draft is in place. electron-builder's GitHub
+  provider then finds the existing draft and uploads to it
+  instead of racing to create one.
+
 - **Single-doc scroll container migrated from `body` to `#app`.**
   Diagnosis: a multi-trace investigation (Mac Electron, Mac Chrome,
   Linux Chrome, with and without `--enable-skia-graphite`) plus a
