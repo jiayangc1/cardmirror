@@ -1,6 +1,6 @@
 {
   "name": "@cardmirror/desktop",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "CardMirror — Electron desktop wrapper",
   "author": "Anthony Trufanov",
   "homepage": "https://github.com/ant981228/cardmirror",
@@ -35,7 +35,9 @@
       {
         "from": "../../dist",
         "to": "renderer",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "fileAssociations": [
@@ -55,7 +57,13 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "extendInfo": {
         "NSAppSleepDisabled": true
@@ -63,17 +71,29 @@
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "linux": {
       "category": "Office",
       "maintainer": "Anthony Trufanov <ant981228@gmail.com>",
       "target": [
-        { "target": "AppImage", "arch": ["x64"] },
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
         {
           "target": "pacman",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "artifactName": "cardmirror-${version}.${ext}"

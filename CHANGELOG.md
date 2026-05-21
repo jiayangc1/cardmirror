@@ -7,6 +7,8 @@ see `DETAILED_CHANGELOG.md`.
 
 ## Unreleased
 
+## 0.1.0-alpha.3 — 2026-05-21
+
 ### Added
 
 - **Setting: Format nav pane entries by type** (Settings →
@@ -14,21 +16,22 @@ see `DETAILED_CHANGELOG.md`.
   list where only indentation conveys hierarchy — no bold
   top-level headings, no analytic-blue accent, no per-level
   size shifts. Display-only; the underlying doc is untouched.
+- **Setting: Check for updates on launch** (desktop only,
+  Settings → General → "About this install"). Off by default —
+  opt in if you want the app to check for a new release at boot.
+  When enabled, the first window of each app session does a
+  silent check; if an update is available, a modal pops with a
+  link to the GitHub release page in your default browser.
+  Subsequent windows in the same session skip the check (mirrors
+  the first-window-only gating used by the doc recovery UI).
+  Errors and "you're current" outcomes are silent on the
+  auto-launch path — no notification noise when you're offline
+  or already up to date. The manual Help → Check for Updates…
+  and the Settings panel button still give full feedback for
+  every outcome.
 
 ### Fixed
 
-- **Check for updates on launch** (Settings → General → "About
-  this install"). Off by default — opt in if you want the app to
-  check for a new release at boot. When enabled, the first window
-  of each app session does a silent check; if an update is
-  available, a modal pops with a link to the GitHub release page
-  in your default browser. Subsequent windows in the same session
-  skip the check (mirrors the first-window-only gating used by
-  the doc recovery UI). Errors and "you're current" outcomes are
-  silent on the auto-launch path — no notification noise when
-  you're offline or already up to date. The manual Help → Check
-  for Updates… and the Settings panel button still give full
-  feedback for every outcome.
 - **Help → Check for Updates now reports a result.** Every click
   now resolves to one of three dialogs: "You're on the latest
   version" (with the version number), "Update available" (with a
@@ -112,6 +115,12 @@ see `DETAILED_CHANGELOG.md`.
     own and showed the dark chrome's color through it,
     defeating the whole point of leaving "apply to document"
     off.
+  - Native form controls in dark mode now render in their
+    dark variant. Previously the body-font dropdown in
+    Settings → Appearance painted its select with the dark
+    background-color token but left the option text in the
+    browser's default near-black, making the font names
+    invisible against the dark dropdown.
 
 ## 0.1.0-alpha.2 — 2026-05-20
 

@@ -7,6 +7,8 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+## 0.1.0-alpha.3 — 2026-05-21
+
 - **Auto-update check on launch (opt-in).** New setting
   `checkForUpdatesOnLaunch`, off by default in this release.
   When on, the first window of an app session triggers a silent
