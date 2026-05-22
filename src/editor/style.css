@@ -4351,8 +4351,12 @@ body.pmd-multi-doc .pmd-editor-row {
   /* `.pmd-editor-row` is grid-based (`grid-template-columns: 1fr
      auto`), so the column needs an explicit width to define the
      `auto` track. Previous version used `flex: 0 0 320px` which
-     is irrelevant outside a flex container. */
-  width: 320px;
+     is irrelevant outside a flex container. Width is driven by
+     `--pmd-comments-width` so the resize-handle drag can mutate
+     it without touching this stylesheet; the fallback matches the
+     pre-handle default. JS clamps to 240–560 (see
+     `commentsColumnWidth` in `settings.ts`). */
+  width: var(--pmd-comments-width, 320px);
   background: var(--pmd-c-bg-soft);
   border-left: 1px solid var(--pmd-c-border-soft);
   /* `position: relative` is the anchor for absolutely-positioned
@@ -4365,6 +4369,33 @@ body.pmd-multi-doc .pmd-editor-row {
   font-size: 0.85rem;
 }
 .pmd-comments-column[hidden] { display: none; }
+
+/* Resize handle on the column's LEFT edge — opposite side from
+   the nav-pane's right-edge handle. Same visual treatment: thin
+   transparent strip that tints with `--pmd-c-accent-soft` on
+   hover / during drag. The body class
+   `pmd-comments-resize-active` is added during drag so the
+   col-resize cursor sticks across the document and selection
+   doesn't engage if the mouse drifts outside the handle. */
+.pmd-comments-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 11;
+  background: transparent;
+  transition: background-color 0.1s ease;
+}
+.pmd-comments-resize-handle:hover,
+.pmd-comments-column.pmd-comments-resizing .pmd-comments-resize-handle {
+  background: var(--pmd-c-accent-soft);
+}
+body.pmd-comments-resize-active {
+  user-select: none;
+  cursor: col-resize !important;
+}
 .pmd-comments-column.pmd-comments-empty-state {
   /* Padding only when in empty-state mode — when cards are absolute-
      positioned they handle their own offsets so the column itself

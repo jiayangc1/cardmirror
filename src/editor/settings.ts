@@ -233,6 +233,13 @@ export interface Settings {
    *  in the About this install panel always work regardless. No
    *  effect on the web edition (no update mechanism). */
   checkForUpdatesOnLaunch: boolean;
+  /** Width of the comments column in CSS pixels. User-resizable via
+   *  the drag handle on the column's left edge. Clamped to
+   *  `COMMENTS_WIDTH_MIN` … `COMMENTS_WIDTH_MAX` (240–560) — below
+   *  240 threads get cramped, above 560 the column eats too much
+   *  editor space. Default 320 matches the column's original fixed
+   *  width before the handle existed. */
+  commentsColumnWidth: number;
   /** UI motion preference. `'auto'` (default) follows the OS
    *  `prefers-reduced-motion` media query and gives the user the
    *  motion-reduction state their system advertises. `'on'` always
@@ -709,6 +716,7 @@ const DEFAULTS: Settings = {
   themeAppliesToDocument: false,
   showDocNameChip: false,
   checkForUpdatesOnLaunch: false,
+  commentsColumnWidth: 320,
   reduceMotion: 'auto',
   overrideHighlightColor: false,
   overrideHighlightSlots: ['#ffff00'],
@@ -1459,6 +1467,10 @@ function sanitize(s: Settings): Settings {
     themeAppliesToDocument: !!s.themeAppliesToDocument,
     showDocNameChip: !!s.showDocNameChip,
     checkForUpdatesOnLaunch: !!s.checkForUpdatesOnLaunch,
+    commentsColumnWidth:
+      typeof s.commentsColumnWidth === 'number' && Number.isFinite(s.commentsColumnWidth)
+        ? Math.max(240, Math.min(560, s.commentsColumnWidth))
+        : 320,
     reduceMotion:
       s.reduceMotion === 'on' || s.reduceMotion === 'off' ? s.reduceMotion : 'auto',
     overrideHighlightColor: !!s.overrideHighlightColor,

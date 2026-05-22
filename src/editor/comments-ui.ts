@@ -56,6 +56,25 @@ export function getAiPersona(): AiPersona {
  *  naturally — long enough to actually read a line, short enough to
  *  make progress feel alive. */
 const ACTIVITY_TICK_MS = 4000;
+
+/** Min/max width (CSS px) the comments column can be resized to.
+ *  Below 240 threads get cramped; above 560 the column eats too
+ *  much editor space. Matches the clamp in `settings.ts`'s
+ *  sanitizer so persisted values from outside the range get pulled
+ *  back in. */
+const COMMENTS_WIDTH_MIN = 240;
+const COMMENTS_WIDTH_MAX = 560;
+
+/** Apply a (clamped) comments column width by setting the
+ *  `--pmd-comments-width` custom property on the document element.
+ *  CSS picks it up via `width: var(--pmd-comments-width, 320px)` on
+ *  `.pmd-comments-column`. Mirror of `applyNavWidthCss` in
+ *  `nav-panel.ts`. Called on boot (from `index.ts`) to apply the
+ *  persisted setting and during the resize drag. */
+export function applyCommentsWidthCss(px: number): void {
+  const clamped = Math.max(COMMENTS_WIDTH_MIN, Math.min(COMMENTS_WIDTH_MAX, px));
+  document.documentElement.style.setProperty('--pmd-comments-width', `${clamped}px`);
+}
 import {
   commentsKey,
   getCommentsState,
@@ -120,6 +139,71 @@ export class CommentsColumn {
   constructor(root: HTMLElement, getView: () => EditorView | null) {
     this.root = root;
     this.getView = getView;
+    // Apply the persisted width before mounting so the column
+    // starts at the right size. Subscribe so cross-window setting
+    // sync (e.g., another CardMirror window resizing) updates this
+    // one without a reload.
+    applyCommentsWidthCss(settings.get('commentsColumnWidth'));
+    settings.subscribe((s) => {
+      applyCommentsWidthCss(s.commentsColumnWidth);
+    });
+    this.installResizeHandle();
+  }
+
+  /** Add a drag handle on the column's LEFT edge so users can
+   *  resize it. Mirrors the nav-pane's right-edge handle. Width
+   *  is driven by the `--pmd-comments-width` custom property
+   *  (set on `:root` so any future selector that references it
+   *  resolves consistently), and persisted via the
+   *  `commentsColumnWidth` setting. Drag clamps to
+   *  COMMENTS_WIDTH_MIN…COMMENTS_WIDTH_MAX; further clamping in
+   *  the settings sanitizer defends against persisted values
+   *  outside the range from older builds. */
+  private installResizeHandle(): void {
+    const handle = document.createElement('div');
+    handle.className = 'pmd-comments-resize-handle';
+    handle.setAttribute('aria-label', 'Resize comments column');
+    handle.setAttribute('role', 'separator');
+    this.root.appendChild(handle);
+
+    let dragging = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    const onMove = (e: MouseEvent): void => {
+      if (!dragging) return;
+      // Dragging LEFT (decreasing clientX) GROWS the column,
+      // because the handle sits on the column's left edge and
+      // moving it left makes the column wider. Inverse of the
+      // nav-pane handle on the right.
+      const delta = startX - e.clientX;
+      applyCommentsWidthCss(startWidth + delta);
+    };
+
+    const onUp = (): void => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.classList.remove('pmd-comments-resize-active');
+      this.root.classList.remove('pmd-comments-resizing');
+      const w = getComputedStyle(this.root).width;
+      const pixels = parseInt(w, 10);
+      if (Number.isFinite(pixels)) {
+        settings.set('commentsColumnWidth', pixels);
+      }
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    handle.addEventListener('mousedown', (e) => {
+      dragging = true;
+      startX = e.clientX;
+      startWidth = this.root.getBoundingClientRect().width;
+      document.body.classList.add('pmd-comments-resize-active');
+      this.root.classList.add('pmd-comments-resizing');
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      e.preventDefault();
+    });
   }
 
   /** Switch which thread is "active" — the expanded one whose card
