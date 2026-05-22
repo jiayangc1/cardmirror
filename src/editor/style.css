@@ -4490,35 +4490,6 @@ body.pmd-comments-resize-active {
   border-color: var(--pmd-c-accent);
 }
 
-/* Bottom-left toggle: collapse/expand the active comment.
-   Pinned with position: sticky so it stays in view as the column
-   scrolls. */
-.pmd-comments-toggle-active {
-  position: sticky;
-  bottom: 0.5rem;
-  left: 0.5rem;
-  width: 1.8rem;
-  height: 1.8rem;
-  margin-left: 0.5rem;
-  border: 1px solid var(--pmd-c-border);
-  border-radius: 50%;
-  background: var(--pmd-c-bg);
-  color: var(--pmd-c-text);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 0.9rem;
-  line-height: 1;
-  z-index: 2;
-  box-shadow: 0 1px 3px var(--pmd-c-shadow-faint);
-}
-.pmd-comments-toggle-active:hover:not(:disabled) {
-  background: var(--pmd-c-button-hover);
-}
-.pmd-comments-toggle-active:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
 /* Persona configurator rows */
 .pmd-clod-name-row {
   display: grid;

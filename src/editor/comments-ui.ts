@@ -133,9 +133,6 @@ export class CommentsColumn {
    *     collapses.
    *   - `null`: nothing active. */
   private activeBy: 'click' | 'cursor' | null = null;
-  /** Most recently active thread, retained even after collapse so
-   *  the toggle button has something to re-expand. */
-  private lastActiveThreadId: string | null = null;
   /** Global mousedown listener installed while a thread is
    *  sticky-active. Dismisses sticky when the user clicks somewhere
    *  not inside the active card. */
@@ -236,7 +233,6 @@ export class CommentsColumn {
     if (this.activeThreadId === id && this.activeBy === (id ? by : null)) return;
     this.activeThreadId = id;
     this.activeBy = id ? by : null;
-    if (id) this.lastActiveThreadId = id;
     this.refreshStickyDismissListener();
     // Cursor-driven calls come from the editor's `dispatchTransaction`
     // (every keystroke, every cursor move). Debounce the render so
@@ -273,8 +269,6 @@ export class CommentsColumn {
         // own handler will call setActiveThread('click') and we'll
         // refresh the listener for the new active card.
         if (target.closest('.pmd-comment-thread')) return;
-        // Click on the toggle button — let it handle dismissal.
-        if (target.closest('.pmd-comments-toggle-active')) return;
         this.dismissActive();
       };
       // Defer one frame so the activating click itself doesn't fire
@@ -384,35 +378,9 @@ export class CommentsColumn {
       this.content.appendChild(this.renderThread(thread, ranges.get(id) ?? null));
     }
 
-    // Toggle button — bottom-left of the column. Up arrow when
-    // something is active (click collapses), down arrow when
-    // nothing is active (click re-expands the most recently
-    // active thread, if any).
-    this.content.appendChild(this.renderToggle(state.threads.size > 0));
-
     // Defer measurement to the next frame so the browser has
     // committed the new card DOM and computed their natural heights.
     requestAnimationFrame(() => this.layoutCards(view, ranges));
-  }
-
-  private renderToggle(haveAnyThreads: boolean): HTMLElement {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'pmd-comments-toggle-active';
-    const expanded = this.activeThreadId !== null;
-    btn.textContent = expanded ? '▾' : '▴';
-    btn.title = expanded ? 'Collapse comment' : 'Expand most recent comment';
-    btn.disabled = !haveAnyThreads;
-    btn.addEventListener('mousedown', (e) => e.preventDefault());
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (this.activeThreadId !== null) {
-        this.dismissActive();
-      } else if (this.lastActiveThreadId !== null) {
-        this.setActiveThread(this.lastActiveThreadId, 'click');
-      }
-    });
-    return btn;
   }
 
   /** Position each thread card next to its anchored range using
@@ -940,7 +908,6 @@ export class CommentsColumn {
     // arriving AI reply.
     this.activeThreadId = threadId;
     this.activeBy = 'click';
-    this.lastActiveThreadId = threadId;
     this.refreshStickyDismissListener();
     this.render();
     this.startActivityTicker();
