@@ -103,7 +103,15 @@ async function makeVariant(label, docVars) {
     injectRelationship(rels, SETTINGS_REL_TYPE, 'settings.xml'),
   );
 
-  const out = await zip.generateAsync({ type: 'nodebuffer' });
+  // `compression: 'DEFLATE'` is required — JSZip defaults to STORE
+  // (no compression) on generateAsync, so re-serializing a docx
+  // round-trips a ~2 MB original up to ~20 MB. The standard docx
+  // format uses DEFLATE on every part; match that.
+  const out = await zip.generateAsync({
+    type: 'nodebuffer',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 },
+  });
   const outPath = join(outDir, `${baseStem}.${label}.docx`);
   writeFileSync(outPath, out);
   return outPath;
