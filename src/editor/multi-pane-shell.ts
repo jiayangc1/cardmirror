@@ -455,6 +455,20 @@ class Slot {
     this.shell.focusSlot(this);
   }
 
+  /** Cycle the visible doc within this slot's stack by `delta`
+   *  (+1 = next, -1 = previous, wraps around at the ends). No-op
+   *  when the stack has 0 or 1 docs. Used by Ctrl+Tab / Ctrl+Shift-
+   *  Tab in the focused slot. Routes through `showRecord` so the
+   *  shared chrome / focus dance fires the same way as a click on
+   *  the stack-dropdown menu would. */
+  cycleVisible(delta: 1 | -1): void {
+    if (this.stack.length < 2) return;
+    if (this.visibleIndex < 0) return;
+    const len = this.stack.length;
+    const next = (this.visibleIndex + delta + len) % len;
+    this.showRecord(this.stack[next]!);
+  }
+
   /** Close the currently-visible doc. Reveals the next stack member
    *  (or empties the slot). Prompts for save / discard / cancel if
    *  the doc has unsaved changes; clean docs close immediately. */
@@ -820,6 +834,17 @@ class MultiPaneShell {
     // tab-switching wouldn't make sense.
     window.addEventListener('keydown', this.onSlotShortcutKey);
 
+    // Mod-Tab / Mod-Shift-Tab cycle the visible doc within the
+    // focused slot's stack. Companion shortcut to the slot-focus
+    // chords above. In the Electron desktop, Mod-Tab passes
+    // through to the renderer normally (Electron windows don't
+    // have tabs to switch between) so this listener fires
+    // reliably. In a real browser, Ctrl-Tab is reserved for the
+    // browser's own tab cycling and the renderer never sees the
+    // keydown — web-edition users get Ctrl-Alt-Tab via a
+    // separate path (see `onDocCycleKey` body).
+    window.addEventListener('keydown', this.onDocCycleKey);
+
     // Drag-hover focus + post-drop collapse:
     //
     //   - On 'move': the controller's hoverTarget tells us which
@@ -1004,6 +1029,33 @@ class MultiPaneShell {
     } else {
       this.focusSlot(slot);
     }
+    slot.visible?.view.focus();
+  };
+
+  /** Ctrl-Tab / Ctrl-Shift-Tab → cycle the visible doc within the
+   *  focused slot. Also accepts Ctrl-Alt-Tab / Ctrl-Alt-Shift-Tab
+   *  as a fallback in the web edition, where the browser reserves
+   *  the plain Ctrl-Tab chord for its own tab cycling and the
+   *  renderer never sees the keydown. (Electron windows have no
+   *  tabs to cycle, so Ctrl-Tab passes through to the renderer
+   *  unmodified — both bindings are equivalent on desktop.)
+   *
+   *  No-op when no slot is focused, the focused slot's stack has
+   *  fewer than two docs, or the keystroke carries non-Tab keys.
+   *  Wraps around at the stack ends. */
+  private onDocCycleKey = (e: KeyboardEvent): void => {
+    if (e.defaultPrevented) return;
+    if (e.key !== 'Tab') return;
+    const hasMod = e.ctrlKey || e.metaKey;
+    if (!hasMod) return;
+    // Plain Mod-Tab (works in Electron) or Mod-Alt-Tab (works in
+    // web, where Mod-Tab is browser-reserved). Both are accepted —
+    // any Mod+Tab chord, with or without Alt. Shift toggles
+    // direction.
+    const slot = this.focusedSlot;
+    if (!slot || slot.stack.length < 2) return;
+    e.preventDefault();
+    slot.cycleVisible(e.shiftKey ? -1 : 1);
     slot.visible?.view.focus();
   };
 
