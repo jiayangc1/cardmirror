@@ -205,6 +205,26 @@ const templateVariants = [
     label: 'v9-template-full-path',
     path: 'file:///C:\\Users\\anthonytrufanov\\AppData\\Roaming\\Microsoft\\Templates\\Debate.dotm',
   },
+  // Generic-path probes: confirmed v9 (a known-fake path on
+  // installs other than the author's) activated the ribbon on
+  // multiple machines, so Word isn't validating that the file
+  // exists at the stored Target. The recognition check
+  // `AttachedTemplate.Name = "Debate.dotm"` is reading the
+  // basename of the URI as stored. These three test that
+  // hypothesis with ever-more-generic Target shapes — the
+  // simplest one that works is what we ship.
+  {
+    label: 'v10-template-uri-no-path',
+    path: 'file:///Debate.dotm',
+  },
+  {
+    label: 'v11-template-uri-fake-unix-path',
+    path: 'file:///templates/Debate.dotm',
+  },
+  {
+    label: 'v12-template-uri-fake-windows-path',
+    path: 'file:///C:\\Debate.dotm',
+  },
 ];
 
 for (const v of templateVariants) {
@@ -213,12 +233,14 @@ for (const v of templateVariants) {
 }
 
 console.log(`
-Done. Open v8 and v9 in Word (Verbatim installed) and note which
-ones activate the Debate ribbon.
+Done. Open the variants in Word (Verbatim installed) and note
+which ones activate the Debate ribbon.
 
-  v8 (bare filename) — tests whether we can ship a portable
-     export that activates Verbatim on any user's machine. If
-     this works, that's our shippable shape.
-  v9 (full path matching your install) — mirrors exactly what
-     Verbatim's own Verbatimize macro writes. Should activate
-     for sure; serves as the "known-good" reference point.`);
+  v8 — bare filename (failed previously, kept as reference)
+  v9 — author's hardcoded full Windows path (known-good)
+  v10 — file:///Debate.dotm (URI, no path)
+  v11 — file:///templates/Debate.dotm (URI, fake Unix-style path)
+  v12 — file:///C:\\Debate.dotm (URI, fake minimal Windows path)
+
+If v10 / v11 / v12 activate, we ship the simplest of them as
+the canonical Target — recognition is just basename-of-URI.`);
