@@ -116,10 +116,20 @@ Two options for any distro:
 
 ### Updates
 
-CardMirror checks the Releases page for new versions on launch and
-downloads them in the background. When one's ready, a dialog asks
-whether to restart now or install on next quit. **Help → Check for
-Updates…** triggers the same check manually.
+**Help → Check for Updates…** triggers a manual check that
+resolves to one of three dialogs: "You're on the latest version",
+"Update available" (with a button to open the GitHub release page
+so you can read what's in it; the actual download proceeds in the
+background and a "restart now?" dialog fires when it finishes), or
+"Couldn't check: \<reason\>" with the Releases URL as a fallback.
+
+**Auto-check on launch is off by default**. Opt in via Settings →
+General → "About this install" → **Check for updates on launch**.
+When enabled, the first window of each app session does a silent
+check at boot; if an update is found, the same "Update available"
+dialog pops. Errors and "you're current" outcomes are silent on
+the auto-launch path — no notifications when you're offline or
+already up to date.
 
 Linux users who installed via AUR can also update through `yay
 -Syu`; both update paths work, pick whichever feels more natural.
