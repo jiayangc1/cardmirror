@@ -9,6 +9,13 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Added
 
+- **Exported .docx files now open as Verbatim-ready.** When a
+  Verbatim user opens a CardMirror-saved .docx in Word, the
+  Debate ribbon activates immediately — no need to click the
+  Verbatimize button first. Works on both Mac and Windows
+  Verbatim installs. Verbatim's own files, manually-Verbatimized
+  files, and CardMirror's now-Verbatimized files all read the
+  same way for users.
 - **Emphasize Acronym (Ctrl+F10).** New ribbon command. Select
   any text (or a partial word — the selection auto-expands to
   whole-word boundaries) and the first letter of every word in

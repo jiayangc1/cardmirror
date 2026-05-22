@@ -108,7 +108,10 @@ class DocxExporter {
   private rels: HyperlinkRel[] = [];
   private imageRels: ImageRel[] = [];
   private mediaParts: ExportedMediaPart[] = [];
-  private nextRelId = 2; // rId1 is reserved for styles
+  // rId1 = styles (always present), rId2 = settings (Verbatim
+  // recognition surface — see Docx.empty() + buildRelsXml). Dynamic
+  // rels (hyperlinks / images / comments) claim rId3+.
+  private nextRelId = 3;
   private nextImageIdx = 1;
   private nextDocPrId = 1;
   /** ThreadIds currently allow-listed for `<w:commentRangeStart/End>`
@@ -654,6 +657,16 @@ class DocxExporter {
     const inner: string[] = [];
     inner.push(
       '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>',
+    );
+    // Link to `word/settings.xml`. `Docx.empty()` writes the
+    // settings part itself; this rel makes Word's document-loader
+    // pick it up. Without the link, Word skips settings.xml and the
+    // <w:attachedTemplate> recognition surface inside it is
+    // invisible to Verbatim's ribbon-visibility callback. Hardcoded
+    // rId2 because `this.nextRelId` starts at 2 — any dynamic rel
+    // (hyperlink / image / comments) added below claims rId3+.
+    inner.push(
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>',
     );
     for (const rel of this.rels) {
       inner.push(

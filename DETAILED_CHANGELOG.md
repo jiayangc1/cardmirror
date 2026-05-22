@@ -7,6 +7,70 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Exported .docx is Verbatim-recognized on open.** Verbatim's
+  per-doc ribbon-visibility callback
+  (`Ribbon.GetRibbonVisibility`, registered on every `<group>`
+  in Debate.dotm's `customUI14.xml`) decides activation by
+  reading `ActiveDocument.AttachedTemplate.Name`. To make our
+  exports activate the Debate ribbon without the user clicking
+  Verbatimize first, `Docx.empty()` in `src/ooxml/docx.ts` now
+  emits:
+
+  - `word/settings.xml` containing
+    `<w:attachedTemplate r:id="rId1"/>`.
+  - `word/_rels/settings.xml.rels` containing the rel with
+    `Type=".../attachedTemplate"`,
+    `Target="file:///Debate.dotm"`,
+    `TargetMode="External"`.
+  - The matching `<Override>` for the settings part in
+    `[Content_Types].xml`.
+  - A `<Relationship>` linking `document.xml` →
+    `settings.xml` in `word/_rels/document.xml.rels` (added in
+    `exporter.ts`'s `buildRelsXml`, claiming `rId2`; dynamic
+    rels now start at `rId3`).
+
+  Methodology: extracted Debate.dotm and the VBA strings dump
+  pointed at `AttachedTemplate` + `InstallCheckTemplateName` as
+  the recognition predicate. First experiment (the docVar
+  hypothesis — setting `VerbatimVersion` in `<w:docVars>` to
+  various values) was falsified — none of v2 / v3 / v4 / v5
+  activated the ribbon. Second experiment
+  (`<w:attachedTemplate>` with the rel in `document.xml.rels`)
+  also failed; the diff against a doc that the Verbatimize
+  macro itself produced showed the rel belongs in
+  `settings.xml.rels`, not `document.xml.rels`. Third
+  experiment landed it:
+
+  - v8 (`Target="Debate.dotm"`, bare filename): failed.
+  - v9 (full Windows path the Verbatimize macro wrote on the
+    author's machine): worked on two different Windows
+    installs, even though the path was hardcoded to the
+    original user's folder — confirming Word doesn't validate
+    the stored path file-system-exists, just reads the
+    basename of the URI.
+  - v10 / v11 / v12 (URI shapes with no / fake-Unix /
+    fake-Windows path components): all three worked on
+    Windows. v10 / v11 also worked on Mac Verbatim (a separate
+    Mac Word notification-daemon hang was diagnosed via the
+    crash report's call stack and confirmed unrelated).
+
+  Picked v10 (`file:///Debate.dotm`) as the shippable Target —
+  shortest URI that activates recognition; Word doesn't care
+  whether the path is reachable.
+
+  Round-trip safety: today's exporter doesn't preserve the
+  input docx's `word/settings.xml`; `toDocx` always starts
+  from `Docx.empty()`. So no merge logic is needed — every
+  export ships with the recognition surface, whether the
+  source was fresh or imported. Users who don't have Verbatim
+  installed see no impact: the stored attached-template
+  Target is unresolvable to them, Word falls back to
+  Normal.dotm, no prompt, no UI shift.
+
+  See `bin/experiment-verbatimize.mjs` for the experiment
+  script (kept in `bin/` as a future diagnostic if Verbatim's
+  recognition mechanism ever shifts).
+
 - **Emphasize Acronym (Mod-F10).** New ribbon command for
   marking the source letters of an acronym. Algorithm:
   1. Bail if the selection is empty.

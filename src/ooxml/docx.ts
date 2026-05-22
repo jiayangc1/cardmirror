@@ -39,6 +39,20 @@ export class Docx {
     zip.file('word/styles.xml', CANONICAL_STYLES_XML);
     zip.file('word/_rels/document.xml.rels', DOCUMENT_RELS_XML);
     zip.file('word/document.xml', EMPTY_DOCUMENT_XML);
+    // Verbatim-recognition surface. Setting <w:attachedTemplate> in
+    // word/settings.xml with a Target ending in "/Debate.dotm" makes
+    // Verbatim's per-doc visibility callback
+    // (Ribbon.GetRibbonVisibility, registered on every group in
+    // customUI14.xml) return True, so the Debate ribbon activates
+    // when a Verbatim user opens our export — without them having
+    // to click "Verbatimize" first. Verified by experiment to be
+    // sufficient: Word doesn't validate the file exists at the
+    // stored path, it just basename-matches the URI. Both Windows
+    // and Mac Verbatim installs read the same XML shape and
+    // activate identically. See bin/experiment-verbatimize.mjs for
+    // the diff-grounded methodology.
+    zip.file('word/settings.xml', SETTINGS_XML);
+    zip.file('word/_rels/settings.xml.rels', SETTINGS_RELS_XML);
     return new Docx(zip);
   }
 
@@ -124,6 +138,7 @@ const CONTENT_TYPES_XML = `${XML_PROLOG}
   <Default Extension="wmf" ContentType="image/x-wmf"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>
 </Types>`;
 
 const TOP_LEVEL_RELS_XML = `${XML_PROLOG}
@@ -146,3 +161,24 @@ const EMPTY_DOCUMENT_XML = `${XML_PROLOG}
     </w:sectPr>
   </w:body>
 </w:document>`;
+
+// `word/settings.xml` — minimum Verbatim-recognition payload: a
+// single <w:attachedTemplate> element. The r:id resolves against
+// `word/_rels/settings.xml.rels` (NOT document.xml.rels — that's a
+// common confusion, and was the bug in the v6/v7 experiment).
+const SETTINGS_XML = `${XML_PROLOG}
+<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:attachedTemplate r:id="rId1"/>
+</w:settings>`;
+
+// `word/_rels/settings.xml.rels` — Verbatim's `GetRibbonVisibility`
+// callback checks `ActiveDocument.AttachedTemplate.Name`. Word
+// reads the basename of the Target URI for this property; it
+// doesn't validate that a file actually exists at the path. So a
+// minimal URI ending in `/Debate.dotm` makes the recognition check
+// pass on any user's machine, regardless of where (or whether)
+// they have Debate.dotm installed. `TargetMode="External"` tells
+// Word the Target is a file-system reference, not an in-package
+// part.
+const SETTINGS_RELS_XML = `${XML_PROLOG}
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate" Target="file:///Debate.dotm" TargetMode="External"/></Relationships>`;
