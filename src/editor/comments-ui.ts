@@ -91,6 +91,11 @@ import {
 
 export class CommentsColumn {
   private readonly root: HTMLElement;
+  /** Inner container that holds the threads + empty-state + toggle.
+   *  Lives inside `root` so the resize handle (also a child of
+   *  `root`, but a sibling of this) can survive the `innerHTML = ''`
+   *  wipes that `render()` does on every redraw. */
+  private readonly content: HTMLElement;
   private getView: () => EditorView | null;
   /** When a thread's textarea was last focused, we'd otherwise blow
    *  it away on every re-render. Track which thread is currently
@@ -139,15 +144,21 @@ export class CommentsColumn {
   constructor(root: HTMLElement, getView: () => EditorView | null) {
     this.root = root;
     this.getView = getView;
-    // Apply the persisted width before mounting so the column
-    // starts at the right size. Subscribe so cross-window setting
-    // sync (e.g., another CardMirror window resizing) updates this
-    // one without a reload.
+    // Inner content container — render() rebuilds children INSIDE
+    // this. Order matters: install the resize handle BEFORE the
+    // content container so the handle stays in DOM order as a
+    // sibling that render() never touches. Without this indirection
+    // render()'s `innerHTML = ''` on the root wipes the handle on
+    // every doc keystroke (since render() fires from
+    // dispatchTransaction).
     applyCommentsWidthCss(settings.get('commentsColumnWidth'));
     settings.subscribe((s) => {
       applyCommentsWidthCss(s.commentsColumnWidth);
     });
     this.installResizeHandle();
+    this.content = document.createElement('div');
+    this.content.className = 'pmd-comments-content';
+    this.root.appendChild(this.content);
   }
 
   /** Add a drag handle on the column's LEFT edge so users can
@@ -326,7 +337,7 @@ export class CommentsColumn {
     }
     const view = this.getView();
     if (!view) {
-      this.root.innerHTML = '';
+      this.content.innerHTML = '';
       this.root.classList.remove('pmd-comments-empty-state');
       this.root.style.minHeight = '';
       return;
@@ -342,7 +353,7 @@ export class CommentsColumn {
     if (this.root.hidden) return;
     const state = getCommentsState(view.state);
 
-    this.root.innerHTML = '';
+    this.content.innerHTML = '';
     if (state.threads.size === 0) {
       // Empty-comments early-bail BEFORE the O(doc) `collectRanges`
       // walk: this render fires from `dispatchTransaction` on every
@@ -353,7 +364,7 @@ export class CommentsColumn {
       const empty = document.createElement('div');
       empty.className = 'pmd-comments-empty';
       empty.textContent = 'No comments yet.';
-      this.root.appendChild(empty);
+      this.content.appendChild(empty);
       this.root.style.minHeight = '';
       return;
     }
@@ -370,14 +381,14 @@ export class CommentsColumn {
     for (const id of orderedIds) {
       const thread = state.threads.get(id);
       if (!thread) continue;
-      this.root.appendChild(this.renderThread(thread, ranges.get(id) ?? null));
+      this.content.appendChild(this.renderThread(thread, ranges.get(id) ?? null));
     }
 
     // Toggle button — bottom-left of the column. Up arrow when
     // something is active (click collapses), down arrow when
     // nothing is active (click re-expands the most recently
     // active thread, if any).
-    this.root.appendChild(this.renderToggle(state.threads.size > 0));
+    this.content.appendChild(this.renderToggle(state.threads.size > 0));
 
     // Defer measurement to the next frame so the browser has
     // committed the new card DOM and computed their natural heights.

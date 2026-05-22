@@ -4320,7 +4320,15 @@ html.pmd-nav-flat .pmd-nav-type-analytic:hover .pmd-nav-label {
 .pmd-editor-row {
   display: grid;
   grid-template-columns: 1fr auto;
-  grid-auto-rows: max-content;
+  /* No explicit row track — let it auto-size to items' content.
+     The min-height: 100% ensures the wrapper is at least one
+     viewport tall; the column then explicitly extends to that
+     full wrapper height via its own min-height (below). Track
+     sizing approaches with `minmax(100%, max-content)` /
+     `minmax(calc(100vh-chrome), max-content)` both collapsed
+     the track to the MIN value for long docs (Chrome resolved
+     max-content from the items' POST-stretch box, not their
+     pre-stretch intrinsic content), so we don't use them. */
   min-height: 100%;
 }
 /* Pin the children to the row track explicitly so the
@@ -4370,13 +4378,24 @@ body.pmd-multi-doc .pmd-editor-row {
 }
 .pmd-comments-column[hidden] { display: none; }
 
-/* Resize handle on the column's LEFT edge — opposite side from
-   the nav-pane's right-edge handle. Same visual treatment: thin
-   transparent strip that tints with `--pmd-c-accent-soft` on
-   hover / during drag. The body class
-   `pmd-comments-resize-active` is added during drag so the
-   col-resize cursor sticks across the document and selection
-   doesn't engage if the mouse drifts outside the handle. */
+/* Inner wrapper that holds the column's renderable content
+   (threads, empty-state placeholder, sticky toggle). render()
+   wipes this via `innerHTML = ''` on every redraw; the resize
+   handle is a SIBLING of this inside the column so it survives.
+   No own positioning / sizing — children take their cues from
+   the column itself (which has position: relative). Fill the
+   parent height so the sticky toggle's containing block is the
+   full column, not just the content's natural height. */
+.pmd-comments-content {
+  height: 100%;
+  width: 100%;
+}
+
+/* Resize handle: a thin strip overlaying the LEFT edge of the
+   comments column. Drag to change the column width. Mirrors
+   `.pmd-nav-resize-handle` exactly except for `left: 0` instead
+   of `right: 0` since the column is docked at the viewport's
+   right edge while the nav-panel docks at the left. */
 .pmd-comments-resize-handle {
   position: absolute;
   top: 0;
