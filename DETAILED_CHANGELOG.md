@@ -35,15 +35,6 @@ in each release, see `CHANGELOG.md`.
   cheat sheet and the keybindings editor inherit the
   grouping.
 
-  Tests in `tests/editor/ribbon-commands.test.ts` cover the
-  empty / two-words / partial-word / word-start-touch /
-  whitespace-only / structural-block-spanning cases plus the
-  default-key assertion. A new `emphPositionsInBlock(doc,
-  target)` test helper walks the children of a target textblock
-  and returns local-to-block character indices that carry the
-  mark — robust to post-`addMark` text-node splitting that
-  earlier `n.text === 'body text here'` checks broke on.
-
 - **Keybindings editor grouped by thematic section.** Lifted
   the `GROUPS` taxonomy out of `reference-ui.ts` into a new
   shared `ribbon-groups.ts` module as `RIBBON_GROUPS`. The
@@ -104,12 +95,6 @@ in each release, see `CHANGELOG.md`.
   F2 in the web edition) and the Electron-host
   `applyPlainPasteFromText` function (called from the
   desktop menu's "Paste as plain text" / native F2 mapping).
-
-  Regression test in `tests/editor/ribbon-commands.test.ts`
-  covers the trailing-newline case, the internal-newline
-  case, CRLF / CR / tab handling, the four single-line
-  parent types, and the multi-paragraph passthrough
-  contract.
 
 - **Nav pane: highlight follows the editor caret.** Previously
   the `.pmd-nav-item-selected` blue highlight was driven purely
