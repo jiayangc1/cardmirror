@@ -76,6 +76,11 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
+- **Settings → Keybindings list stays put when you rebind.**
+  Capturing a new shortcut (or hitting × on a chip, or ↺ to
+  restore defaults) used to rebuild the list and snap the
+  panel back to the top — losing the row you were working on.
+  The rebuild now preserves the surrounding scroll position.
 - **Settings modal tab strip now scrolls with arrows instead
   of overflowing the dialog.** When the dialog is narrow enough
   that the tab labels don't fit, a left and right arrow appear
