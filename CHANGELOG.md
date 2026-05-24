@@ -51,6 +51,14 @@ see `DETAILED_CHANGELOG.md`.
   2px while every other panel used 3px; both now use 3px so
   the spacing rhythm reads the same from left to right. Row
   gaps were already a uniform 2px and are unchanged.
+- **Formatting panel (Pocket / Hat / Block / Tag / Analytic /
+  Undertag) buttons are now equal-width**, so the visual
+  rhythm between Pocket → Hat → Analytic stays uniform whether
+  style preview is on or off. Previously the columns auto-
+  sized to their widest occupant (Block is narrower than
+  Analytic, so col 2 ended up tighter than col 3), and with
+  style preview off the eye picked that up as asymmetric
+  spacing.
 - **Ribbon panels now collapse one panel sooner**, so the
   rightmost visible panel no longer sits flush against the
   right-pinned buttons (timer / settings / reference). The

@@ -7,6 +7,26 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Formatting panel grid columns now share equal width.**
+  `.ribbon-formatting-panel` had `grid-template-columns:
+  repeat(3, auto)`, which sized each column to its widest
+  occupant. With column-major DOM order
+  (Pocket-Tag / Hat-Block / Analytic-Undertag), the three
+  columns ended up roughly 56px / 49px / 70px wide. When
+  style-preview was off (every button has the same 1px gray
+  border), the eye picked up the column-width asymmetry as
+  inconsistent gaps even though the CSS column-gap was a
+  uniform 3px throughout. (Style-preview on hides the
+  asymmetry visually by giving Pocket a heavy colored border
+  that dominates the eye's reference points.)
+
+  Fix: switch to `repeat(3, 1fr)` — equal-width columns sized
+  to the widest occupant's max-content. All buttons now sit at
+  the same width, so Pocket → Hat and Hat → Analytic
+  center-to-center distances are identical regardless of
+  `formattingPanelMode` (labels / shortcuts / both) or
+  `formattingPanelPreview`.
+
 - **Ribbon panel column gaps normalized to 3px across the
   board.** An audit found two outliers among the ~10 ribbon
   panels: `.ribbon-color-panel` used `gap: 2px 4px` (claimed

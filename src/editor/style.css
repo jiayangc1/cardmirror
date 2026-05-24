@@ -832,7 +832,16 @@ body.pmd-host-browser #autosave-btn { display: none; }
    Sits to the right of the Open/Save stack, separated by a divider. */
 .ribbon-formatting-panel {
   display: grid;
-  grid-template-columns: repeat(3, auto);
+  /* `1fr` (not `auto`) so all three columns share equal width
+     even when their natural content widths differ. With `auto`
+     each column sizes to its widest occupant, which made the
+     Pocket / Hat / Analytic columns unequal (Block is shorter
+     than Analytic, so col 2 ended up narrower than col 3) — and
+     when style-preview was off the eye picked that up as an
+     asymmetric gap pattern. Equal columns keep the rhythm
+     uniform regardless of the formattingPanelMode label set or
+     whether style-preview is on. */
+  grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(2, auto);
   grid-auto-flow: column;
   gap: 2px 3px;
