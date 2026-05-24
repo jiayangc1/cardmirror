@@ -9,6 +9,13 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Added
 
+- **Searchbar on Settings → Keybindings and the Keyboard
+  Shortcuts reference modal.** Filters rows live against the
+  command label AND its current keybinding text (searching "f7"
+  surfaces every command bound to F7; "highlight" surfaces
+  every command whose label contains it). Empty group sections
+  collapse out of view so the surviving rows always read as a
+  single coherent list.
 - **Application menu bar overhaul** (desktop app):
   - **File** is now Open / New / Save / Save As / Toggle
     Autosave / Close.

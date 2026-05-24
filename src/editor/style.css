@@ -3958,6 +3958,25 @@ html.pmd-nav-flat .pmd-nav-type-analytic:hover .pmd-nav-label {
   color: var(--pmd-c-text-secondary);
 }
 
+.pmd-keybindings-search {
+  margin: 0 0 0.4rem 0;
+}
+.pmd-keybindings-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 4px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+}
+.pmd-keybindings-search-input:focus {
+  outline: 2px solid var(--pmd-c-accent);
+  outline-offset: 1px;
+}
+
 .pmd-keybindings-list {
   display: flex;
   flex-direction: column;
@@ -5537,9 +5556,29 @@ body.pmd-recovery-active.pmd-multi-doc #app {
   color: var(--pmd-c-text);
 }
 
+.pmd-reference-search {
+  padding: 0.75rem 1.25rem 0.25rem;
+  flex: 0 0 auto;
+}
+.pmd-reference-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 4px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+}
+.pmd-reference-search-input:focus {
+  outline: 2px solid var(--pmd-c-accent);
+  outline-offset: 1px;
+}
+
 .pmd-reference-body {
   overflow-y: auto;
-  padding: 0.75rem 1.25rem 1.25rem;
+  padding: 0.5rem 1.25rem 1.25rem;
 }
 
 .pmd-reference-group {

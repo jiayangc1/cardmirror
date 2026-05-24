@@ -20,6 +20,9 @@ import { settings } from './settings.js';
 class ReferenceModal {
   private overlay: HTMLDivElement;
   private dialog: HTMLDivElement;
+  /** Live filter query for the searchbar — kept on the instance
+   *  so reopening the modal preserves the last search. */
+  private searchQuery = '';
 
   constructor() {
     this.overlay = document.createElement('div');
@@ -69,6 +72,20 @@ class ReferenceModal {
     header.appendChild(closeBtn);
     this.dialog.appendChild(header);
 
+    const searchRow = document.createElement('div');
+    searchRow.className = 'pmd-reference-search';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'search';
+    searchInput.className = 'pmd-reference-search-input';
+    searchInput.placeholder = 'Search shortcuts…';
+    searchInput.value = this.searchQuery;
+    searchInput.addEventListener('input', () => {
+      this.searchQuery = searchInput.value;
+      this.applyFilter();
+    });
+    searchRow.appendChild(searchInput);
+    this.dialog.appendChild(searchRow);
+
     const body = document.createElement('div');
     body.className = 'pmd-reference-body';
 
@@ -117,6 +134,39 @@ class ReferenceModal {
     }
 
     this.dialog.appendChild(body);
+
+    // Apply the persisted search (if the modal was reopened with a
+    // query already typed) so the rebuilt rows reflect it without
+    // requiring the user to re-type.
+    this.applyFilter();
+  }
+
+  /** Show / hide rows + group sections per `searchQuery`. Match is
+   *  case-insensitive substring against each row's label OR its
+   *  current keybinding text. Empty groups collapse so a stranded
+   *  section heading doesn't sit alone. */
+  private applyFilter(): void {
+    const q = this.searchQuery.trim().toLowerCase();
+    const sections = this.dialog.querySelectorAll<HTMLElement>(
+      '.pmd-reference-group',
+    );
+    for (const section of sections) {
+      let anyVisible = false;
+      for (const row of section.querySelectorAll<HTMLElement>(
+        '.pmd-reference-row',
+      )) {
+        const label = (
+          row.querySelector('.pmd-reference-label')?.textContent ?? ''
+        ).toLowerCase();
+        const keyText = (
+          row.querySelector('.pmd-reference-key')?.textContent ?? ''
+        ).toLowerCase();
+        const hit = !q || label.includes(q) || keyText.includes(q);
+        row.style.display = hit ? '' : 'none';
+        if (hit) anyVisible = true;
+      }
+      section.style.display = anyVisible ? '' : 'none';
+    }
   }
 }
 

@@ -148,6 +148,42 @@ export function buildKeybindingsEditor(): HTMLElement {
   // guarantees every `RibbonCommandId` is in exactly one group.
 
   let activeCapture: { row: HTMLElement; cleanup: () => void } | null = null;
+  /** Live filter query for the searchbar — persists across the
+   *  full-list rebuilds that fire after every override change.
+   *  Empty string = no filter. */
+  let searchQuery = '';
+
+  /** Show / hide rows + group sections based on `searchQuery`.
+   *  Match is case-insensitive substring against the row's
+   *  command label OR any of its current keybinding chips. Empty
+   *  groups (no surviving rows) collapse so the user doesn't see
+   *  a stranded section title. */
+  function applyFilter(): void {
+    const q = searchQuery.trim().toLowerCase();
+    const sections = wrap.querySelectorAll<HTMLElement>(
+      '.pmd-keybindings-group',
+    );
+    for (const section of sections) {
+      let anyVisible = false;
+      for (const row of section.querySelectorAll<HTMLElement>(
+        '.pmd-keybinding-row',
+      )) {
+        const label = (
+          row.querySelector('.pmd-keybinding-label')?.textContent ?? ''
+        ).toLowerCase();
+        const chips = Array.from(
+          row.querySelectorAll<HTMLElement>('.pmd-keybinding-chip'),
+        )
+          .map((c) => c.textContent ?? '')
+          .join(' ')
+          .toLowerCase();
+        const hit = !q || label.includes(q) || chips.includes(q);
+        row.style.display = hit ? '' : 'none';
+        if (hit) anyVisible = true;
+      }
+      section.style.display = anyVisible ? '' : 'none';
+    }
+  }
 
   function exitCapture(): void {
     if (!activeCapture) return;
@@ -324,6 +360,20 @@ export function buildKeybindingsEditor(): HTMLElement {
       'A key bound here only fires one command at a time — if you reuse a key, the previous command loses that binding.';
     wrap.appendChild(help);
 
+    const searchRow = document.createElement('div');
+    searchRow.className = 'pmd-keybindings-search';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'search';
+    searchInput.className = 'pmd-keybindings-search-input';
+    searchInput.placeholder = 'Search shortcuts…';
+    searchInput.value = searchQuery;
+    searchInput.addEventListener('input', () => {
+      searchQuery = searchInput.value;
+      applyFilter();
+    });
+    searchRow.appendChild(searchInput);
+    wrap.appendChild(searchRow);
+
     const list = document.createElement('div');
     list.className = 'pmd-keybindings-list';
     for (const group of RIBBON_GROUPS) {
@@ -349,6 +399,11 @@ export function buildKeybindingsEditor(): HTMLElement {
     });
     footer.appendChild(restoreAll);
     wrap.appendChild(footer);
+
+    // Re-apply the live filter so the just-rebuilt rows reflect
+    // the current search query (rebuild ran from a settings
+    // change while a filter was active).
+    applyFilter();
 
     // Restore the scroll position after the rebuild lays out, so
     // the user lands back where they were rather than at the top.
