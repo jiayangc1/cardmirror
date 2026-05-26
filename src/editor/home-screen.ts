@@ -156,6 +156,30 @@ class HomeScreen {
     qcSection.appendChild(qcActions);
     inner.appendChild(qcSection);
 
+    // Learn — placeholder for the forthcoming spaced-repetition study
+    // section. Non-interactive; here only to preview the layout.
+    const learnSection = document.createElement('section');
+    learnSection.className = 'pmd-home-learn-section';
+    const learnTitle = document.createElement('h2');
+    learnTitle.className = 'pmd-home-section-title';
+    learnTitle.textContent = 'Learn';
+    learnSection.appendChild(learnTitle);
+    const learnActions = document.createElement('div');
+    learnActions.className = 'pmd-home-qc-actions';
+    const learnCard = document.createElement('div');
+    learnCard.className = 'pmd-home-action pmd-home-action-placeholder';
+    learnCard.setAttribute('aria-disabled', 'true');
+    const learnT = document.createElement('span');
+    learnT.className = 'pmd-home-action-title';
+    learnT.textContent = 'Review flashcards';
+    const learnS = document.createElement('span');
+    learnS.className = 'pmd-home-action-sub';
+    learnS.textContent = 'Spaced-repetition study — coming soon.';
+    learnCard.append(learnT, learnS);
+    learnActions.appendChild(learnCard);
+    learnSection.appendChild(learnActions);
+    inner.appendChild(learnSection);
+
     parent.appendChild(this.root);
 
     this.unsubscribe = subscribeRecents(() => this.renderRecents());
