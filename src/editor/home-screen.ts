@@ -45,6 +45,8 @@ class HomeScreen {
    *  (Home button) vs. over a blank starter (launch / close-doc).
    *  Drives the "Back to document" affordance + Esc dismissal. */
   private canReturnToDoc = false;
+  /** Index-aligned action runners for the 1 / 2 / 3 shortcuts. */
+  private actionRunners: Array<() => void> = [];
 
   mount(parent: HTMLElement, callbacks: HomeScreenCallbacks): void {
     this.callbacks = callbacks;
@@ -78,25 +80,29 @@ class HomeScreen {
     header.appendChild(tagline);
     inner.appendChild(header);
 
-    // Primary action cards.
+    // Primary action cards. Order matters: index 0/1/2 map to the
+    // 1 / 2 / 3 keyboard shortcuts (handled in onKeyDown), mirroring
+    // the number-key panels elsewhere in the UI.
+    this.actionRunners = [
+      () => this.callbacks?.newDoc(),
+      () => this.callbacks?.newSpeechDoc(),
+      () => this.callbacks?.open(),
+    ];
     const actions = document.createElement('div');
     actions.className = 'pmd-home-actions';
     actions.appendChild(
-      this.actionCard('New document', 'Create a new document.', () =>
-        this.callbacks?.newDoc(),
-      ),
+      this.actionCard('1', 'New document', 'Create a new document.', this.actionRunners[0]!),
     );
     actions.appendChild(
       this.actionCard(
+        '2',
         'New speech document',
         'Create a new document and designate it as the speech doc.',
-        () => this.callbacks?.newSpeechDoc(),
+        this.actionRunners[1]!,
       ),
     );
     actions.appendChild(
-      this.actionCard('Open…', 'Browse for a .cmir or .docx file.', () =>
-        this.callbacks?.open(),
-      ),
+      this.actionCard('3', 'Open…', 'Browse for a .cmir or .docx file.', this.actionRunners[2]!),
     );
     inner.appendChild(actions);
 
@@ -161,6 +167,20 @@ class HomeScreen {
     if (e.key === 'Escape' && this.canReturnToDoc) {
       e.preventDefault();
       this.hide();
+      return;
+    }
+    // 1 / 2 / 3 trigger the three primary actions, mirroring the
+    // number-key button panels elsewhere. Bare keys only — the
+    // home screen has no text inputs to conflict with, but still
+    // ignore the chord variants so a stray modifier doesn't fire
+    // an action unexpectedly.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const idx = { '1': 0, '2': 1, '3': 2 }[e.key];
+    if (idx === undefined) return;
+    const run = this.actionRunners[idx];
+    if (run) {
+      e.preventDefault();
+      run();
     }
   };
 
@@ -170,18 +190,31 @@ class HomeScreen {
 
   // ---- Rendering ----------------------------------------------------
 
-  private actionCard(title: string, sub: string, onClick: () => void): HTMLButtonElement {
+  private actionCard(
+    key: string,
+    title: string,
+    sub: string,
+    onClick: () => void,
+  ): HTMLButtonElement {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'pmd-home-action';
+    const kbd = document.createElement('span');
+    kbd.className = 'pmd-home-action-key';
+    kbd.setAttribute('aria-hidden', 'true');
+    kbd.textContent = key;
+    btn.appendChild(kbd);
+    const text = document.createElement('span');
+    text.className = 'pmd-home-action-text';
     const t = document.createElement('span');
     t.className = 'pmd-home-action-title';
     t.textContent = title;
-    btn.appendChild(t);
+    text.appendChild(t);
     const s = document.createElement('span');
     s.className = 'pmd-home-action-sub';
     s.textContent = sub;
-    btn.appendChild(s);
+    text.appendChild(s);
+    btn.appendChild(text);
     btn.addEventListener('click', onClick);
     return btn;
   }
