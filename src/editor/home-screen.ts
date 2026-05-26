@@ -148,7 +148,12 @@ class HomeScreen {
     qcS.textContent = 'Browse, edit, import, and export your reusable snippets.';
     qcManage.append(qcT, qcS);
     qcManage.addEventListener('click', () => this.callbacks?.manageQuickCards());
-    qcSection.appendChild(qcManage);
+    // Wrap in a grid mirroring the primary actions so this single
+    // button takes one action-card's width (not the full row).
+    const qcActions = document.createElement('div');
+    qcActions.className = 'pmd-home-qc-actions';
+    qcActions.appendChild(qcManage);
+    qcSection.appendChild(qcActions);
     inner.appendChild(qcSection);
 
     parent.appendChild(this.root);
