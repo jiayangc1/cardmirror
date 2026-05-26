@@ -90,7 +90,10 @@ class QuickCardsManageUI {
     this.detailEl = this.root.querySelector('.pmd-qc-manage-detail')!;
     this.root.querySelector('.pmd-qc-manage-close')!
       .addEventListener('click', () => this.close());
-    this.root.addEventListener('keydown', this.onKeyDown, true);
+    // On `document` (capture) — not `this.root` — so Esc closes from
+    // anywhere, including before the user has focused any control in
+    // the overlay (focus is still on the doc underneath on open).
+    document.addEventListener('keydown', this.onKeyDown, true);
 
     this.renderHeaderActions();
     this.renderListBar();
@@ -123,7 +126,7 @@ class QuickCardsManageUI {
     this.teardownEditor();
     this.unsubscribe?.();
     this.unsubscribe = null;
-    this.root.removeEventListener('keydown', this.onKeyDown, true);
+    document.removeEventListener('keydown', this.onKeyDown, true);
     this.root.remove();
     this.root = null;
     document.documentElement.classList.remove('pmd-qc-manage-active');
