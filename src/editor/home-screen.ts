@@ -32,6 +32,8 @@ export interface HomeScreenCallbacks {
   /** Reopen a recent file in-place. The renderer reads the
    *  handle, mounts the doc, and prunes the entry on failure. */
   openRecent: (recent: RecentFile) => void;
+  /** Open the Quick Cards manage overlay. */
+  manageQuickCards: () => void;
 }
 
 class HomeScreen {
@@ -127,6 +129,27 @@ class HomeScreen {
     this.recentsEl.className = 'pmd-home-recents';
     recentsSection.appendChild(this.recentsEl);
     inner.appendChild(recentsSection);
+
+    // Quick Cards — below Recent, above the (forthcoming) Learn section.
+    const qcSection = document.createElement('section');
+    qcSection.className = 'pmd-home-qc-section';
+    const qcTitle = document.createElement('h2');
+    qcTitle.className = 'pmd-home-section-title';
+    qcTitle.textContent = 'Quick Cards';
+    qcSection.appendChild(qcTitle);
+    const qcManage = document.createElement('button');
+    qcManage.type = 'button';
+    qcManage.className = 'pmd-home-action pmd-home-qc-manage';
+    const qcT = document.createElement('span');
+    qcT.className = 'pmd-home-action-title';
+    qcT.textContent = 'Manage quick cards';
+    const qcS = document.createElement('span');
+    qcS.className = 'pmd-home-action-sub';
+    qcS.textContent = 'Browse, edit, import, and export your reusable snippets.';
+    qcManage.append(qcT, qcS);
+    qcManage.addEventListener('click', () => this.callbacks?.manageQuickCards());
+    qcSection.appendChild(qcManage);
+    inner.appendChild(qcSection);
 
     parent.appendChild(this.root);
 

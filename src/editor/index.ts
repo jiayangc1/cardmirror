@@ -49,6 +49,7 @@ import {
   findDuplicate,
 } from './quick-cards-store.js';
 import { openQuickCardAdd } from './quick-card-add-ui.js';
+import { quickCardsManageUI } from './quick-cards-manage-ui.js';
 import { homeScreen, type HomeScreenCallbacks } from './home-screen.js';
 import { recordRecent, removeRecent, type RecentFile } from './recents-store.js';
 import {
@@ -1381,7 +1382,7 @@ for (const btn of [qcSearchBtn, qcTagPickerBtn, qcManageBtn, qcAddBtn]) {
 qcAddBtn?.addEventListener('click', () => runRibbon('addQuickCard'));
 qcSearchBtn?.addEventListener('click', () => showToast('Quick card search — coming soon.'));
 qcTagPickerBtn?.addEventListener('click', () => showToast('Quick card tag picker — coming soon.'));
-qcManageBtn?.addEventListener('click', () => showToast('Manage quick cards — coming soon.'));
+qcManageBtn?.addEventListener('click', () => void quickCardsManageUI.open());
 
 // Comments column. The CommentsColumn instance owns the side-panel
 // DOM; we re-render it via `view.dispatchTransaction` overrides
@@ -3586,6 +3587,9 @@ const homeCallbacks: HomeScreenCallbacks = {
   },
   openRecent: (recent: RecentFile) => {
     void openRecentInPlace(recent);
+  },
+  manageQuickCards: () => {
+    void quickCardsManageUI.open();
   },
 };
 

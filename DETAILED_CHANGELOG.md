@@ -55,6 +55,36 @@ in each release, see `CHANGELOG.md`.
     its tags differ.
   - Store helpers added: `buildQuickCard`, `distinctTags`,
     `findDuplicate`. CSS: `.pmd-qc-add-*`.
+
+- **Quick Cards — Manage overlay.** Third slice: a full-window
+  master/detail surface (`quick-cards-manage-ui.ts`, `quickCardsManageUI`).
+  - List (left): every card with name, tags, source file; filter box
+    (multi-token substring over name/tags/text), sort (recently
+    updated / name / source), per-row checkbox for multi-select →
+    bulk Export / Delete.
+  - Detail (right): edit name + tags (chip input reusing the Add
+    dialog's `.pmd-qc-add-*` classes) and content in an **embedded
+    `EditorView`** (shared `schema` + `buildEditorPlugins()`,
+    dynamic-imported from index.js to dodge the import cycle). The
+    editor is seeded by inserting the stored slice into an empty doc
+    (`replaceSelection`, robust for open/inline slices); Save extracts
+    it back via `slice.toJSON()` + a trailing-empty-paragraph trim,
+    re-checks the (name, tag-set) uniqueness rule (`findDuplicate`,
+    excluding self), and `upsert`s. Delete removes.
+  - Export (selected or all) / Import via the host file pickers as
+    **plain JSON** (`{version,cards}`); import re-mints ids ("import as
+    new", never overwrites). No custom extension.
+  - Live-syncs from the store while open, but **preserves an
+    in-progress edit** — an external library change re-renders the
+    list but only rebuilds the detail editor when nothing is unsaved
+    (and resets only if the open card was deleted).
+  - Entry points: the 🗂️ Manage ribbon button (was a stub) and a new
+    **Quick Cards** section on the Home screen (below Recent, above
+    the forthcoming Learn section). CSS: `.pmd-qc-manage-*`.
+  - Known v1 limitation: the embedded editor uses base ProseMirror
+    styling (it's not under `#editor`, so per-style size/font
+    variables don't cascade) — content is fully editable, just not a
+    pixel match for the main editor.
   - Ribbon: a 2×2 Quick Cards cluster (`#quickcards-stack`) between the
     speech stack and the formatting panel, shown in both single- and
     multi-doc (unlike the speech stack). Buttons: 🔍 Search · 🏷️ Tag

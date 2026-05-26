@@ -6160,6 +6160,213 @@ body.pmd-recovery-active.pmd-multi-doc #app {
   background: var(--pmd-c-accent-hover);
 }
 
+/* ─── Quick Cards — Manage overlay ────────────────────────────────── */
+.pmd-qc-manage {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+  font-family: var(--pmd-ui-font);
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+.pmd-qc-manage-inner {
+  width: 100%;
+  max-width: 1000px;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 1.25rem 1.25rem;
+  min-height: 0;
+}
+.pmd-qc-manage-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--pmd-c-divider);
+}
+.pmd-qc-manage-header h1 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  flex: 1 1 auto;
+}
+.pmd-qc-manage-header-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+.pmd-qc-manage-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-size: 1.7rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--pmd-c-text-muted);
+  padding: 0 0.25rem;
+}
+.pmd-qc-manage-close:hover { color: var(--pmd-c-text); }
+.pmd-qc-manage-cols {
+  display: flex;
+  gap: 1rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-top: 0.75rem;
+}
+.pmd-qc-manage-list-pane {
+  flex: 0 0 340px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--pmd-c-divider-faint);
+  padding-right: 1rem;
+}
+.pmd-qc-manage-listbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding-bottom: 0.6rem;
+}
+.pmd-qc-manage-filter {
+  flex: 1 1 140px;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  font-size: 0.85rem;
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 4px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+}
+.pmd-qc-manage-sort {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.3rem;
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 4px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+}
+.pmd-qc-manage-bulk {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.pmd-qc-manage-bulk-count {
+  font-size: 0.8rem;
+  color: var(--pmd-c-text-muted);
+  margin-right: auto;
+}
+.pmd-qc-manage-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pmd-qc-manage-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.pmd-qc-manage-row:hover { background: var(--pmd-c-hover); }
+.pmd-qc-manage-row-active,
+.pmd-qc-manage-row-active:hover { background: var(--pmd-c-accent-soft); }
+.pmd-qc-manage-row-check { margin-top: 0.2rem; cursor: pointer; }
+.pmd-qc-manage-row-main { min-width: 0; flex: 1 1 auto; }
+.pmd-qc-manage-row-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pmd-qc-manage-row-meta {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--pmd-c-text-muted);
+}
+.pmd-qc-manage-row-tags { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmd-qc-manage-row-src { flex: 0 0 auto; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmd-qc-manage-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  overflow-y: auto;
+}
+.pmd-qc-manage-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.pmd-qc-manage-field-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pmd-c-text-muted);
+}
+.pmd-qc-manage-input {
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+  font-size: 0.95rem;
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 4px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+}
+.pmd-qc-manage-editor {
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 4px;
+  background: var(--pmd-c-surface, var(--pmd-c-bg));
+  max-height: 45vh;
+  overflow-y: auto;
+}
+.pmd-qc-manage-editor .ProseMirror {
+  padding: 0.6rem 0.75rem;
+  min-height: 6rem;
+  outline: none;
+}
+.pmd-qc-manage-detail-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+.pmd-qc-manage-btn {
+  padding: 0.35rem 0.8rem;
+  font: inherit;
+  font-size: 0.85rem;
+  border-radius: 4px;
+  border: 1px solid var(--pmd-c-border);
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+  cursor: pointer;
+}
+.pmd-qc-manage-btn:hover { background: var(--pmd-c-button-hover); }
+.pmd-qc-manage-primary {
+  background: var(--pmd-c-accent);
+  border-color: var(--pmd-c-accent);
+  color: var(--pmd-c-text-on-accent);
+}
+.pmd-qc-manage-primary:hover { background: var(--pmd-c-accent-hover); }
+.pmd-qc-manage-danger { color: var(--pmd-c-danger, #c0392b); }
+.pmd-qc-manage-empty {
+  color: var(--pmd-c-text-muted);
+  font-size: 0.85rem;
+  padding: 0.5rem;
+}
+
 .pmd-reference-overlay {
   position: fixed;
   inset: 0;
