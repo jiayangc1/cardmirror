@@ -40,7 +40,7 @@ import { openDocMenu } from './doc-menu-ui.js';
 import { createReference } from './create-reference.js';
 import { showToast } from './toast.js';
 import { openSelectSpeechDocModal } from './select-speech-doc-ui.js';
-import { dropzoneStore } from './dropzone-store.js';
+import { dropzoneStore, deriveDropzoneLabel } from './dropzone-store.js';
 import {
   settings,
   condenseWarningCloseFor,
@@ -246,13 +246,9 @@ export async function sendViewToDropzone(sourceView: EditorView): Promise<void> 
   if (!slice) return;
   const first = slice.content.firstChild;
   const type = first ? first.type.name : 'text';
-  const text = slice.content.textBetween(0, slice.content.size, ' ', ' ').trim();
-  const label = text
-    ? (text.length > 120 ? text.slice(0, 118) + '…' : text)
-    : `(${type})`;
   await dropzoneStore.add({
     id: `dz-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    label,
+    label: deriveDropzoneLabel(slice, type),
     type,
     sliceJson: slice.toJSON(),
     createdAt: Date.now(),

@@ -16,6 +16,8 @@
  * (dropzone-ui.ts) is the only intended consumer.
  */
 
+import type { Slice } from 'prosemirror-model';
+import { collectCiteText } from './headings.js';
 import { getElectronHost } from './host/index.js';
 
 export interface DropzoneItem {
@@ -162,3 +164,33 @@ function writeSessionItems(items: DropzoneItem[]): void {
 }
 
 export const dropzoneStore = new DropzoneStore();
+
+/** Compose the human-readable label for a shelf item from its
+ *  slice. Special-cased per schema node type:
+ *    - `card`: tag text + cite-marked tokens (same processing as
+ *      the nav pane's cite-preview, via `collectCiteText`).
+ *    - `analytic_unit`: analytic heading text.
+ *    - everything else: first chunk of the slice's text content,
+ *      whitespace-collapsed.
+ *  Result is clipped to ~120 characters with an ellipsis. */
+export function deriveDropzoneLabel(slice: Slice, type: string): string {
+  const first = slice.content.firstChild;
+  if (first && (type === 'card' || first.type.name === 'card')) {
+    const tagText = first.firstChild?.textContent?.trim() ?? '';
+    const cite = collectCiteText(first).trim();
+    if (tagText && cite) return clip(`${tagText} — ${cite}`);
+    if (tagText) return clip(tagText);
+    if (cite) return clip(cite);
+    return clip(first.textContent ?? '(card)');
+  }
+  if (first && (type === 'analytic_unit' || first.type.name === 'analytic_unit')) {
+    const analytic = first.firstChild?.textContent?.trim() ?? '';
+    return clip(analytic || first.textContent || '(analytic)');
+  }
+  const text = slice.content.textBetween(0, slice.content.size, ' ', ' ').trim();
+  return text ? clip(text) : `(${type || 'item'})`;
+}
+
+function clip(s: string): string {
+  return s.length > 120 ? s.slice(0, 118) + '…' : s;
+}

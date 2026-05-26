@@ -36,7 +36,7 @@ import {
   type DragItem,
   type DragSurface,
 } from './drag-controller.js';
-import { dropzoneStore, type DropzoneItem } from './dropzone-store.js';
+import { dropzoneStore, deriveDropzoneLabel, type DropzoneItem } from './dropzone-store.js';
 import { schema } from '../schema/index.js';
 
 interface DropzoneMountOptions {
@@ -279,12 +279,13 @@ export class DropzoneController {
     for (const item of items) {
       const slice = item.prebuilt ?? srcView.state.doc.slice(item.from, item.to);
       const sliceJson = slice.toJSON();
-      const label = deriveLabel(slice, item);
+      const type = item.type || inferTypeFromSlice(slice);
+      const label = deriveDropzoneLabel(slice, type);
       const id = newId();
       await dropzoneStore.add({
         id,
         label,
-        type: item.type || inferTypeFromSlice(slice),
+        type,
         sliceJson,
         createdAt: Date.now(),
       });
@@ -392,16 +393,6 @@ export class DropzoneController {
 
 function newId(): string {
   return `dz-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function deriveLabel(slice: Slice, item: DragItem): string {
-  if (item.label && item.label.trim()) {
-    const l = item.label.trim();
-    return l.length > 120 ? l.slice(0, 118) + '…' : l;
-  }
-  const text = slice.content.textBetween(0, slice.content.size, ' ', ' ').trim();
-  if (text) return text.length > 120 ? text.slice(0, 118) + '…' : text;
-  return item.type ? `(${item.type})` : '(item)';
 }
 
 function typeBadge(type: string): { kind: string; label: string } {
