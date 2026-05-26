@@ -2695,7 +2695,7 @@ html.pmd-dropzone-pill-hidden .pmd-nav-list {
   color: var(--pmd-c-text-muted);
   background: var(--pmd-c-surface-soft);
   border: 1px solid var(--pmd-c-border-soft);
-  border-radius: 999px;
+  border-radius: 6px;
   box-shadow: 0 2px 6px var(--pmd-c-shadow-fade);
   user-select: none;
   /* See `.pmd-dropzone-root` — state morphs are instant. */
