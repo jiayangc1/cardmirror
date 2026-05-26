@@ -41,6 +41,19 @@ in each release, see `CHANGELOG.md`.
     As-Is and the Save Custom submit pass no prefix. The prefix lands
     in `SaveAsResult.filename` like any other name, so nothing
     downstream special-cases it.
+  - Derived exports don't rebind the working doc's identity:
+    `runSaveAsFlow` now computes `isFullSave = includeComments &&
+    includeAnalytics && includeUndertags && !readMode`. Only a full
+    save calls `commitSaveResult` (name/handle/format adopt) +
+    `markCurrentDocClean` + `multiDocNotifyFocusedSaved` +
+    `clearJournalForActiveDoc`. A content-dropping save (Send/Read
+    presets, partial Custom) instead just `recordRecent`s the
+    exported file and leaves the working doc's name, dirty flag, and
+    journal intact — fixing the bug where the open doc adopted the
+    `SEND_`/`READ_` name and the duplicate-open guard then refused to
+    reopen the export. The crash-recovery Save-As path
+    (`reserializeJournalAs`) was already full-fidelity-only and
+    doesn't rebind identity, so it's unaffected.
 
 - **Home / start screen (single-doc mode).** A full-window hub
   shown on launch-with-no-file, on closing the current doc

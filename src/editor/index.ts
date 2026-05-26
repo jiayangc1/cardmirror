@@ -3769,6 +3769,19 @@ export async function runSaveAsFlow(): Promise<boolean> {
     defaultFormat,
   });
   if (!choice) return false;
+  // A full-fidelity save (everything included, not read-mode) IS the
+  // working document written to disk, so the doc adopts the new
+  // name / handle / format. Anything that drops content — the Send
+  // Doc / Read Doc presets, or a Save Custom with boxes unchecked —
+  // produces a separate, lossy export: the working document keeps
+  // its own identity (otherwise it would think it's named e.g.
+  // SEND_X and the duplicate-open guard would block reopening that
+  // export), its dirty state, and its recovery journal.
+  const isFullSave =
+    choice.includeComments &&
+    choice.includeAnalytics &&
+    choice.includeUndertags &&
+    !choice.readMode;
   try {
     const bytes = await serializeForSave(choice.format, {
       includeComments: choice.includeComments,
@@ -3780,14 +3793,24 @@ export async function runSaveAsFlow(): Promise<boolean> {
       filters: saveFiltersForFormat(choice.format),
     });
     if (!result) return false;
-    commitSaveResult(result.name, result.handle ?? null, choice.format);
+    if (isFullSave) {
+      commitSaveResult(result.name, result.handle ?? null, choice.format);
+      markCurrentDocClean();
+      multiDocNotifyFocusedSaved?.();
+      // Successful save — the on-disk file IS the latest version, the
+      // journal is redundant. Best-effort delete.
+      void clearJournalForActiveDoc();
+    } else {
+      // Derived export: still surface the new file in recents so it's
+      // reachable, but don't touch the working doc's identity / state.
+      recordRecent({
+        handle: typeof result.handle === 'string' ? result.handle : null,
+        filename: result.name,
+        format: choice.format,
+      });
+    }
     flashSaveSuccess();
     markNonPristineStarter();
-    markCurrentDocClean();
-    multiDocNotifyFocusedSaved?.();
-    // Successful save — the on-disk file IS the latest version, the
-    // journal is redundant. Best-effort delete.
-    void clearJournalForActiveDoc();
     return true;
   } catch (err) {
     console.error('Save failed:', err);

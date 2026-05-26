@@ -143,6 +143,16 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
+- **Saving a Send Doc / Read Doc no longer renames the document
+  you're working on.** Previously, saving via a content-dropping
+  preset (or a partial Save Custom) rebound the open document's
+  identity to the exported file's name — so the working doc thought
+  it was named e.g. `SEND_1AC`, and trying to open that export was
+  blocked by the "already open" guard. Now only a full-fidelity save
+  (everything included, not read-mode) adopts the saved file as the
+  document's name/handle; a derived export writes its own file
+  (and shows up in Recent) while the working doc keeps its name,
+  unsaved-changes state, and crash-recovery journal.
 - **Settings → Keybindings list stays put when you rebind.**
   Capturing a new shortcut (or hitting × on a chip, or ↺ to
   restore defaults) used to rebuild the list and snap the
