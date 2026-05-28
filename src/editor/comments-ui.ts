@@ -182,6 +182,25 @@ export class CommentsColumn {
    *  drag-resizes fire many ResizeObserver entries per frame, so
    *  we collapse them to one relayout per frame. */
   private resizeRelayoutRaf: number | null = null;
+  /** Persistent card elements keyed by thread id. Reused across
+   *  renders so position changes animate (`top` transition) and a
+   *  per-card ResizeObserver can reflow neighbors when any card's
+   *  height changes (expand/collapse, AI stream, reply box) — the
+   *  Docs-like behavior. render() reconciles this map instead of
+   *  wiping the DOM. */
+  private cardEls = new Map<string, HTMLElement>();
+  /** Last-rendered content signature per card, so render() skips
+   *  re-populating a card whose content + active state are unchanged
+   *  (position-only changes just relayout). Keeps the active reply
+   *  textarea's focus/value intact across unrelated renders. */
+  private cardSigs = new Map<string, string>();
+  /** Observes every card so any height change (expand/collapse,
+   *  streamed AI text, reply box) reflows the whole stack. */
+  private cardResizeObserver: ResizeObserver | null = null;
+  /** Latest thread→range map, kept so a persistent card's once-bound
+   *  click handler can look up its current range (ranges change as
+   *  the doc is edited, but the handler is attached only once). */
+  private lastRanges: Map<string, { from: number; to: number }> = new Map();
 
   constructor(root: HTMLElement, getView: () => EditorView | null) {
     this.root = root;
@@ -201,6 +220,19 @@ export class CommentsColumn {
     this.content = document.createElement('div');
     this.content.className = 'pmd-comments-content';
     this.root.appendChild(this.content);
+    // Any card changing height (expand/collapse, AI text streaming in,
+    // reply box opening) reflows the whole stack so neighbors glide out
+    // of the way rather than overlapping. Coalesced to one relayout per
+    // frame via `resizeRelayoutRaf`.
+    if (typeof ResizeObserver !== 'undefined') {
+      this.cardResizeObserver = new ResizeObserver(() => {
+        if (this.resizeRelayoutRaf !== null) return;
+        this.resizeRelayoutRaf = requestAnimationFrame(() => {
+          this.resizeRelayoutRaf = null;
+          this.relayoutCards();
+        });
+      });
+    }
   }
 
   /** Add a drag handle on the column's LEFT edge so users can
@@ -376,6 +408,7 @@ export class CommentsColumn {
     }
     const view = this.getView();
     if (!view) {
+      this.clearAllCards();
       this.content.innerHTML = '';
       this.root.classList.remove('pmd-comments-empty-state');
       this.root.style.minHeight = '';
@@ -392,13 +425,14 @@ export class CommentsColumn {
     if (this.root.hidden) return;
     const state = getCommentsState(view.state);
 
-    this.content.innerHTML = '';
     if (state.threads.size === 0) {
       // Empty-comments early-bail BEFORE the O(doc) `collectRanges`
       // walk: this render fires from `dispatchTransaction` on every
       // doc-changing keystroke, so docs with no comments would
       // otherwise pay a full-doc walk per keystroke just to populate
       // an empty-state placeholder.
+      this.clearAllCards();
+      this.content.innerHTML = '';
       this.root.classList.add('pmd-comments-empty-state');
       const empty = document.createElement('div');
       empty.className = 'pmd-comments-empty';
@@ -408,7 +442,11 @@ export class CommentsColumn {
       return;
     }
     this.root.classList.remove('pmd-comments-empty-state');
+    // Drop any leftover empty-state placeholder before reconciling.
+    const placeholder = this.content.querySelector('.pmd-comments-empty');
+    if (placeholder) placeholder.remove();
     const ranges = collectRanges(view.state.doc);
+    this.lastRanges = ranges;
 
     // Iterate threads in document order so the column matches the
     // top-to-bottom flow of the editor. Orphans (mark removed but
@@ -417,10 +455,31 @@ export class CommentsColumn {
     for (const id of state.threads.keys()) {
       if (!ranges.has(id)) orderedIds.push(id);
     }
+    // Reconcile: reuse persistent card elements (so positions animate
+    // and the per-card ResizeObserver tracks height changes), only
+    // re-populating a card whose content/active signature changed.
+    const wantedIds = new Set(orderedIds);
+    for (const [id, el] of this.cardEls) {
+      if (!wantedIds.has(id)) {
+        this.cardResizeObserver?.unobserve(el);
+        el.remove();
+        this.cardEls.delete(id);
+        this.cardSigs.delete(id);
+      }
+    }
     for (const id of orderedIds) {
       const thread = state.threads.get(id);
       if (!thread) continue;
-      this.content.appendChild(this.renderThread(thread, ranges.get(id) ?? null));
+      const isActive = this.activeThreadId === id;
+      const el = this.ensureCardEl(id);
+      const sig = this.threadSignature(thread, isActive);
+      if (this.cardSigs.get(id) !== sig) {
+        this.populateThread(el, thread, isActive);
+        this.cardSigs.set(id, sig);
+      }
+      // Keep DOM order in sync with document order (appendChild on an
+      // existing child moves it). Cheap when already in order.
+      this.content.appendChild(el);
     }
 
     // Realize content-visibility:auto wrappers that hold a comment
@@ -449,6 +508,7 @@ export class CommentsColumn {
     if (!view) return;
     if (this.root.hidden) return;
     const ranges = collectRanges(view.state.doc);
+    this.lastRanges = ranges;
     this.realizeCommentWrappers(view, ranges);
     this.layoutCards(view, ranges);
   }
@@ -629,6 +689,7 @@ export class CommentsColumn {
     }
 
     let maxBottom = 0;
+    const unsettled: HTMLElement[] = [];
     for (const it of items) {
       it.card.style.top = `${it.actualTop}px`;
       // `pmd-laid-out` flips visibility to visible — until this
@@ -636,53 +697,67 @@ export class CommentsColumn {
       // before measurement didn't flash a visible card at the top
       // of the column on every doc edit.
       it.card.classList.add('pmd-laid-out');
+      // First placement is instant (no `top` transition until
+      // `pmd-card-settled`); subsequent relayouts animate. Avoids a
+      // slide-in from top:0 when a card first appears.
+      if (!it.card.classList.contains('pmd-card-settled')) unsettled.push(it.card);
       maxBottom = Math.max(maxBottom, it.actualTop + it.height);
     }
     this.root.style.minHeight = `${maxBottom}px`;
+    if (unsettled.length > 0) {
+      requestAnimationFrame(() => {
+        for (const c of unsettled) c.classList.add('pmd-card-settled');
+      });
+    }
   }
 
-  private renderThread(thread: Thread, range: { from: number; to: number } | null): HTMLElement {
+  /** Get or create the persistent card element for a thread. The
+   *  click handler is attached once; it reads the thread's *current*
+   *  range from `lastRanges` at click time (ranges move as the doc is
+   *  edited, but the element — and its handler — persist). */
+  private ensureCardEl(threadId: string): HTMLElement {
+    const existing = this.cardEls.get(threadId);
+    if (existing) return existing;
     const card = document.createElement('article');
     card.className = 'pmd-comment-thread';
-    card.dataset['threadId'] = thread.id;
-    const isActive = this.activeThreadId === thread.id;
-    if (isActive) card.classList.add('pmd-comment-thread-active');
-
+    card.dataset['threadId'] = threadId;
     // Click → make this thread active (expand it, anchor it to its
-    // range). The click flavor is sticky: stays expanded until the
-    // user clicks elsewhere, opens a different card, or hits the
-    // toggle button. We also scroll the editor to the range so
-    // the user sees what the comment refers to. Clicks inside an
-    // editable (reply input / button) bubble through normally so
-    // typing still works.
+    // range). Sticky until the user clicks elsewhere / opens another
+    // card / hits the toggle. Clicks inside an editable bubble through.
     card.addEventListener('click', (e) => {
       const target = e.target as HTMLElement | null;
       if (target && target.closest('textarea, input, button')) return;
-      this.setActiveThread(thread.id, 'click');
-      if (range) this.scrollToRange(range);
+      this.setActiveThread(threadId, 'click');
+      const r = this.lastRanges.get(threadId);
+      if (r) this.scrollToRange(r);
     });
+    this.cardEls.set(threadId, card);
+    this.cardResizeObserver?.observe(card);
+    return card;
+  }
 
-    // A freshly-created thread starts as a single empty-text root.
-    // Render it as a primary "add comment" input instead of an
-    // existing comment + reply box, so the user can type their
-    // first message naturally. First submit edits the root in
-    // place rather than creating a reply. (Always full-render —
-    // a half-typed comment isn't useful as a 1-line preview.)
+  /** (Re)fill a card's inner content for the current thread state.
+   *  Replaces children in place — the element persists so its `top`
+   *  keeps animating and the ResizeObserver stays attached. */
+  private populateThread(card: HTMLElement, thread: Thread, isActive: boolean): void {
+    card.replaceChildren();
+    card.classList.toggle('pmd-comment-thread-active', isActive);
+
+    // A freshly-created thread starts as a single empty-text root —
+    // render it as a primary "add comment" input so the user can type
+    // their first message; first submit edits the root in place.
     const root = thread.comments[0];
     const isEmptyRoot = thread.comments.length === 1 && root && root.text === '';
-    if (isEmptyRoot) {
+    if (isEmptyRoot && root) {
       card.appendChild(this.renderRootHeader(thread, root));
       card.appendChild(this.renderPrimaryInput(thread, root));
-      return card;
+      return;
     }
-
     if (!isActive) {
       // Collapsed preview: badge + author + short body excerpt.
-      // The whole card is the click target so anywhere expands it.
       card.appendChild(this.renderThreadPreview(thread));
-      return card;
+      return;
     }
-
     for (const c of thread.comments) {
       card.appendChild(this.renderComment(thread, c, c.id === thread.id));
     }
@@ -690,7 +765,31 @@ export class CommentsColumn {
       card.appendChild(this.renderAiThinkingPlaceholder());
     }
     card.appendChild(this.renderReplyForm(thread));
-    return card;
+  }
+
+  /** Signature gating re-population: changes only when a rebuild is
+   *  actually needed (active toggle, comment add/edit/remove, AI
+   *  in-flight flip). Excludes range (position-only → relayout) and
+   *  reply text (transient — preserved across unrelated renders).
+   *  An empty root renders the same whether active or not, so its
+   *  signature ignores active to avoid recreating the input (and
+   *  losing focus) on a stray cursor move. */
+  private threadSignature(thread: Thread, isActive: boolean): string {
+    const root = thread.comments[0];
+    const isEmptyRoot = thread.comments.length === 1 && root && root.text === '';
+    return JSON.stringify({
+      a: isEmptyRoot ? 'empty' : isActive,
+      ai: this.aiInFlight.has(thread.id),
+      c: thread.comments.map((c) => [c.id, c.text, c.author, c.initials]),
+    });
+  }
+
+  /** Drop all persistent card elements (view gone / empty state). */
+  private clearAllCards(): void {
+    for (const el of this.cardEls.values()) this.cardResizeObserver?.unobserve(el);
+    this.cardEls.clear();
+    this.cardSigs.clear();
+    this.lastRanges = new Map();
   }
 
   /** One-line preview used when a thread is collapsed. Shows the

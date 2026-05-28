@@ -5190,6 +5190,16 @@ body.pmd-comments-resize-active {
   box-sizing: border-box;
 }
 .pmd-comment-thread.pmd-laid-out { visibility: visible; }
+/* Docs-like reflow: once a card has been placed once, animate `top`
+   so neighbors glide around each other when a card expands/collapses
+   or its height changes. First placement stays instant (no
+   `pmd-card-settled` yet) to avoid a slide-in from the top. */
+.pmd-comment-thread.pmd-card-settled {
+  transition: top 0.18s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pmd-comment-thread.pmd-card-settled { transition: none; }
+}
 
 /* Active card: expanded, slight highlight + accent border so the
    user can see which thread is anchored to their selection. */
