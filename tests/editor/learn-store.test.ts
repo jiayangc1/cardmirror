@@ -84,6 +84,35 @@ describe('decks', () => {
   });
 });
 
+describe('copyDocAnnotations (Save As fork)', () => {
+  it('copies anchors to the new docId; original retained; shared schedule', () => {
+    const s = store();
+    s.upsertCard(card('c1'), TODAY);
+    s.setAnchor('c1', 'docA', desc('x'));
+    s.copyDocAnnotations('docA', 'docB');
+    expect(s.anchorsForDoc('docA').map((a) => a.cardId)).toEqual(['c1']); // original kept
+    expect(s.anchorsForDoc('docB').map((a) => a.cardId)).toEqual(['c1']); // copy made
+    // Same logical card → one schedule → reviewed once across both files.
+    expect(s.dueCount({ kind: 'all' }, TODAY)).toBe(1);
+  });
+
+  it('copies AI threads with fresh threadIds', () => {
+    const s = store();
+    s.addAiThread({
+      threadId: 't1',
+      docId: 'docA',
+      comments: [{ author: 'AI', text: 'hi', at: NOW, ai: true }],
+      anchor: desc('x'),
+      createdAt: NOW,
+    });
+    s.copyDocAnnotations('docA', 'docB');
+    const copied = s.aiThreadsForDoc('docB');
+    expect(copied).toHaveLength(1);
+    expect(copied[0]!.threadId).not.toBe('t1'); // fresh id
+    expect(copied[0]!.comments[0]!.text).toBe('hi');
+  });
+});
+
 describe('rekeyDoc', () => {
   it('moves annotations from a session id to the real docId', () => {
     const s = store();

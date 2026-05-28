@@ -52,6 +52,7 @@ import {
 import { openQuickCardAdd } from './quick-card-add-ui.js';
 import { quickCardsManageUI } from './quick-cards-manage-ui.js';
 import { quickCardSearchUI, openQuickCardTagPicker } from './quick-card-search-ui.js';
+import { learnStore, loadLearnStore } from './learn-store-host.js';
 import { openBulkConvert } from './bulk-convert-ui.js';
 import { homeScreen, type HomeScreenCallbacks } from './home-screen.js';
 import { recordRecent, removeRecent, type RecentFile } from './recents-store.js';
@@ -1026,6 +1027,7 @@ async function onNewDocClicked(): Promise<void> {
   setCurrentDocHandle(null);
   currentDocFormat = null;
   currentDocUid = newSessionDocUid();
+  currentDocId = null; // new doc → minted on first save
   markCurrentDocClean();
   syncSingleDocSpeechRegistration();
   // The fresh doc is conceptually still pristine, but the user
@@ -3344,6 +3346,39 @@ let currentDocFormat: 'cmir' | 'docx' | null = null;
  *  recovery from a different journal). */
 let currentDocUid: string = newSessionDocUid();
 
+/** Stable per-document UUID for the Learn annotation layer (SPEC §3.1).
+ *  Read from the file on open; minted on first save (in-place) or forked
+ *  on Save As; null for a never-saved doc (its annotations key to
+ *  `currentDocUid` until first save, then `ensureDocId` rekeys them). */
+let currentDocId: string | null = null;
+
+/** The docId to ground new annotations against right now — the persistent
+ *  `currentDocId` once saved, else the session uid (rekeyed onto the real
+ *  docId at first save). Used by Create Flashcard / Ask AI. */
+function activeAnnotationDocId(): string {
+  return currentDocId ?? currentDocUid;
+}
+
+/** Return the doc's stable id, minting one (and rekeying any pre-save
+ *  annotations off the session uid) on first save of a never-saved doc. */
+function ensureDocId(): string {
+  if (!currentDocId) {
+    currentDocId = crypto.randomUUID();
+    learnStore.rekeyDoc(currentDocUid, currentDocId);
+  }
+  return currentDocId;
+}
+
+/** Adopt the docId read from an opened file (null ⇒ minted on next save)
+ *  and register the doc so the Learn "By file" view + open-in-context can
+ *  find it. */
+function adoptDocId(docId: string | null, name: string, handle: unknown, format: 'cmir' | 'docx' | null): void {
+  currentDocId = docId;
+  if (docId) {
+    learnStore.registerDoc({ docId, path: typeof handle === 'string' ? handle : null, name, format });
+  }
+}
+
 /** True while this window is still showing the untouched
  *  onboarding starter doc. False after any user action that makes
  *  the doc "real" — edit, Open, New, Save, recovery. In windows
@@ -3525,14 +3560,17 @@ async function routeOpenedFile(opened: OpenedFile): Promise<void> {
   try {
     let docNode: PMNode;
     let docThreads: Thread[] | undefined;
+    let docId: string | null = null;
     if (format === 'cmir') {
       const parsed = parseNative(opened.bytes);
       docNode = parsed.doc;
       docThreads = parsed.threads.length > 0 ? parsed.threads : undefined;
+      docId = parsed.docId;
     } else {
       const result = await fromDocxFull(opened.bytes);
       docNode = result.doc;
       docThreads = result.threads;
+      docId = result.docId;
     }
     // Opening replaces the current doc; clear its journal and
     // mint a fresh uid for the new session.
@@ -3542,6 +3580,7 @@ async function routeOpenedFile(opened: OpenedFile): Promise<void> {
     setCurrentDocHandle(opened.handle ?? null);
     currentDocFormat = format;
     currentDocUid = newSessionDocUid();
+    adoptDocId(docId, opened.name, opened.handle ?? null, format);
     markCurrentDocClean();
     syncSingleDocSpeechRegistration();
     markNonPristineStarter();
@@ -3575,14 +3614,17 @@ async function loadFileInPlace(file: {
 }): Promise<void> {
   let docNode: PMNode;
   let docThreads: Thread[] | undefined;
+  let docId: string | null = null;
   if (file.format === 'cmir') {
     const parsed = parseNative(file.bytes);
     docNode = parsed.doc;
     docThreads = parsed.threads.length > 0 ? parsed.threads : undefined;
+    docId = parsed.docId;
   } else {
     const result = await fromDocxFull(file.bytes);
     docNode = result.doc;
     docThreads = result.threads;
+    docId = result.docId;
   }
   void clearCurrentJournal();
   mountView(docNode, docThreads);
@@ -3590,6 +3632,7 @@ async function loadFileInPlace(file: {
   setCurrentDocHandle(file.handle);
   currentDocFormat = file.format;
   currentDocUid = newSessionDocUid();
+  adoptDocId(docId, file.filename, file.handle, file.format);
   markCurrentDocClean();
   syncSingleDocSpeechRegistration();
   markNonPristineStarter();
@@ -3660,6 +3703,7 @@ function mountFreshBlankDoc(): void {
   setCurrentDocHandle(null);
   currentDocFormat = null;
   currentDocUid = newSessionDocUid();
+  currentDocId = null; // new doc → minted on first save
   markCurrentDocClean();
   syncSingleDocSpeechRegistration();
   updateWindowTitle();
@@ -3822,6 +3866,7 @@ async function createSpeechDocInPlace(): Promise<boolean> {
   setCurrentDocHandle(null);
   currentDocFormat = null;
   currentDocUid = newSessionDocUid();
+  currentDocId = null; // new doc → minted on first save
   markCurrentDocClean();
   syncSingleDocSpeechRegistration();
   markNonPristineStarter();
@@ -3948,6 +3993,9 @@ async function serializeForSave(
     includeUndertags: boolean;
     readMode: boolean;
   },
+  /** Stable doc identity to embed (`.cmir` field / `.docx` docProps).
+   *  Omitted for derived/lossy exports, which stay clean (no identity). */
+  docId?: string,
 ): Promise<Uint8Array> {
   const docToExport = view ? view.state.doc : currentDoc;
   const exportDocNode = transformForExport(docToExport, {
@@ -3961,9 +4009,9 @@ async function serializeForSave(
     ? Array.from(getCommentsState(view.state).threads.values())
     : undefined;
   if (format === 'cmir') {
-    return serializeNative(exportDocNode, threads ? { threads } : undefined);
+    return serializeNative(exportDocNode, { ...(threads ? { threads } : {}), ...(docId ? { docId } : {}) });
   }
-  return toDocx(exportDocNode, threads ? { threads } : undefined);
+  return toDocx(exportDocNode, { ...(threads ? { threads } : {}), ...(docId ? { docId } : {}) });
 }
 
 /**
@@ -3997,18 +4045,40 @@ export async function runSaveAsFlow(): Promise<boolean> {
     choice.includeUndertags &&
     !choice.readMode;
   try {
-    const bytes = await serializeForSave(choice.format, {
-      includeComments: choice.includeComments,
-      includeAnalytics: choice.includeAnalytics,
-      includeUndertags: choice.includeUndertags,
-      readMode: choice.readMode,
-    });
+    // A full Save As is a distinct logical doc → fork a new docId (the
+    // original file keeps its own). Derived/lossy exports get no docId
+    // (clean copies). Single-doc only; multi-doc identity is deferred.
+    const forkDocId = isFullSave && !multiDocActive ? crypto.randomUUID() : undefined;
+    const bytes = await serializeForSave(
+      choice.format,
+      {
+        includeComments: choice.includeComments,
+        includeAnalytics: choice.includeAnalytics,
+        includeUndertags: choice.includeUndertags,
+        readMode: choice.readMode,
+      },
+      forkDocId,
+    );
     const result = await getHost().saveAs(choice.filename, bytes, {
       filters: saveFiltersForFormat(choice.format),
     });
     if (!result) return false;
     if (isFullSave) {
       commitSaveResult(result.name, result.handle ?? null, choice.format);
+      if (forkDocId) {
+        // Carry this doc's annotations onto the fork so the cards follow:
+        // copy from a saved doc (original keeps its set), or move from the
+        // session uid for a never-saved doc.
+        if (currentDocId) learnStore.copyDocAnnotations(currentDocId, forkDocId);
+        else learnStore.rekeyDoc(currentDocUid, forkDocId);
+        currentDocId = forkDocId;
+        learnStore.registerDoc({
+          docId: forkDocId,
+          path: typeof result.handle === 'string' ? result.handle : null,
+          name: result.name,
+          format: choice.format,
+        });
+      }
       markCurrentDocClean();
       multiDocNotifyFocusedSaved?.();
       // Successful save — the on-disk file IS the latest version, the
@@ -4045,15 +4115,30 @@ export async function runSaveFlow(): Promise<boolean> {
     return runSaveAsFlow();
   }
   try {
-    const bytes = await serializeForSave(file.format, {
-      // Silent saves preserve everything by default — the
-      // user-facing toggles only fire from the Save-As dialog.
-      includeComments: true,
-      includeAnalytics: true,
-      includeUndertags: true,
-      readMode: false,
-    });
+    // Single-doc: ensure a stable docId (minting + rekeying pre-save
+    // annotations on first save). Multi-doc identity is deferred.
+    const docId = multiDocActive ? undefined : ensureDocId();
+    const bytes = await serializeForSave(
+      file.format,
+      {
+        // Silent saves preserve everything by default — the
+        // user-facing toggles only fire from the Save-As dialog.
+        includeComments: true,
+        includeAnalytics: true,
+        includeUndertags: true,
+        readMode: false,
+      },
+      docId,
+    );
     await getHost().saveExisting(file.handle, bytes);
+    if (docId) {
+      learnStore.registerDoc({
+        docId,
+        path: typeof file.handle === 'string' ? file.handle : null,
+        name: file.filename ?? 'Untitled',
+        format: file.format,
+      });
+    }
     flashSaveSuccess();
     markNonPristineStarter();
     markCurrentDocClean();
@@ -4641,6 +4726,10 @@ function positionDropzone(): void {
   // a fixed CSS height on `.pmd-dropzone-runway-spacer`, gated on the
   // pill-hidden class — no measurement needed here.
 }
+// Load the per-user Learn annotation store (flashcards / schedules /
+// anchors) so review counts + the comments column have it available.
+void loadLearnStore();
+
 if (BOOT_MULTI_DOC_WORKSPACE) {
   void import('./multi-pane-shell.js').then(async (m) => {
     m.mountMultiPaneShell();

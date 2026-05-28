@@ -307,6 +307,28 @@ export class LearnStore {
     this.changed();
   }
 
+  /** Copy a doc's grounding to another docId (Save As fork): the new file
+   *  gets its own CardAnchors (same cardId — content + schedule stay
+   *  shared) and AiThreads (fresh threadIds). The source is untouched. */
+  copyDocAnnotations(fromId: string, toId: string): void {
+    if (fromId === toId) return;
+    let changed = false;
+    for (const a of this.anchorsForDoc(fromId)) {
+      this.anchors.push({ cardId: a.cardId, docId: toId, anchor: a.anchor });
+      changed = true;
+    }
+    for (const t of this.aiThreadsForDoc(fromId)) {
+      this.aiThreads.push({
+        ...t,
+        threadId: crypto.randomUUID(),
+        docId: toId,
+        comments: t.comments.map((c) => ({ ...c })),
+      });
+      changed = true;
+    }
+    if (changed) this.changed();
+  }
+
   /** Reassign annotations from a temporary session id to the real docId
    *  (first save of a previously-unsaved doc). */
   rekeyDoc(fromId: string, toId: string): void {
