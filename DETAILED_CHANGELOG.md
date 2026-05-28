@@ -7,6 +7,40 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **AI threads → local annotation layer (in progress; create + render).**
+  Migrating the "Ask AI about selection" explainer off comment threads
+  (round-tripping `comment_range` marks) onto the same per-user local
+  layer flashcards use (SPEC-learn-system §"one local layer"), so AI
+  questions never serialize into a shared `.docx`/`.cmir`. Design (per
+  the user): **local-only** (like flashcards) and **going-forward only**
+  (existing AI *comments* in documents stay as comments; no auto-migration).
+  - **Store.** Wired the previously-unused `AiThread` / `LocalComment`
+    scaffolding in `learn-store.ts`: added `getAiThread` and
+    `appendAiComment` alongside the existing `addAiThread` /
+    `setAiThreadAnchor` / `removeAiThread` / `aiThreadsForDoc`. AI threads
+    persist in the same host KV blob (`aiThreads[]`) keyed by `docId`.
+  - **Anchoring + highlight.** AI threads ground via the shared
+    `AnchorDescriptor` (`buildDescriptor`/`resolveDescriptor`) and paint a
+    **purple** decoration. The highlight plugin's `FlashcardRange` gained
+    a `kind: 'flashcard' | 'ai'` (mapped through edits + the drop-recovery
+    re-resolve); `buildDecos` picks `.pmd-ai-range` vs `.pmd-flashcard-range`.
+    `comments-ui`'s `refreshFlashcardAnchors` now resolves AI-thread
+    anchors too.
+  - **Create.** The `aiAskAboutSelection` command (`index.ts`) now mirrors
+    `createFlashcard`: build a descriptor, `ensureActiveDocId` +
+    `registerDoc` + `stampActiveFileDocId`, `learnStore.addAiThread`, then
+    `commentsColumn.activateAiThread`. **No `comment_range` mark.**
+  - **Render.** `comments-ui` render() adds AI threads as a third item
+    kind in the sorted column list (purple `pmd-ai-card`): producer
+    "ask" input when empty, collapsed preview, active conversation
+    (`LocalComment[]`) with reply box + two-click delete, plus a
+    re-ground row + Unanchored section (mirroring flashcards).
+  - **Deferred to next increment:** the model call itself — `askAi`
+    currently records the user's turn only; porting `invokeAi` (context
+    caching, Clod personas, Thinking… placeholder/ticker, `@AI`
+    re-invocation) to write `ai: true` turns into the local thread comes
+    next. The old comment-based `addAiThreadFromSelection` is now unused.
+
 - **Paste stamps fresh heading ids (nav pane works on pasted sections).**
   The heading nodes (pocket/hat/block/tag/analytic) carry a stable `id`
   that the nav pane keys expand/collapse, jump-to, and the 1/2/3/4 level

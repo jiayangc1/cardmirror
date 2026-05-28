@@ -181,3 +181,44 @@ describe('persistence + pub/sub', () => {
     expect(fn).toHaveBeenCalled();
   });
 });
+
+describe('AI threads (local annotation layer)', () => {
+  const thread = (threadId: string, docId: string) => ({
+    threadId,
+    docId,
+    comments: [],
+    anchor: desc('q'),
+    createdAt: NOW,
+  });
+
+  it('adds, scopes by doc, appends turns, and removes', () => {
+    const s = store();
+    s.addAiThread(thread('t1', 'docA'));
+    s.addAiThread(thread('t2', 'docB'));
+    expect(s.aiThreadsForDoc('docA').map((t) => t.threadId)).toEqual(['t1']);
+    expect(s.getAiThread('t1')?.docId).toBe('docA');
+
+    s.appendAiComment('t1', { author: 'Me', text: 'why?', at: NOW, ai: false });
+    s.appendAiComment('t1', { author: 'Clod (AI)', text: 'because', at: NOW, ai: true });
+    expect(s.getAiThread('t1')?.comments.map((c) => [c.text, c.ai ?? false])).toEqual([
+      ['why?', false],
+      ['because', true],
+    ]);
+
+    s.removeAiThread('t1');
+    expect(s.getAiThread('t1')).toBeUndefined();
+    expect(s.aiThreadsForDoc('docA')).toEqual([]);
+  });
+
+  it('round-trips AI threads through JSON', () => {
+    const s = store();
+    s.addAiThread(thread('t1', 'docA'));
+    s.appendAiComment('t1', { author: 'Me', text: 'q', at: NOW });
+    s.setAiThreadAnchor('t1', null); // unanchored
+    const s2 = new LearnStore();
+    s2.loadJson(s.toJson());
+    const t = s2.getAiThread('t1');
+    expect(t?.anchor).toBeNull();
+    expect(t?.comments[0]?.text).toBe('q');
+  });
+});

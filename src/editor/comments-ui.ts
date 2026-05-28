@@ -50,12 +50,15 @@ import {
   flashcardDropCount,
   type FlashcardRange,
 } from './learn-highlight-plugin.js';
-import type { CardAnchor } from './learn-store.js';
+import type { CardAnchor, AiThread, LocalComment } from './learn-store.js';
 
 /** Synthetic column-card id prefix for a flashcard, distinguishing it
  *  from a (numeric) comment thread id in the shared cardEls map / the
  *  `lastRanges` positioning map. */
 const FC_PREFIX = 'fc:';
+/** Synthetic column-card id prefix for an AI thread (local annotation
+ *  layer), distinct from comment-thread and flashcard ids. */
+const AI_PREFIX = 'ai:';
 
 /** Resolve the configured AI persona (name + pronouns) from
  *  settings. Centralized here so every consumer (invokeAi,
@@ -425,7 +428,15 @@ export class CommentsColumn {
       for (const a of learnStore.anchorsForDoc(docId)) {
         if (!a.anchor) continue; // explicitly unanchored
         const r = resolveDescriptor(view.state.doc, a.anchor);
-        if (r) resolved.push({ cardId: a.cardId, from: r.from, to: r.to });
+        if (r) resolved.push({ cardId: a.cardId, from: r.from, to: r.to, kind: 'flashcard' });
+      }
+      // AI threads (local annotation layer) resolve the same way; their
+      // ranges paint purple and live alongside flashcard ranges in the
+      // one highlight plugin.
+      for (const t of learnStore.aiThreadsForDoc(docId)) {
+        if (!t.anchor) continue;
+        const r = resolveDescriptor(view.state.doc, t.anchor);
+        if (r) resolved.push({ cardId: t.threadId, from: r.from, to: r.to, kind: 'ai' });
       }
     }
     view.dispatch(setFlashcardRangesTr(view.state, resolved));
@@ -499,7 +510,13 @@ export class CommentsColumn {
     const anchoredFc = fcAnchors.filter((a) => fcRangeMap.has(a.cardId));
     const unanchoredFc = fcAnchors.filter((a) => !fcRangeMap.has(a.cardId));
 
-    if (state.threads.size === 0 && fcAnchors.length === 0) {
+    // AI threads (local annotation layer) — resolved ranges share the
+    // flashcard plugin's map (keyed by threadId, a distinct id space).
+    const aiThreads = docId ? learnStore.aiThreadsForDoc(docId) : [];
+    const anchoredAi = aiThreads.filter((t) => fcRangeMap.has(t.threadId));
+    const unanchoredAi = aiThreads.filter((t) => !fcRangeMap.has(t.threadId));
+
+    if (state.threads.size === 0 && fcAnchors.length === 0 && aiThreads.length === 0) {
       // Empty early-bail BEFORE the O(doc) `collectRanges` walk: this
       // render fires from `dispatchTransaction` on every doc-changing
       // keystroke, so docs with no comments AND no flashcards would
@@ -537,6 +554,10 @@ export class CommentsColumn {
       const r = fcRangeMap.get(a.cardId);
       if (r) ranges.set(FC_PREFIX + a.cardId, r);
     }
+    for (const t of anchoredAi) {
+      const r = fcRangeMap.get(t.threadId);
+      if (r) ranges.set(AI_PREFIX + t.threadId, r);
+    }
     this.lastRanges = ranges;
 
     // Build the ordered list of cards (comments + anchored flashcards),
@@ -544,7 +565,7 @@ export class CommentsColumn {
     // comments) sink to the end.
     interface Item {
       id: string;
-      kind: 'comment' | 'flashcard';
+      kind: 'comment' | 'flashcard' | 'ai';
       cardId: string;
       sortKey: number;
     }
@@ -559,6 +580,15 @@ export class CommentsColumn {
         id: FC_PREFIX + a.cardId,
         kind: 'flashcard',
         cardId: a.cardId,
+        sortKey: r ? r.from : Number.MAX_SAFE_INTEGER,
+      });
+    }
+    for (const t of anchoredAi) {
+      const r = fcRangeMap.get(t.threadId);
+      items.push({
+        id: AI_PREFIX + t.threadId,
+        kind: 'ai',
+        cardId: t.threadId,
         sortKey: r ? r.from : Number.MAX_SAFE_INTEGER,
       });
     }
@@ -591,6 +621,12 @@ export class CommentsColumn {
           this.populateThread(el, thread, isActive);
           this.cardSigs.set(it.id, sig);
         }
+      } else if (it.kind === 'ai') {
+        const sig = 'a' + this.aiThreadSignature(it.cardId, isActive);
+        if (this.cardSigs.get(it.id) !== sig) {
+          this.populateAiThread(el, it.cardId, isActive);
+          this.cardSigs.set(it.id, sig);
+        }
       } else {
         const sig = 'f' + this.flashcardSignature(it.cardId, isActive);
         if (this.cardSigs.get(it.id) !== sig) {
@@ -600,8 +636,8 @@ export class CommentsColumn {
       }
       this.content.appendChild(el); // flow order
     }
-    // Unanchored flashcards → collapsible footer at the end of the list.
-    this.renderUnanchoredSection(unanchoredFc);
+    // Unanchored flashcards + AI threads → collapsible footer.
+    this.renderUnanchoredSection(unanchoredFc, unanchoredAi);
 
     // Keep the active card visible within the self-scrolling column.
     // `block:'nearest'` is a no-op when it's already in view, so this
@@ -788,8 +824,9 @@ export class CommentsColumn {
    *  the bottom of the pane (flashcards whose anchor didn't resolve —
    *  a foreign edit broke them, or they're linked to the file but not
    *  yet grounded to text). Positioned by `layoutCards`. */
-  private renderUnanchoredSection(unanchored: CardAnchor[]): void {
-    if (unanchored.length === 0) {
+  private renderUnanchoredSection(unanchored: CardAnchor[], unanchoredAi: AiThread[] = []): void {
+    const total = unanchored.length + unanchoredAi.length;
+    if (total === 0) {
       if (this.unanchoredEl) {
         this.unanchoredEl.remove();
         this.unanchoredEl = null;
@@ -806,21 +843,26 @@ export class CommentsColumn {
     const header = document.createElement('button');
     header.type = 'button';
     header.className = 'pmd-comments-unanchored-header';
-    header.textContent = `${this.unanchoredCollapsed ? '▸' : '▾'} Unanchored (${unanchored.length})`;
+    header.textContent = `${this.unanchoredCollapsed ? '▸' : '▾'} Unanchored (${total})`;
     header.addEventListener('click', () => {
       this.unanchoredCollapsed = !this.unanchoredCollapsed;
       // Re-render just this section + reflow (collapse changes height).
       const v = this.getView();
       if (!v) return;
-      const anchors = learnStore.anchorsForDoc(this.getDocId());
+      const did = this.getDocId();
       const map = flashcardRangeMap(v.state);
-      this.renderUnanchoredSection(anchors.filter((a) => !map.has(a.cardId)));
+      const fc = learnStore.anchorsForDoc(did).filter((a) => !map.has(a.cardId));
+      const ai = learnStore.aiThreadsForDoc(did).filter((t) => !map.has(t.threadId));
+      this.renderUnanchoredSection(fc, ai);
       this.relayoutCards();
     });
     el.appendChild(header);
     if (!this.unanchoredCollapsed) {
       for (const a of unanchored) {
         el.appendChild(this.renderUnanchoredRow(a));
+      }
+      for (const t of unanchoredAi) {
+        el.appendChild(this.renderUnanchoredAiRow(t));
       }
     }
     this.content.appendChild(el);
@@ -927,6 +969,308 @@ export class CommentsColumn {
     });
     actions.appendChild(del);
     return actions;
+  }
+
+  // ───────────────────────── AI threads (local layer) ────────────────
+  // AI explainer threads live in the per-user LearnStore (never in the
+  // document / never serialized), grounded by an AnchorDescriptor and
+  // highlighted purple via the shared highlight plugin — the same model
+  // as flashcards. These renderers mirror the comment-thread ones but
+  // read `AiThread` / `LocalComment` from the store instead of the
+  // comments plugin state.
+
+  /** Activate a freshly-created AI thread: resolve its highlight, scroll
+   *  to its text, and focus the question input. Called by the "Ask AI"
+   *  command after it adds the thread to the store. */
+  activateAiThread(threadId: string): void {
+    const itemId = AI_PREFIX + threadId;
+    this.activeThreadId = itemId;
+    this.activeBy = 'click';
+    this.refreshStickyDismissListener();
+    this.refreshFlashcardAnchors(); // resolve AI anchor → highlight + render
+    const r = this.lastRanges.get(itemId);
+    if (r) this.scrollToRange(r);
+    this.focusReplyForThread(itemId);
+  }
+
+  /** Signature gating an AI card's re-population: turns + active +
+   *  in-flight. */
+  private aiThreadSignature(threadId: string, isActive: boolean): string {
+    const t = learnStore.getAiThread(threadId);
+    return JSON.stringify({
+      a: isActive,
+      f: this.aiInFlight.has(threadId),
+      c: (t?.comments ?? []).map((c) => [c.author, c.text, c.ai ?? false]),
+    });
+  }
+
+  /** Fill an AI-thread card from the store. No turns → header + "ask"
+   *  input (producer state); collapsed → one-line preview; active →
+   *  the conversation + reply box + actions. Purple via `pmd-ai-card`. */
+  private populateAiThread(card: HTMLElement, threadId: string, isActive: boolean): void {
+    card.replaceChildren();
+    card.classList.add('pmd-ai-card');
+    card.classList.toggle('pmd-comment-thread-active', isActive);
+    const thread = learnStore.getAiThread(threadId);
+    if (!thread) return; // vanished — next render drops it
+
+    if (thread.comments.length === 0) {
+      // Producer state renders the same active or not (see signature),
+      // so the input doesn't get recreated — and lose focus — on a
+      // stray cursor move.
+      card.appendChild(this.renderAiHeader(threadId));
+      card.appendChild(this.buildAiInput(threadId, 'Ask a question', 'Ask'));
+      return;
+    }
+    if (!isActive) {
+      card.appendChild(this.renderAiPreview(thread));
+      return;
+    }
+    for (const c of thread.comments) card.appendChild(this.renderAiComment(c));
+    if (this.aiInFlight.has(threadId)) card.appendChild(this.renderAiThinkingPlaceholder());
+    card.appendChild(this.buildAiInput(threadId, 'Reply…', 'Reply'));
+    card.appendChild(this.buildAiActions(threadId));
+  }
+
+  /** Header for an AI card with no turns yet: purple AI badge +
+   *  persona name + a cancel (delete) button. */
+  private renderAiHeader(threadId: string): HTMLElement {
+    const block = document.createElement('div');
+    block.className = 'pmd-comment-root pmd-comment-pending pmd-comment-ai';
+    const header = document.createElement('header');
+    header.className = 'pmd-comment-header';
+    const badge = document.createElement('span');
+    badge.className = 'pmd-comment-initials';
+    badge.textContent = 'AI';
+    header.appendChild(badge);
+    const name = document.createElement('span');
+    name.className = 'pmd-comment-author';
+    name.textContent = aiAuthorName();
+    header.appendChild(name);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'pmd-comment-delete';
+    del.title = 'Cancel';
+    setIcon(del, 'close');
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.deleteAiThread(threadId);
+    });
+    header.appendChild(del);
+    block.appendChild(header);
+    return block;
+  }
+
+  private renderAiPreview(thread: AiThread): HTMLElement {
+    const block = document.createElement('div');
+    block.className = 'pmd-comment-preview pmd-comment-ai';
+    const first = thread.comments[0]!;
+    const badge = document.createElement('span');
+    badge.className = 'pmd-comment-initials';
+    if (first.ai) fillBadge(badge, first.author, 'AI');
+    else fillBadge(badge, first.author, '');
+    block.appendChild(badge);
+    const text = document.createElement('span');
+    text.className = 'pmd-comment-preview-text';
+    const body = first.text.replace(/\s+/g, ' ').trim();
+    text.textContent = body.length > 80 ? `${body.slice(0, 80).trimEnd()}…` : body || '(empty)';
+    block.appendChild(text);
+    if (thread.comments.length > 1) {
+      const count = document.createElement('span');
+      count.className = 'pmd-comment-preview-count';
+      count.textContent = `${thread.comments.length}`;
+      block.appendChild(count);
+    }
+    return block;
+  }
+
+  private renderAiComment(c: LocalComment): HTMLElement {
+    const block = document.createElement('div');
+    block.className = 'pmd-comment-reply';
+    if (c.ai) block.classList.add('pmd-comment-ai');
+    const header = document.createElement('header');
+    header.className = 'pmd-comment-header';
+    const badge = document.createElement('span');
+    badge.className = 'pmd-comment-initials';
+    fillBadge(badge, c.author, c.ai ? 'AI' : '');
+    header.appendChild(badge);
+    const name = document.createElement('span');
+    name.className = 'pmd-comment-author';
+    name.textContent = c.author || 'Unknown';
+    header.appendChild(name);
+    if (c.at) {
+      const date = document.createElement('span');
+      date.className = 'pmd-comment-date';
+      date.textContent = formatDate(c.at);
+      header.appendChild(date);
+    }
+    block.appendChild(header);
+    const body = document.createElement('div');
+    body.className = 'pmd-comment-body';
+    for (const line of c.text.split('\n')) {
+      const p = document.createElement('p');
+      p.textContent = line;
+      body.appendChild(p);
+    }
+    block.appendChild(body);
+    return block;
+  }
+
+  /** Question / reply input for an AI thread. Mirrors `buildInputForm`
+   *  but keyed by the AI item id and routed to `askAi`. */
+  private buildAiInput(threadId: string, placeholder: string, submitLabel: string): HTMLFormElement {
+    const itemId = AI_PREFIX + threadId;
+    const form = document.createElement('form');
+    form.className = 'pmd-comment-reply-form';
+    const ta = document.createElement('textarea');
+    ta.className = 'pmd-comment-reply-input';
+    ta.rows = 2;
+    ta.placeholder = placeholder;
+    if (this.activeReplyThreadId === itemId) ta.value = this.activeReplyText;
+    ta.addEventListener('focus', () => {
+      this.activeReplyThreadId = itemId;
+      this.activeReplyText = ta.value;
+    });
+    ta.addEventListener('input', () => {
+      if (this.activeReplyThreadId === itemId) this.activeReplyText = ta.value;
+    });
+    ta.addEventListener('blur', () => {
+      if (this.suppressBlurReset) return;
+      this.activeReplyThreadId = null;
+      this.activeReplyText = '';
+    });
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+    form.appendChild(ta);
+    const submitBtn = document.createElement('button');
+    submitBtn.type = 'submit';
+    submitBtn.className = 'pmd-comment-reply-submit';
+    submitBtn.textContent = submitLabel;
+    form.appendChild(submitBtn);
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const t = ta.value.trim();
+      if (!t) return;
+      this.askAi(threadId, t);
+    });
+    return form;
+  }
+
+  /** Record a user turn on an AI thread. (Phase 2 will fire the model
+   *  request here and append the reply as an `ai: true` turn.) */
+  private askAi(threadId: string, text: string): void {
+    this.suppressBlurReset = true;
+    this.activeReplyThreadId = null;
+    this.activeReplyText = '';
+    this.activeThreadId = AI_PREFIX + threadId;
+    this.activeBy = 'click';
+    learnStore.appendAiComment(threadId, {
+      author: settings.get('commentAuthor'),
+      text,
+      at: new Date().toISOString(),
+      ai: false,
+    });
+    this.suppressBlurReset = false;
+    // TODO(phase 2): invoke the model over the local thread and append
+    // its reply (`ai: true`); keep the Thinking… placeholder + ticker.
+  }
+
+  /** Action row for an active AI card: two-click Delete. */
+  private buildAiActions(threadId: string): HTMLElement {
+    const actions = document.createElement('div');
+    actions.className = 'pmd-flashcard-card-actions';
+    actions.appendChild(this.buildAiDeleteButton(threadId));
+    return actions;
+  }
+
+  /** Shared two-click delete button for an AI thread. */
+  private buildAiDeleteButton(threadId: string): HTMLButtonElement {
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'pmd-flashcard-card-action pmd-flashcard-card-delete';
+    del.textContent = 'Delete';
+    let armed = false;
+    let timer: number | null = null;
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!armed) {
+        armed = true;
+        del.textContent = 'Delete?';
+        del.classList.add('is-armed');
+        timer = window.setTimeout(() => {
+          armed = false;
+          del.textContent = 'Delete';
+          del.classList.remove('is-armed');
+        }, 3000);
+        return;
+      }
+      if (timer !== null) window.clearTimeout(timer);
+      this.deleteAiThread(threadId);
+    });
+    return del;
+  }
+
+  private deleteAiThread(threadId: string): void {
+    if (this.activeThreadId === AI_PREFIX + threadId) {
+      this.activeThreadId = null;
+      this.activeBy = null;
+      this.refreshStickyDismissListener();
+    }
+    // Store removal fires the subscription → re-resolve + re-render.
+    learnStore.removeAiThread(threadId);
+  }
+
+  /** Re-ground an unanchored AI thread to the current editor selection
+   *  (mirrors `regroundCard`). */
+  private regroundAiThread(threadId: string): void {
+    const view = this.getView();
+    if (!view) return;
+    const sel = view.state.selection;
+    if (sel.empty) {
+      showToast('Select text in the document, then click Re-ground.');
+      return;
+    }
+    const descriptor = buildDescriptor(view.state.doc, sel.from, sel.to);
+    learnStore.setAiThreadAnchor(threadId, descriptor);
+    showToast('AI note re-grounded.');
+  }
+
+  private renderUnanchoredAiRow(thread: AiThread): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'pmd-comments-unanchored-row';
+    const front = document.createElement('div');
+    front.className = 'pmd-comments-unanchored-front';
+    const first = thread.comments[0];
+    const body = (first?.text ?? '').replace(/\s+/g, ' ').trim();
+    front.textContent = (body.length > 80 ? `${body.slice(0, 80).trimEnd()}…` : body) || 'AI note';
+    row.appendChild(front);
+    const was = document.createElement('div');
+    was.className = 'pmd-comments-unanchored-was';
+    if (thread.anchor && thread.anchor.quote) {
+      const q = thread.anchor.quote.replace(/\s+/g, ' ').trim();
+      was.textContent = `was attached to: “${q.length > 70 ? q.slice(0, 70).trimEnd() + '…' : q}”`;
+    } else {
+      was.textContent = 'not yet grounded to text';
+    }
+    row.appendChild(was);
+    const actions = document.createElement('div');
+    actions.className = 'pmd-flashcard-card-actions';
+    const rg = document.createElement('button');
+    rg.type = 'button';
+    rg.className = 'pmd-flashcard-card-action';
+    rg.textContent = 'Re-ground';
+    rg.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.regroundAiThread(thread.threadId);
+    });
+    actions.appendChild(rg);
+    actions.appendChild(this.buildAiDeleteButton(thread.threadId));
+    row.appendChild(actions);
+    return row;
   }
 
   /** One-line preview used when a thread is collapsed. Shows the

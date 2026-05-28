@@ -221,9 +221,22 @@ export class LearnStore {
     this.changed();
   }
 
+  getAiThread(threadId: string): AiThread | undefined {
+    return this.aiThreads.find((t) => t.threadId === threadId);
+  }
+
   addAiThread(thread: AiThread): void {
     this.aiThreads.push(thread);
     this.changed();
+  }
+
+  /** Append a turn (user question or AI reply) to an AI thread. */
+  appendAiComment(threadId: string, comment: LocalComment): void {
+    const t = this.aiThreads.find((x) => x.threadId === threadId);
+    if (t) {
+      t.comments.push(comment);
+      this.changed();
+    }
   }
 
   /** AI thread anchor update (or null to unanchor). */

@@ -59,8 +59,12 @@ describe('paste heading ids', () => {
 
   it('transformPasted stamps every pasted heading with a fresh non-null id', () => {
     const plugin = buildPastePlugin(ctx);
-    const transform = plugin.props.transformPasted!;
-    const slice = transform(copyPasteParse(pocket('P'), block('B'), cardWith('C')), null as never);
+    const slice = plugin.props.transformPasted!.call(
+      plugin,
+      copyPasteParse(pocket('P'), block('B'), cardWith('C')),
+      null as never,
+      false,
+    );
 
     const entries = sliceIds(slice.content);
     expect(entries.map((e) => e.type)).toEqual(['pocket', 'block', 'tag']);

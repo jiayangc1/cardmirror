@@ -24,6 +24,10 @@ export interface FlashcardRange {
   cardId: string;
   from: number;
   to: number;
+  /** Which annotation kind this range belongs to — picks the highlight
+   *  color (accent for flashcards, purple for AI threads). Defaults to
+   *  flashcard when absent. */
+  kind?: 'flashcard' | 'ai';
 }
 
 interface Range {
@@ -60,7 +64,7 @@ function buildDecos(
     .filter((r) => r.to > r.from)
     .map((r) =>
       Decoration.inline(r.from, r.to, {
-        class: 'pmd-flashcard-range',
+        class: r.kind === 'ai' ? 'pmd-ai-range' : 'pmd-flashcard-range',
         'data-card-id': r.cardId,
       }),
     );
@@ -103,7 +107,7 @@ export const learnHighlightPlugin = new Plugin<HighlightState>({
       let dropped = 0;
       for (const r of prev.ranges) {
         const m = mapRange(r, tr);
-        if (m) mapped.push({ cardId: r.cardId, from: m.from, to: m.to });
+        if (m) mapped.push({ cardId: r.cardId, from: m.from, to: m.to, kind: r.kind });
         else dropped += 1;
       }
       const active = prev.active ? mapRange(prev.active, tr) : null;

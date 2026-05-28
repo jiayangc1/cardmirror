@@ -825,14 +825,44 @@ const ribbonContext: RibbonContext = {
   },
   aiAskAboutSelection: () => {
     if (!view || !commentsColumn) return;
-    const newId = commentsColumn.addAiThreadFromSelection(view);
-    if (!newId) return;
+    if (!settings.get('aiFeaturesEnabled')) {
+      showToast('AI features are disabled — enable them in Settings.');
+      return;
+    }
+    const sel = view.state.selection;
+    if (sel.empty) {
+      showToast('Select text to ask about.');
+      return;
+    }
+    // AI threads live in the local annotation layer (per-user, never
+    // serialized into the shared doc) — anchored by descriptor + a
+    // purple highlight decoration, exactly like flashcards. No
+    // comment_range mark, so the question never leaks into .docx/.cmir.
+    const descriptor = buildDescriptor(view.state.doc, sel.from, sel.to);
+    const docId = ensureActiveDocId();
+    const threadId = crypto.randomUUID();
+    learnStore.addAiThread({
+      threadId,
+      docId,
+      comments: [],
+      anchor: descriptor,
+      createdAt: new Date().toISOString(),
+    });
+    // Register the doc (even unsaved) so it's known to the store, and
+    // stamp the id into the file now so the note re-associates on reload.
+    const f = activeFile();
+    learnStore.registerDoc({
+      docId,
+      path: typeof f.handle === 'string' ? f.handle : null,
+      name: f.filename ?? 'Untitled',
+      format: f.format,
+    });
+    void stampActiveFileDocId(docId);
     if (commentsColumnEl?.hidden) {
       commentsColumn.setVisible(true);
       commentsToggleBtn?.setAttribute('aria-pressed', 'true');
     }
-    commentsColumn.render();
-    commentsColumn.focusReplyForThread(newId);
+    commentsColumn.activateAiThread(threadId);
   },
   aiCreateCite: () => {
     if (!view) return;
