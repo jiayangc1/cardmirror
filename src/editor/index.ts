@@ -3363,6 +3363,14 @@ function scheduleHeavyUpdate(): void {
     pendingHeavyUpdate = null;
     if (!view) return;
     navPanel.update(view.state.doc);
+    // Re-apply the caret highlight now that `update()` has rebuilt
+    // `liEntries` with fresh positions. The synchronous `setCaretHeading`
+    // in `dispatchTransaction` ran against stale positions (it fires
+    // before this debounced rebuild) — fine for small edits, but a
+    // structural change like a drag-move leaves the wrong heading
+    // highlighted until the next caret movement. Re-running here against
+    // the rebuilt positions corrects it.
+    navPanel.setCaretHeading(view.state.selection.from);
     refreshWordCount();
     if (needsCommentsGC) {
       needsCommentsGC = false;

@@ -287,6 +287,13 @@ see `DETAILED_CHANGELOG.md`.
   heading pinned to the top of the view — for both moves and copies, in
   single-document windows and across panes.
 
+- **The outline's blue "you are here" highlight now follows big edits.**
+  After a structural change like dragging a section to a new spot, the
+  navigation pane could highlight the wrong heading (it scanned cached
+  positions that hadn't caught up with the move) and stayed wrong until
+  you next moved the cursor. It now re-checks once the outline rebuilds,
+  so the highlight lands on the heading your cursor is actually in.
+
 - **Large `.docx` files no longer fail to open with "Entity
   expansion limit exceeded".** The XML parser shipped a "billion
   laughs" safety cap that counted every ordinary `&amp;` / `&lt;` /

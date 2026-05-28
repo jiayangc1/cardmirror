@@ -34,6 +34,19 @@ in each release, see `CHANGELOG.md`.
   `Selection` is now a value import from `prosemirror-state`;
   `drag-controller.ts` now imports `preciseScrollIntoView`.
 
+- **Nav-pane caret highlight re-applies after the debounced rebuild.**
+  `dispatchTransaction` calls `navPanel.setCaretHeading(selection.from)`
+  synchronously, but that scans `liEntries`' *cached* positions — which
+  only refresh in the debounced `scheduleHeavyUpdate` → `navPanel.update`
+  (~200ms). For small edits the drift is harmless (the comment on
+  `setCaretHeading` already notes this), but a structural change like a
+  drag-move leaves the wrong heading highlighted, and `update()` never
+  re-ran the highlight, so it stayed wrong until the next caret movement.
+  The heavy-update callback now calls `setCaretHeading(selection.from)`
+  immediately after `navPanel.update`, against the freshly-rebuilt
+  positions, so the highlight self-corrects. Single-doc path only; the
+  multi-pane per-pane nav doesn't track the caret highlight at all.
+
 - **Comments column: Docs-like reflow layout.** `comments-ui.ts`'s
   `render()` no longer wipes + rebuilds the card DOM each pass — it
   reconciles a persistent `Map<threadId, element>` (and `fc:<cardId>`
