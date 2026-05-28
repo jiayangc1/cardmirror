@@ -38,9 +38,16 @@ import { makeActivityStage, cycleActivityText } from './ai/activity-cycler.js';
 import { showToast } from './toast.js';
 import { scheduleIdle, cancelIdle, type IdleHandle } from './idle-scheduler.js';
 import { setIcon } from './icons';
-import { learnStore } from './learn-store-host.js';
+import { learnStore, localToday } from './learn-store-host.js';
 import { resolveDescriptor } from './learn-anchor.js';
-import { setFlashcardRangesTr, type FlashcardRange } from './learn-highlight-plugin.js';
+import { isDue } from './learn-scheduler.js';
+import { setFlashcardRangesTr, flashcardRangeMap, type FlashcardRange } from './learn-highlight-plugin.js';
+import type { CardAnchor } from './learn-store.js';
+
+/** Synthetic column-card id prefix for a flashcard, distinguishing it
+ *  from a (numeric) comment thread id in the shared cardEls map / the
+ *  `lastRanges` positioning map. */
+const FC_PREFIX = 'fc:';
 
 /** Resolve the configured AI persona (name + pronouns) from
  *  settings. Centralized here so every consumer (invokeAi,
@@ -202,8 +209,16 @@ export class CommentsColumn {
   private cardResizeObserver: ResizeObserver | null = null;
   /** Latest thread→range map, kept so a persistent card's once-bound
    *  click handler can look up its current range (ranges change as
-   *  the doc is edited, but the handler is attached only once). */
+   *  the doc is edited, but the handler is attached only once). Keyed
+   *  by comment threadId and by `fc:<cardId>` for flashcards. */
   private lastRanges: Map<string, { from: number; to: number }> = new Map();
+  /** The "Unanchored (n)" section element at the bottom of the pane
+   *  (flashcards whose anchor didn't resolve). Persistent + positioned
+   *  by layoutCards below the anchored cards. Null when none. */
+  private unanchoredEl: HTMLElement | null = null;
+  /** Whether the Unanchored section is collapsed (persists across
+   *  renders within a session). */
+  private unanchoredCollapsed = false;
 
   /** Resolve the focused doc's annotation id (single-doc global or the
    *  focused multi-pane record). Flashcards for this id are resolved +
@@ -391,10 +406,9 @@ export class CommentsColumn {
       // created / edited elsewhere re-resolve + re-render while open.
       this.refreshFlashcardAnchors();
       if (!this.learnUnsub) {
-        this.learnUnsub = learnStore.subscribe(() => {
-          this.refreshFlashcardAnchors();
-          this.scheduleRender();
-        });
+        // Re-resolve + re-render when a card is created/edited/deleted
+        // elsewhere (refreshFlashcardAnchors renders for us).
+        this.learnUnsub = learnStore.subscribe(() => this.refreshFlashcardAnchors());
       }
     } else {
       if (this.learnUnsub) {
@@ -428,6 +442,10 @@ export class CommentsColumn {
       }
     }
     view.dispatch(setFlashcardRangesTr(view.state, resolved));
+    // The range-set transaction is doc-neutral, so it doesn't trip the
+    // editor's render trigger — render explicitly so the flashcard
+    // cards (which read the new resolved ranges) appear/update.
+    this.render();
   }
 
   /** Re-render the column from the current plugin state + doc.
@@ -481,14 +499,24 @@ export class CommentsColumn {
     if (this.root.hidden) return;
     const state = getCommentsState(view.state);
 
-    if (state.threads.size === 0) {
-      // Empty-comments early-bail BEFORE the O(doc) `collectRanges`
-      // walk: this render fires from `dispatchTransaction` on every
-      // doc-changing keystroke, so docs with no comments would
-      // otherwise pay a full-doc walk per keystroke just to populate
-      // an empty-state placeholder.
+    // Flashcards anchored to the focused doc. Cheap store/plugin reads
+    // (resolved ranges are already edit-tracked by the highlight
+    // plugin), done before the empty-bail so a doc with only flashcards
+    // still renders.
+    const docId = this.getDocId();
+    const fcAnchors = docId ? learnStore.anchorsForDoc(docId) : [];
+    const fcRangeMap = flashcardRangeMap(view.state);
+    const anchoredFc = fcAnchors.filter((a) => fcRangeMap.has(a.cardId));
+    const unanchoredFc = fcAnchors.filter((a) => !fcRangeMap.has(a.cardId));
+
+    if (state.threads.size === 0 && fcAnchors.length === 0) {
+      // Empty early-bail BEFORE the O(doc) `collectRanges` walk: this
+      // render fires from `dispatchTransaction` on every doc-changing
+      // keystroke, so docs with no comments AND no flashcards would
+      // otherwise pay a full-doc walk per keystroke.
       this.clearAllCards();
       this.content.innerHTML = '';
+      this.unanchoredEl = null;
       this.root.classList.add('pmd-comments-empty-state');
       const empty = document.createElement('div');
       empty.className = 'pmd-comments-empty';
@@ -502,6 +530,12 @@ export class CommentsColumn {
     const placeholder = this.content.querySelector('.pmd-comments-empty');
     if (placeholder) placeholder.remove();
     const ranges = collectRanges(view.state.doc);
+    // Merge resolved flashcard ranges (synthetic `fc:` ids) so
+    // layoutCards positions flashcard cards next to their text too.
+    for (const a of anchoredFc) {
+      const r = fcRangeMap.get(a.cardId);
+      if (r) ranges.set(FC_PREFIX + a.cardId, r);
+    }
     this.lastRanges = ranges;
 
     // Iterate threads in document order so the column matches the
@@ -514,7 +548,8 @@ export class CommentsColumn {
     // Reconcile: reuse persistent card elements (so positions animate
     // and the per-card ResizeObserver tracks height changes), only
     // re-populating a card whose content/active signature changed.
-    const wantedIds = new Set(orderedIds);
+    const wantedIds = new Set<string>(orderedIds);
+    for (const a of anchoredFc) wantedIds.add(FC_PREFIX + a.cardId);
     for (const [id, el] of this.cardEls) {
       if (!wantedIds.has(id)) {
         this.cardResizeObserver?.unobserve(el);
@@ -528,7 +563,7 @@ export class CommentsColumn {
       if (!thread) continue;
       const isActive = this.activeThreadId === id;
       const el = this.ensureCardEl(id);
-      const sig = this.threadSignature(thread, isActive);
+      const sig = 'c' + this.threadSignature(thread, isActive);
       if (this.cardSigs.get(id) !== sig) {
         this.populateThread(el, thread, isActive);
         this.cardSigs.set(id, sig);
@@ -537,6 +572,20 @@ export class CommentsColumn {
       // existing child moves it). Cheap when already in order.
       this.content.appendChild(el);
     }
+    // Anchored flashcard cards — positioned by layoutCards like comments.
+    for (const a of anchoredFc) {
+      const id = FC_PREFIX + a.cardId;
+      const isActive = this.activeThreadId === id;
+      const el = this.ensureCardEl(id);
+      const sig = 'f' + this.flashcardSignature(a.cardId, isActive);
+      if (this.cardSigs.get(id) !== sig) {
+        this.populateFlashcard(el, a.cardId, isActive);
+        this.cardSigs.set(id, sig);
+      }
+      this.content.appendChild(el);
+    }
+    // Unanchored flashcards → collapsible section pinned at the bottom.
+    this.renderUnanchoredSection(unanchoredFc);
 
     // Realize content-visibility:auto wrappers that hold a comment
     // range before we read positions. Without this, multiple
@@ -661,7 +710,9 @@ export class CommentsColumn {
   ): void {
     const cards = Array.from(this.root.querySelectorAll<HTMLElement>('.pmd-comment-thread'));
     if (cards.length === 0) {
-      this.root.style.minHeight = '';
+      // No anchored cards — but the Unanchored section may still need
+      // placing (e.g. all flashcards lost their anchor).
+      this.positionUnanchored(0);
       return;
     }
     const columnRect = this.root.getBoundingClientRect();
@@ -759,12 +810,27 @@ export class CommentsColumn {
       if (!it.card.classList.contains('pmd-card-settled')) unsettled.push(it.card);
       maxBottom = Math.max(maxBottom, it.actualTop + it.height);
     }
-    this.root.style.minHeight = `${maxBottom}px`;
+    this.positionUnanchored(maxBottom);
     if (unsettled.length > 0) {
       requestAnimationFrame(() => {
         for (const c of unsettled) c.classList.add('pmd-card-settled');
       });
     }
+  }
+
+  /** Pin the Unanchored section below the anchored cards and size the
+   *  column to fit it. Also the sole place that sets `minHeight` so the
+   *  section's height is always included. */
+  private positionUnanchored(cardsBottom: number): void {
+    const el = this.unanchoredEl;
+    if (!el || !el.parentNode) {
+      this.root.style.minHeight = cardsBottom > 0 ? `${cardsBottom}px` : '';
+      return;
+    }
+    const top = cardsBottom > 0 ? cardsBottom + 12 : 0;
+    el.style.top = `${top}px`;
+    el.classList.add('pmd-laid-out');
+    this.root.style.minHeight = `${top + el.offsetHeight}px`;
   }
 
   /** Get or create the persistent card element for a thread. The
@@ -846,6 +912,135 @@ export class CommentsColumn {
     this.cardEls.clear();
     this.cardSigs.clear();
     this.lastRanges = new Map();
+    if (this.unanchoredEl) {
+      this.unanchoredEl.remove();
+      this.unanchoredEl = null;
+    }
+  }
+
+  /** Signature gating a flashcard card's re-population: card content +
+   *  schedule state + active. (Range is position-only → relayout.) */
+  private flashcardSignature(cardId: string, isActive: boolean): string {
+    const def = learnStore.getCard(cardId);
+    const sched = learnStore.getSchedule(cardId);
+    return JSON.stringify({
+      a: isActive,
+      t: def?.type,
+      f: def?.front,
+      b: def?.back,
+      s: sched?.state,
+      d: sched?.dueOn,
+    });
+  }
+
+  /** Status chip for a card's schedule — "New" / "Due" / "Due <date>" /
+   *  "Suspended" — mirroring the manage GUI's wording. */
+  private flashcardChip(cardId: string): { text: string; cls: string } {
+    const s = learnStore.getSchedule(cardId);
+    if (!s) return { text: '', cls: '' };
+    if (s.state === 'suspended') return { text: 'Suspended', cls: 'is-suspended' };
+    if (s.state === 'new') return { text: 'New', cls: '' };
+    return isDue(s, localToday()) ? { text: 'Due', cls: 'is-due' } : { text: `Due ${s.dueOn}`, cls: '' };
+  }
+
+  /** Fill a flashcard card. Collapsed shows the front; active also
+   *  reveals the back (Q&A). The element persists across renders so it
+   *  reflows with the comment cards. */
+  private populateFlashcard(card: HTMLElement, cardId: string, isActive: boolean): void {
+    card.replaceChildren();
+    card.classList.add('pmd-flashcard-card');
+    card.classList.toggle('pmd-comment-thread-active', isActive);
+    const def = learnStore.getCard(cardId);
+    if (!def) return; // card vanished (deleted elsewhere) — next render drops it
+
+    const header = document.createElement('header');
+    header.className = 'pmd-flashcard-card-header';
+    const badge = document.createElement('span');
+    badge.className = 'pmd-flashcard-card-badge';
+    badge.textContent = def.type === 'cloze' ? 'Cloze' : 'Q&A';
+    header.appendChild(badge);
+    const chip = this.flashcardChip(cardId);
+    if (chip.text) {
+      const chipEl = document.createElement('span');
+      chipEl.className = `pmd-flashcard-card-chip ${chip.cls}`;
+      chipEl.textContent = chip.text;
+      header.appendChild(chipEl);
+    }
+    card.appendChild(header);
+
+    const front = document.createElement('div');
+    front.className = 'pmd-flashcard-card-front';
+    front.textContent = def.front;
+    card.appendChild(front);
+    if (isActive && def.type === 'qa' && def.back) {
+      const back = document.createElement('div');
+      back.className = 'pmd-flashcard-card-back';
+      back.textContent = def.back;
+      card.appendChild(back);
+    }
+  }
+
+  /** Render / update the collapsible "Unanchored (n)" section pinned at
+   *  the bottom of the pane (flashcards whose anchor didn't resolve —
+   *  a foreign edit broke them, or they're linked to the file but not
+   *  yet grounded to text). Positioned by `layoutCards`. */
+  private renderUnanchoredSection(unanchored: CardAnchor[]): void {
+    if (unanchored.length === 0) {
+      if (this.unanchoredEl) {
+        this.unanchoredEl.remove();
+        this.unanchoredEl = null;
+      }
+      return;
+    }
+    let el = this.unanchoredEl;
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'pmd-comments-unanchored';
+      this.unanchoredEl = el;
+    }
+    el.replaceChildren();
+    const header = document.createElement('button');
+    header.type = 'button';
+    header.className = 'pmd-comments-unanchored-header';
+    header.textContent = `${this.unanchoredCollapsed ? '▸' : '▾'} Unanchored (${unanchored.length})`;
+    header.addEventListener('click', () => {
+      this.unanchoredCollapsed = !this.unanchoredCollapsed;
+      // Re-render just this section + reflow (collapse changes height).
+      const v = this.getView();
+      if (!v) return;
+      const anchors = learnStore.anchorsForDoc(this.getDocId());
+      const map = flashcardRangeMap(v.state);
+      this.renderUnanchoredSection(anchors.filter((a) => !map.has(a.cardId)));
+      this.relayoutCards();
+    });
+    el.appendChild(header);
+    if (!this.unanchoredCollapsed) {
+      for (const a of unanchored) {
+        el.appendChild(this.renderUnanchoredRow(a));
+      }
+    }
+    this.content.appendChild(el);
+  }
+
+  private renderUnanchoredRow(anchor: CardAnchor): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'pmd-comments-unanchored-row';
+    const def = learnStore.getCard(anchor.cardId);
+    const front = document.createElement('div');
+    front.className = 'pmd-comments-unanchored-front';
+    const body = (def?.front ?? '').replace(/\s+/g, ' ').trim();
+    front.textContent = body.length > 80 ? `${body.slice(0, 80).trimEnd()}…` : body || '(empty card)';
+    row.appendChild(front);
+    const was = document.createElement('div');
+    was.className = 'pmd-comments-unanchored-was';
+    if (anchor.anchor && anchor.anchor.quote) {
+      const q = anchor.anchor.quote.replace(/\s+/g, ' ').trim();
+      was.textContent = `was attached to: “${q.length > 70 ? q.slice(0, 70).trimEnd() + '…' : q}”`;
+    } else {
+      was.textContent = 'not yet grounded to text';
+    }
+    row.appendChild(was);
+    return row;
   }
 
   /** One-line preview used when a thread is collapsed. Shows the

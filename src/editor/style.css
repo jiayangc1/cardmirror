@@ -5201,6 +5201,102 @@ body.pmd-comments-resize-active {
   .pmd-comment-thread.pmd-card-settled { transition: none; }
 }
 
+/* Flashcard cards in the column — same positioned-card machinery as
+   comments, with an accent left-edge so the two annotation kinds read
+   apart. */
+.pmd-comment-thread.pmd-flashcard-card {
+  border-left: 3px solid var(--pmd-c-accent);
+}
+.pmd-flashcard-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.3rem;
+}
+.pmd-flashcard-card-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--pmd-c-accent) 16%, transparent);
+  color: var(--pmd-c-accent);
+}
+.pmd-flashcard-card-chip {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--pmd-c-text-muted);
+}
+.pmd-flashcard-card-chip.is-due { color: var(--pmd-c-accent); font-weight: 600; }
+.pmd-flashcard-card-chip.is-suspended { color: var(--pmd-c-warning); }
+.pmd-flashcard-card-front {
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--pmd-c-text);
+}
+.pmd-flashcard-card:not(.pmd-comment-thread-active) .pmd-flashcard-card-front {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pmd-flashcard-card-back {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--pmd-c-border-soft);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--pmd-c-text-muted);
+}
+
+/* Unanchored section — pinned below the anchored cards (top set by
+   layoutCards). Absolute like the cards so it scrolls with the editor. */
+.pmd-comments-unanchored {
+  position: absolute;
+  left: 0.6rem;
+  right: 0.6rem;
+  top: 0;
+  visibility: hidden;
+  background: var(--pmd-c-surface);
+  border: 1px dashed var(--pmd-c-border-soft);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  box-sizing: border-box;
+}
+.pmd-comments-unanchored.pmd-laid-out { visibility: visible; }
+.pmd-comments-unanchored-header {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pmd-c-text-muted);
+  cursor: pointer;
+  padding: 0.2rem 0.1rem;
+}
+.pmd-comments-unanchored-row {
+  padding: 0.35rem 0.1rem;
+  border-top: 1px solid var(--pmd-c-border-soft);
+}
+.pmd-comments-unanchored-front {
+  font-size: 0.82rem;
+  color: var(--pmd-c-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pmd-comments-unanchored-was {
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--pmd-c-text-muted);
+  margin-top: 0.15rem;
+}
+
 /* Active card: expanded, slight highlight + accent border so the
    user can see which thread is anchored to their selection. */
 .pmd-comment-thread-active {
