@@ -611,6 +611,13 @@ export class CommentsColumn {
     if (!view) return;
     if (this.root.hidden) return;
     const ranges = collectRanges(view.state.doc);
+    // Merge the resolved flashcard ranges too (synthetic `fc:` ids) —
+    // otherwise a relayout (ResizeObserver reflow on expand/collapse,
+    // editor resize) would drop them and flashcard cards would fall to
+    // top:0. render() merges the same set.
+    for (const [cardId, r] of flashcardRangeMap(view.state)) {
+      ranges.set(FC_PREFIX + cardId, r);
+    }
     this.lastRanges = ranges;
     this.realizeCommentWrappers(view, ranges);
     this.layoutCards(view, ranges);
@@ -816,19 +823,45 @@ export class CommentsColumn {
     }
   }
 
+  /** Nearest scrollable ancestor of the column (single-doc: `#app`).
+   *  Used to keep the page scroll steady across a `minHeight` change. */
+  private scrollAncestor(): HTMLElement | null {
+    let el: HTMLElement | null = this.root.parentElement;
+    while (el && el !== document.body) {
+      const oy = getComputedStyle(el).overflowY;
+      if (oy === 'auto' || oy === 'scroll') return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
   /** Pin the Unanchored section below the anchored cards and size the
-   *  column to fit it. Also the sole place that sets `minHeight` so the
-   *  section's height is always included. */
+   *  column to fit it. The sole place that sets `minHeight` so the
+   *  section's height is always included.
+   *
+   *  Changing `minHeight` changes the page's scroll height, which jolts
+   *  the view when a card expands/collapses. In single-doc (where the
+   *  column shares the page scroll and relayout is NOT scroll-driven) we
+   *  capture + restore the scroll so the view stays put. In multi-pane
+   *  relayout fires on scroll, so restoring would fight the user — skip. */
   private positionUnanchored(cardsBottom: number): void {
+    const multiDoc = document.body.classList.contains('pmd-multi-doc');
+    const scroller = multiDoc ? null : this.scrollAncestor();
+    const savedScroll = scroller?.scrollTop;
+
     const el = this.unanchoredEl;
     if (!el || !el.parentNode) {
       this.root.style.minHeight = cardsBottom > 0 ? `${cardsBottom}px` : '';
-      return;
+    } else {
+      const top = cardsBottom > 0 ? cardsBottom + 12 : 0;
+      el.style.top = `${top}px`;
+      el.classList.add('pmd-laid-out');
+      this.root.style.minHeight = `${top + el.offsetHeight}px`;
     }
-    const top = cardsBottom > 0 ? cardsBottom + 12 : 0;
-    el.style.top = `${top}px`;
-    el.classList.add('pmd-laid-out');
-    this.root.style.minHeight = `${top + el.offsetHeight}px`;
+
+    if (scroller && savedScroll !== undefined && scroller.scrollTop !== savedScroll) {
+      scroller.scrollTop = savedScroll;
+    }
   }
 
   /** Get or create the persistent card element for a thread. The
