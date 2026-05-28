@@ -7884,6 +7884,62 @@ textarea.pmd-text-prompt-input {
 }
 .pmd-text-prompt-ok:hover { background: var(--pmd-c-accent-hover); }
 
+/* ---- Create-flashcard dialog (learn-create-ui) ----
+ * Re-uses the route-dialog chrome; adds the anchored-quote note, a
+ * Q&A / Cloze type toggle, and the front/back fields. */
+.pmd-learn-create-dialog {
+  min-width: 440px;
+  max-width: 520px;
+}
+.pmd-learn-create-anchor {
+  font-size: 0.8rem;
+  color: var(--pmd-c-text-muted);
+  font-style: italic;
+  line-height: 1.4;
+  border-left: 2px solid var(--pmd-c-border-soft);
+  padding-left: 0.6rem;
+}
+.pmd-learn-create-type {
+  align-self: flex-start;
+}
+.pmd-learn-create-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.pmd-learn-create-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.pmd-learn-create-field > span {
+  font-size: 0.78rem;
+  color: var(--pmd-c-text-muted);
+}
+.pmd-learn-create-input {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 4px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+  font-family: inherit;
+  box-sizing: border-box;
+  resize: vertical;
+}
+.pmd-learn-create-input:focus {
+  outline: 2px solid var(--pmd-c-accent);
+  outline-offset: -1px;
+}
+.pmd-learn-create-note {
+  font-size: 0.78rem;
+  color: var(--pmd-c-error);
+  min-height: 1em;
+}
+.pmd-learn-create-note:empty { display: none; }
+
 /* ---- Multi-pane: typography parity ----
  *
  * The single-doc editor scopes typography-flag rules to `#editor.X`.

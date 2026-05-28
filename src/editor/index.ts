@@ -52,7 +52,9 @@ import {
 import { openQuickCardAdd } from './quick-card-add-ui.js';
 import { quickCardsManageUI } from './quick-cards-manage-ui.js';
 import { quickCardSearchUI, openQuickCardTagPicker } from './quick-card-search-ui.js';
-import { learnStore, loadLearnStore } from './learn-store-host.js';
+import { learnStore, loadLearnStore, localToday } from './learn-store-host.js';
+import { buildDescriptor } from './learn-anchor.js';
+import { openCreateFlashcard } from './learn-create-ui.js';
 import { openBulkConvert } from './bulk-convert-ui.js';
 import { homeScreen, type HomeScreenCallbacks } from './home-screen.js';
 import { recordRecent, removeRecent, type RecentFile } from './recents-store.js';
@@ -815,6 +817,31 @@ const ribbonContext: RibbonContext = {
   aiCreateCite: () => {
     if (!view) return;
     runAiCreateCite(view);
+  },
+  createFlashcard: () => {
+    if (!view) return;
+    if (multiDocActive) {
+      // Multi-pane flashcards wait on per-pane docId threading; without it
+      // we'd key the card to the wrong document. (SPEC-learn-system: deferred.)
+      showToast('Flashcards aren’t available in multi-pane yet.');
+      return;
+    }
+    const sel = view.state.selection;
+    if (sel.empty) {
+      showToast('Select text to anchor a flashcard.');
+      return;
+    }
+    const descriptor = buildDescriptor(view.state.doc, sel.from, sel.to);
+    void (async () => {
+      const def = await openCreateFlashcard({ selectedText: descriptor.quote });
+      if (!def) return;
+      const docId = ensureDocId();
+      const cardId = crypto.randomUUID();
+      const today = localToday();
+      learnStore.upsertCard({ id: cardId, type: def.type, front: def.front, back: def.back }, today);
+      learnStore.setAnchor(cardId, docId, descriptor);
+      showToast('Flashcard created.');
+    })();
   },
   newDocument: () => {
     void onNewDocClicked();

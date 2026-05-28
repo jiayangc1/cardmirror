@@ -3277,6 +3277,7 @@ export type RibbonCommandId =
   | 'addCommentToSelection'
   | 'aiAskAboutSelection'
   | 'aiCreateCite'
+  | 'createFlashcard'
   | 'wordCountSelection'
   | 'openShortcutsReference'
   | 'selectSimilar'
@@ -3406,6 +3407,7 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'addCommentToSelection',
   'aiAskAboutSelection',
   'aiCreateCite',
+  'createFlashcard',
   'wordCountSelection',
   'openShortcutsReference',
   'selectSimilar',
@@ -3513,6 +3515,7 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   addCommentToSelection: 'Add Comment to Selection',
   aiAskAboutSelection: 'Ask AI About Selection',
   aiCreateCite: 'Format Cite From Selection',
+  createFlashcard: 'Create Flashcard From Selection',
   wordCountSelection: 'Word Count Selection',
   openShortcutsReference: 'Open Keyboard Shortcuts',
   selectSimilar: 'Select Similar Formatting',
@@ -3629,6 +3632,7 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   addCommentToSelection: '',
   aiAskAboutSelection: 'Mod-Shift-q',
   aiCreateCite: 'Mod-Shift-x',
+  createFlashcard: '',
   wordCountSelection: '',
   openShortcutsReference: '',
   selectSimilar: '',
@@ -3799,6 +3803,7 @@ export interface RibbonContext {
   addCommentToSelection: () => void;
   aiAskAboutSelection: () => void;
   aiCreateCite: () => void;
+  createFlashcard: () => void;
   /** File-level commands. These work regardless of whether the editor
    *  is mounted / has a doc loaded — they always run the same handler
    *  the corresponding ribbon button uses. */
@@ -3908,6 +3913,7 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   addCommentToSelection: () => {},
   aiAskAboutSelection: () => {},
   aiCreateCite: () => {},
+  createFlashcard: () => {},
   newDocument: () => {},
   openFile: () => {},
   save: () => {},
@@ -4063,6 +4069,13 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
         if (state.selection.empty) return false;
         if (!dispatch) return true;
         ctx.aiCreateCite();
+        return true;
+      };
+    case 'createFlashcard':
+      return (state, dispatch) => {
+        if (state.selection.empty) return false;
+        if (!dispatch) return true;
+        ctx.createFlashcard();
         return true;
       };
     case 'wordCountSelection':

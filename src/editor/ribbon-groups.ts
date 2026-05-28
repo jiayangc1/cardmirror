@@ -170,6 +170,10 @@ export const RIBBON_GROUPS: RibbonGroup[] = [
     commands: ['aiAskAboutSelection', 'aiCreateCite'],
   },
   {
+    title: 'Learn',
+    commands: ['createFlashcard'],
+  },
+  {
     title: 'Select',
     commands: ['selectSimilar'],
   },
