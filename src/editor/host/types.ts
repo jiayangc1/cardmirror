@@ -166,6 +166,13 @@ export interface Host {
    *  recovery offer. No-op when no journal exists for that uid. */
   deleteJournal(uid: string): Promise<void>;
 
+  /** Read the per-user Learn store blob (flashcards, schedules, anchors,
+   *  decks — the local annotation layer). `null` when none saved yet. */
+  readLearnStore(): Promise<string | null>;
+
+  /** Persist the Learn store blob (whole-blob write; caller debounces). */
+  writeLearnStore(json: string): Promise<void>;
+
   /** Whether journaling actually persists across sessions on this
    *  host. Set to false by hosts that can't (e.g. a hypothetical
    *  browser without IndexedDB). The editor stops writing

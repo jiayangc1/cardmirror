@@ -70,6 +70,8 @@ interface ElectronAPI {
   writeJournal(entry: JournalEntry): Promise<void>;
   readJournals(): Promise<JournalEntry[]>;
   deleteJournal(uid: string): Promise<void>;
+  readLearnStore(): Promise<string | null>;
+  writeLearnStore(json: string): Promise<void>;
   spawnWindow(payload: SpawnWindowPayload | null): Promise<void>;
   getInitialDoc(): Promise<SpawnWindowPayload | null>;
   isFirstWindow(): Promise<boolean>;
@@ -283,6 +285,14 @@ export class ElectronHost implements Host {
 
   async deleteJournal(uid: string): Promise<void> {
     await api().deleteJournal(uid);
+  }
+
+  async readLearnStore(): Promise<string | null> {
+    return api().readLearnStore();
+  }
+
+  async writeLearnStore(json: string): Promise<void> {
+    await api().writeLearnStore(json);
   }
 
   async spawnWindow(payload: SpawnWindowPayload | null): Promise<void> {

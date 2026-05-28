@@ -122,6 +122,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteJournal: (uid: string) =>
     ipcRenderer.invoke('host:delete-journal', uid),
 
+  /** Learn store (local annotation layer) — whole-blob KV under
+   *  `app.getPath('userData')/learn-store.json`. */
+  readLearnStore: () => ipcRenderer.invoke('host:read-learn-store') as Promise<string | null>,
+  writeLearnStore: (json: string) => ipcRenderer.invoke('host:write-learn-store', json),
+
   /** Spawn a new BrowserWindow, optionally pre-loaded with a doc. */
   spawnWindow: (payload: {
     filename: string;

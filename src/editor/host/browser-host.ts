@@ -293,6 +293,22 @@ export class BrowserHost implements Host {
     });
   }
 
+  async readLearnStore(): Promise<string | null> {
+    try {
+      return localStorage.getItem('pmd-learn-store');
+    } catch {
+      return null;
+    }
+  }
+
+  async writeLearnStore(json: string): Promise<void> {
+    try {
+      localStorage.setItem('pmd-learn-store', json);
+    } catch {
+      /* quota / disabled — non-fatal */
+    }
+  }
+
   async spawnWindow(_payload: SpawnWindowPayload | null): Promise<void> {
     // Web edition can't meaningfully spawn an editor window from
     // JS. Callers should gate on `canSpawnWindow` before calling

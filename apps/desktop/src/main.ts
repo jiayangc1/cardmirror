@@ -720,6 +720,35 @@ ipcMain.handle('host:delete-journal', async (_event, uid: string) => {
   }
 });
 
+// ─── Learn store (local annotation layer) — whole-blob KV ──────────
+function learnStorePath(): string {
+  return path.join(app.getPath('userData'), 'learn-store.json');
+}
+
+ipcMain.handle('host:read-learn-store', async (): Promise<string | null> => {
+  try {
+    return await fs.readFile(learnStorePath(), 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    console.warn('Failed to read learn-store.json:', err);
+    return null;
+  }
+});
+
+// Serialize writes (tmp → atomic rename) so quick consecutive saves can't
+// tear the file — same discipline as the journal / quick-cards writers.
+let learnStoreWriteTail: Promise<void> = Promise.resolve();
+ipcMain.handle('host:write-learn-store', (_event, json: string) => {
+  if (typeof json !== 'string') return learnStoreWriteTail;
+  learnStoreWriteTail = learnStoreWriteTail.catch(() => {}).then(async () => {
+    const finalPath = learnStorePath();
+    const tmpPath = `${finalPath}.tmp`;
+    await fs.writeFile(tmpPath, json);
+    await fs.rename(tmpPath, finalPath);
+  });
+  return learnStoreWriteTail;
+});
+
 // ─── Multi-window: spawn + initial-doc handshake ──────────────────
 // Renderers in "windows mode" (multiDocWorkspace = false on
 // Electron) call `host:spawn-window` to open a new BrowserWindow,
