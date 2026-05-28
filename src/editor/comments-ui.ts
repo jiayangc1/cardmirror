@@ -823,18 +823,6 @@ export class CommentsColumn {
     }
   }
 
-  /** Nearest scrollable ancestor of the column (single-doc: `#app`).
-   *  Used to keep the page scroll steady across a `minHeight` change. */
-  private scrollAncestor(): HTMLElement | null {
-    let el: HTMLElement | null = this.root.parentElement;
-    while (el && el !== document.body) {
-      const oy = getComputedStyle(el).overflowY;
-      if (oy === 'auto' || oy === 'scroll') return el;
-      el = el.parentElement;
-    }
-    return null;
-  }
-
   /** Pin the Unanchored section below the anchored cards and size the
    *  column to fit it. The sole place that sets `minHeight` so the
    *  section's height is always included.
@@ -845,23 +833,15 @@ export class CommentsColumn {
    *  capture + restore the scroll so the view stays put. In multi-pane
    *  relayout fires on scroll, so restoring would fight the user — skip. */
   private positionUnanchored(cardsBottom: number): void {
-    const multiDoc = document.body.classList.contains('pmd-multi-doc');
-    const scroller = multiDoc ? null : this.scrollAncestor();
-    const savedScroll = scroller?.scrollTop;
-
     const el = this.unanchoredEl;
     if (!el || !el.parentNode) {
       this.root.style.minHeight = cardsBottom > 0 ? `${cardsBottom}px` : '';
-    } else {
-      const top = cardsBottom > 0 ? cardsBottom + 12 : 0;
-      el.style.top = `${top}px`;
-      el.classList.add('pmd-laid-out');
-      this.root.style.minHeight = `${top + el.offsetHeight}px`;
+      return;
     }
-
-    if (scroller && savedScroll !== undefined && scroller.scrollTop !== savedScroll) {
-      scroller.scrollTop = savedScroll;
-    }
+    const top = cardsBottom > 0 ? cardsBottom + 12 : 0;
+    el.style.top = `${top}px`;
+    el.classList.add('pmd-laid-out');
+    this.root.style.minHeight = `${top + el.offsetHeight}px`;
   }
 
   /** Get or create the persistent card element for a thread. The
@@ -880,6 +860,14 @@ export class CommentsColumn {
     card.addEventListener('click', (e) => {
       const target = e.target as HTMLElement | null;
       if (target && target.closest('textarea, input, button')) return;
+      // Clicking the already-active card collapses it — and crucially
+      // does NOT re-scroll. (Previously it re-fired scrollToRange, which
+      // jumped the doc to the card's text on every click of an open
+      // card.) Only a fresh activation scrolls to the anchored text.
+      if (this.activeThreadId === threadId) {
+        this.dismissActive();
+        return;
+      }
       this.setActiveThread(threadId, 'click');
       const r = this.lastRanges.get(threadId);
       if (r) this.scrollToRange(r);
