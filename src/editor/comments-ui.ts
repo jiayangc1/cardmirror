@@ -164,12 +164,16 @@ function aiPersonaInitials(name: string): string {
   return (parts[0]?.slice(0, 2) ?? 'AI').toUpperCase();
 }
 
-/** Small "AI" chip marking an AI turn/card — the visual AI signal now
- *  that the badge shows the persona's initials rather than "AI". */
-function aiChip(): HTMLElement {
+/** The card-type chip shown in every card's header — the unified type
+ *  indicator. Color mirrors the in-text highlight: comment = gold,
+ *  flashcard (Q&A / cloze) = accent, AI = purple. */
+type CardTypeChipKind = 'comment' | 'qa' | 'cloze' | 'ai';
+function makeCardTypeChip(kind: CardTypeChipKind): HTMLElement {
   const chip = document.createElement('span');
-  chip.className = 'pmd-ai-chip';
-  chip.textContent = 'AI';
+  const tone = kind === 'qa' || kind === 'cloze' ? 'flashcard' : kind;
+  chip.className = `pmd-card-type-chip is-${tone}`;
+  chip.textContent =
+    kind === 'qa' ? 'Q&A' : kind === 'cloze' ? 'Cloze' : kind === 'ai' ? 'AI' : 'Comment';
   return chip;
 }
 
@@ -723,6 +727,43 @@ export class CommentsColumn {
   /** (Re)fill a card's inner content for the current thread state.
    *  Replaces children in place — the element persists so its `top`
    *  keeps animating and the ResizeObserver stays attached. */
+  /** Card-level header for a thread card (comment / AI): the type chip on
+   *  the left, then (pushed right) the date and — when `onDelete` is
+   *  given (expanded / pending) — a thread-delete ✕. Mirrors the
+   *  flashcard header (chip + right-aligned status). Flashcards keep their
+   *  own header + delete-in-actions, so they don't use this. */
+  private buildThreadHeader(
+    chip: HTMLElement,
+    dateISO: string | null,
+    onDelete?: () => void,
+  ): HTMLElement {
+    const header = document.createElement('header');
+    header.className = 'pmd-card-head';
+    header.appendChild(chip);
+    const spacer = document.createElement('span');
+    spacer.className = 'pmd-card-head-spacer';
+    header.appendChild(spacer);
+    if (dateISO) {
+      const date = document.createElement('span');
+      date.className = 'pmd-comment-date';
+      date.textContent = formatDate(dateISO);
+      header.appendChild(date);
+    }
+    if (onDelete) {
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'pmd-comment-delete pmd-card-head-delete';
+      del.title = 'Delete';
+      setIcon(del, 'close');
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onDelete();
+      });
+      header.appendChild(del);
+    }
+    return header;
+  }
+
   private populateThread(card: HTMLElement, thread: Thread, isActive: boolean): void {
     card.replaceChildren();
     card.classList.toggle('pmd-comment-thread-active', isActive);
@@ -733,15 +774,18 @@ export class CommentsColumn {
     const root = thread.comments[0];
     const isEmptyRoot = thread.comments.length === 1 && root && root.text === '';
     if (isEmptyRoot && root) {
-      card.appendChild(this.renderRootHeader(thread, root));
+      card.appendChild(this.buildThreadHeader(makeCardTypeChip('comment'), root.date, () => this.deleteThread(thread.id)));
       card.appendChild(this.renderPrimaryInput(thread, root));
       return;
     }
     if (!isActive) {
-      // Collapsed preview: badge + author + short body excerpt.
+      // Collapsed: chip header (own row, with date) + excerpt below — the
+      // same silhouette as a collapsed flashcard. No avatar.
+      card.appendChild(this.buildThreadHeader(makeCardTypeChip('comment'), root?.date ?? null));
       card.appendChild(this.renderThreadPreview(thread));
       return;
     }
+    card.appendChild(this.buildThreadHeader(makeCardTypeChip('comment'), root?.date ?? null, () => this.deleteThread(thread.id)));
     for (const c of thread.comments) {
       card.appendChild(this.renderComment(thread, c, c.id === thread.id));
     }
@@ -818,10 +862,7 @@ export class CommentsColumn {
 
     const header = document.createElement('header');
     header.className = 'pmd-flashcard-card-header';
-    const badge = document.createElement('span');
-    badge.className = 'pmd-flashcard-card-badge';
-    badge.textContent = def.type === 'cloze' ? 'Cloze' : 'Q&A';
-    header.appendChild(badge);
+    header.appendChild(makeCardTypeChip(def.type === 'cloze' ? 'cloze' : 'qa'));
     const chip = this.flashcardChip(cardId);
     if (chip.text) {
       const chipEl = document.createElement('span');
@@ -1050,60 +1091,28 @@ export class CommentsColumn {
       // Producer state renders the same active or not (see signature),
       // so the input doesn't get recreated — and lose focus — on a
       // stray cursor move.
-      card.appendChild(this.renderAiHeader(threadId));
+      card.appendChild(this.buildThreadHeader(makeCardTypeChip('ai'), thread.createdAt, () => this.deleteAiThread(threadId)));
       card.appendChild(this.buildAiInput(threadId, 'Ask a question', 'Ask'));
       return;
     }
     if (!isActive) {
+      card.appendChild(this.buildThreadHeader(makeCardTypeChip('ai'), thread.createdAt));
       card.appendChild(this.renderAiPreview(thread));
       return;
     }
-    for (const c of thread.comments) card.appendChild(this.renderAiComment(c));
+    card.appendChild(this.buildThreadHeader(makeCardTypeChip('ai'), thread.createdAt, () => this.deleteAiThread(threadId)));
+    // The opening question renders as the root (un-indented) — it begins
+    // the conversation, it isn't a reply. Answers + follow-ups are replies.
+    thread.comments.forEach((c, i) => card.appendChild(this.renderAiComment(c, i === 0)));
     if (this.aiInFlight.has(threadId)) card.appendChild(this.renderAiThinkingPlaceholder(true));
     card.appendChild(this.buildAiInput(threadId, 'Reply…', 'Reply'));
-    card.appendChild(this.buildAiActions(threadId));
-  }
-
-  /** Header for an AI card with no turns yet: purple AI badge +
-   *  persona name + a cancel (delete) button. */
-  private renderAiHeader(threadId: string): HTMLElement {
-    const block = document.createElement('div');
-    block.className = 'pmd-comment-root pmd-comment-pending pmd-comment-ai';
-    const header = document.createElement('header');
-    header.className = 'pmd-comment-header';
-    const badge = document.createElement('span');
-    badge.className = 'pmd-comment-initials';
-    const personaName = aiPersonaName();
-    fillBadge(badge, personaName, aiPersonaInitials(personaName));
-    header.appendChild(badge);
-    const name = document.createElement('span');
-    name.className = 'pmd-comment-author';
-    name.textContent = personaName;
-    header.appendChild(name);
-    header.appendChild(aiChip());
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'pmd-comment-delete';
-    del.title = 'Cancel';
-    setIcon(del, 'close');
-    del.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.deleteAiThread(threadId);
-    });
-    header.appendChild(del);
-    block.appendChild(header);
-    return block;
+    card.appendChild(this.buildAiConvertButton(threadId));
   }
 
   private renderAiPreview(thread: AiThread): HTMLElement {
     const block = document.createElement('div');
-    block.className = 'pmd-comment-preview pmd-comment-ai';
+    block.className = 'pmd-comment-preview';
     const first = thread.comments[0]!;
-    const badge = document.createElement('span');
-    badge.className = 'pmd-comment-initials';
-    fillBadge(badge, first.author, first.ai ? aiPersonaInitials(first.author) : '');
-    block.appendChild(badge);
-    block.appendChild(aiChip());
     const text = document.createElement('span');
     text.className = 'pmd-comment-preview-text';
     const body = first.text.replace(/\s+/g, ' ').trim();
@@ -1118,9 +1127,14 @@ export class CommentsColumn {
     return block;
   }
 
-  private renderAiComment(c: LocalComment): HTMLElement {
+  /** A turn in an AI thread. The opening question (`isRoot`) renders
+   *  un-indented like a comment root; answers + follow-ups indent as
+   *  replies. AI turns carry a purple avatar (via `pmd-comment-ai`); the
+   *  card-level "AI" chip already marks the thread, so turns aren't
+   *  chipped. No per-turn delete — the header ✕ removes the whole thread. */
+  private renderAiComment(c: LocalComment, isRoot: boolean): HTMLElement {
     const block = document.createElement('div');
-    block.className = 'pmd-comment-reply';
+    block.className = isRoot ? 'pmd-comment-root' : 'pmd-comment-reply';
     if (c.ai) block.classList.add('pmd-comment-ai');
     const header = document.createElement('header');
     header.className = 'pmd-comment-header';
@@ -1132,7 +1146,6 @@ export class CommentsColumn {
     name.className = 'pmd-comment-author';
     name.textContent = c.author || 'Unknown';
     header.appendChild(name);
-    if (c.ai) header.appendChild(aiChip());
     if (c.at) {
       const date = document.createElement('span');
       date.className = 'pmd-comment-date';
@@ -1184,7 +1197,8 @@ export class CommentsColumn {
     const submitBtn = document.createElement('button');
     submitBtn.type = 'submit';
     submitBtn.className = 'pmd-comment-reply-submit';
-    submitBtn.textContent = submitLabel;
+    submitBtn.title = submitLabel;
+    setIcon(submitBtn, 'send-cursor');
     form.appendChild(submitBtn);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -1308,22 +1322,18 @@ export class CommentsColumn {
     return buildExplainContext(synth);
   }
 
-  /** Action row for an active AI card: Convert to Flashcard + two-click
-   *  Delete. */
-  private buildAiActions(threadId: string): HTMLElement {
-    const actions = document.createElement('div');
-    actions.className = 'pmd-flashcard-card-actions';
-    const convert = document.createElement('button');
-    convert.type = 'button';
-    convert.className = 'pmd-flashcard-card-action';
-    convert.textContent = 'Convert to Flashcard';
-    convert.addEventListener('click', (e) => {
+  /** Promoted, filled-blue "Convert to Flashcard" button, sitting just
+   *  below the reply box (the AI card's delete lives in the header ✕). */
+  private buildAiConvertButton(threadId: string): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pmd-ai-convert-btn';
+    btn.textContent = 'Convert to Flashcard';
+    btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      void this.convertAiThreadToFlashcard(threadId, convert);
+      void this.convertAiThreadToFlashcard(threadId, btn);
     });
-    actions.appendChild(convert);
-    actions.appendChild(this.buildAiDeleteButton(threadId));
-    return actions;
+    return btn;
   }
 
   /** Ask the model for a flashcard that captures what the AI thread
@@ -1483,13 +1493,6 @@ export class CommentsColumn {
     const block = document.createElement('div');
     block.className = 'pmd-comment-preview';
     const root = thread.comments[0]!;
-    // Existing `.pmd-comment-ai .pmd-comment-initials` rule paints
-    // the badge purple when this class is on the parent block.
-    if (isAiComment(root)) block.classList.add('pmd-comment-ai');
-    const badge = document.createElement('span');
-    badge.className = 'pmd-comment-initials';
-    fillBadge(badge, root.author, root.initials);
-    block.appendChild(badge);
     const text = document.createElement('span');
     text.className = 'pmd-comment-preview-text';
     const body = root.text.replace(/\s+/g, ' ').trim();
@@ -1524,7 +1527,6 @@ export class CommentsColumn {
     name.className = 'pmd-comment-author';
     name.textContent = author;
     header.appendChild(name);
-    if (local) header.appendChild(aiChip());
     block.appendChild(header);
     const body = document.createElement('div');
     body.className = 'pmd-comment-body';
@@ -1583,37 +1585,6 @@ export class CommentsColumn {
     }
   }
 
-  /** Header-only render for the empty-root state: shows author
-   *  badge + delete button without the empty body block, so the
-   *  thread doesn't render a blank comment card before the user
-   *  has typed anything. */
-  private renderRootHeader(thread: Thread, root: Comment): HTMLElement {
-    const block = document.createElement('div');
-    block.className = 'pmd-comment-root pmd-comment-pending';
-    const header = document.createElement('header');
-    header.className = 'pmd-comment-header';
-    const badge = document.createElement('span');
-    badge.className = 'pmd-comment-initials';
-    fillBadge(badge, root.author, root.initials);
-    header.appendChild(badge);
-    const name = document.createElement('span');
-    name.className = 'pmd-comment-author';
-    name.textContent = root.author || 'Unknown';
-    header.appendChild(name);
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'pmd-comment-delete';
-    del.title = 'Cancel';
-    setIcon(del, 'close');
-    del.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.deleteThread(thread.id);
-    });
-    header.appendChild(del);
-    block.appendChild(header);
-    return block;
-  }
-
   private renderPrimaryInput(thread: Thread, root: Comment): HTMLElement {
     return this.buildInputForm(thread, 'Add a comment…', (text) => {
       this.commitRootText(thread.id, root.id, text);
@@ -1664,7 +1635,8 @@ export class CommentsColumn {
     const submitBtn = document.createElement('button');
     submitBtn.type = 'submit';
     submitBtn.className = 'pmd-comment-reply-submit';
-    submitBtn.textContent = submitLabel;
+    submitBtn.title = submitLabel;
+    setIcon(submitBtn, 'send-cursor');
     form.appendChild(submitBtn);
 
     form.addEventListener('submit', (e) => {
@@ -1715,17 +1687,20 @@ export class CommentsColumn {
       date.textContent = formatDate(comment.date);
       header.appendChild(date);
     }
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'pmd-comment-delete';
-    del.title = isRoot ? 'Delete thread' : 'Delete reply';
-    setIcon(del, 'close');
-    del.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (isRoot) this.deleteThread(thread.id);
-      else this.deleteComment(thread.id, comment.id);
-    });
-    header.appendChild(del);
+    // Thread-level delete lives in the card header now; only replies keep
+    // a per-turn ✕ (to delete just that reply).
+    if (!isRoot) {
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'pmd-comment-delete';
+      del.title = 'Delete reply';
+      setIcon(del, 'close');
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.deleteComment(thread.id, comment.id);
+      });
+      header.appendChild(del);
+    }
     block.appendChild(header);
 
     const body = document.createElement('div');

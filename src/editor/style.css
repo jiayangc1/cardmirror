@@ -5226,44 +5226,77 @@ body.pmd-comments-resize-active {
   box-sizing: border-box;
 }
 
-/* Flashcard cards in the column — same positioned-card machinery as
-   comments, with an accent left-edge so the two annotation kinds read
-   apart. */
-.pmd-comment-thread.pmd-flashcard-card {
-  border-left: 3px solid var(--pmd-c-accent);
-}
-/* AI thread card — purple left rule to match its highlight + AI badge. */
-.pmd-comment-thread.pmd-ai-card {
-  border-left: 3px solid var(--pmd-c-comment-thread);
-}
-/* "AI" chip — marks an AI turn now that the badge shows the persona's
-   initials (not "AI") and the author name drops the "(AI)" suffix. */
-.pmd-ai-chip {
-  align-self: center;
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 0.03rem 0.3rem;
-  border-radius: 3px;
-  background: var(--pmd-c-comment-thread-soft);
-  color: var(--pmd-c-comment-thread-text);
-}
-.pmd-flashcard-card-header {
+/* Per-card identity color (`--pmd-card-accent`): drives the type chip
+   AND the active border/glow, mirroring the in-text highlight hue —
+   comment = gold, flashcard = accent, AI = purple. No left border: the
+   chip + color carry the distinction. */
+.pmd-comment-thread { --pmd-card-accent: var(--pmd-c-comment-cite-border); }
+.pmd-comment-thread.pmd-flashcard-card { --pmd-card-accent: var(--pmd-c-accent); }
+.pmd-comment-thread.pmd-ai-card { --pmd-card-accent: var(--pmd-c-comment-thread); }
+
+/* Card-level header: type chip on the left, then (pushed right by the
+   spacer) the date and a thread-delete ✕. Used by comment + AI cards;
+   mirrors the flashcard header's chip-left / info-right rhythm. */
+.pmd-card-head {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   margin-bottom: 0.3rem;
 }
-.pmd-flashcard-card-badge {
+.pmd-card-head-spacer {
+  flex: 1 1 auto;
+}
+/* In the expanded card the column `gap` already spaces the header from
+   the turns, so drop the bottom margin to avoid doubling. */
+.pmd-comment-thread-active .pmd-card-head {
+  margin-bottom: 0;
+}
+
+/* Unified card-type chip — the one type indicator across all cards. */
+.pmd-card-type-chip {
+  align-self: center;
+  flex: 0 0 auto;
   font-size: 0.6rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   padding: 0.05rem 0.35rem;
   border-radius: 3px;
+}
+.pmd-card-type-chip.is-comment {
+  background: color-mix(in srgb, var(--pmd-c-comment-cite-border) 18%, transparent);
+  color: var(--pmd-c-comment-cite-border);
+}
+.pmd-card-type-chip.is-flashcard {
   background: color-mix(in srgb, var(--pmd-c-accent) 16%, transparent);
   color: var(--pmd-c-accent);
+}
+.pmd-card-type-chip.is-ai {
+  background: var(--pmd-c-comment-thread-soft);
+  color: var(--pmd-c-comment-thread-text);
+}
+
+/* Promoted "Convert to Flashcard" button — filled, like Reply, full
+   width below the AI reply box. */
+.pmd-ai-convert-btn {
+  width: 100%;
+  margin-top: 0.1rem;
+  padding: 0.3rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  border: 1px solid var(--pmd-c-accent);
+  background: var(--pmd-c-accent);
+  color: var(--pmd-c-text-on-accent);
+  cursor: pointer;
+}
+.pmd-ai-convert-btn:hover { background: var(--pmd-c-accent-hover); }
+.pmd-ai-convert-btn:disabled { opacity: 0.6; cursor: default; }
+.pmd-flashcard-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.3rem;
 }
 .pmd-flashcard-card-chip {
   margin-left: auto;
@@ -5374,8 +5407,8 @@ body.pmd-comments-resize-active {
 /* Active card: expanded, slight highlight + accent border so the
    user can see which thread is anchored to their selection. */
 .pmd-comment-thread-active {
-  border-color: var(--pmd-c-accent);
-  box-shadow: 0 1px 4px var(--pmd-c-focus-glow);
+  border-color: var(--pmd-card-accent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--pmd-card-accent) 35%, transparent);
   padding: 0.55rem 0.65rem;
   display: flex;
   flex-direction: column;
@@ -5411,7 +5444,7 @@ body.pmd-comments-resize-active {
   border-color: var(--pmd-c-border);
 }
 .pmd-comment-thread-active:hover {
-  border-color: var(--pmd-c-accent);
+  border-color: var(--pmd-card-accent);
 }
 
 /* Persona configurator rows */
@@ -5536,12 +5569,16 @@ body.pmd-comments-resize-active {
   word-wrap: break-word;
 }
 
+/* Input row: the textarea grows; the send key sits at its right edge and
+   matches the textarea's height (align-items: stretch). */
 .pmd-comment-reply-form {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: stretch;
   gap: 0.3rem;
 }
 .pmd-comment-reply-input {
+  flex: 1 1 auto;
   resize: vertical;
   padding: 0.35rem 0.45rem;
   font-family: inherit;
@@ -5557,9 +5594,11 @@ body.pmd-comments-resize-active {
   outline-offset: -1px;
 }
 .pmd-comment-reply-submit {
-  align-self: flex-end;
-  padding: 0.25rem 0.7rem;
-  font-size: 0.8rem;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.55rem;
   border-radius: 4px;
   border: 1px solid var(--pmd-c-accent);
   background: var(--pmd-c-accent);

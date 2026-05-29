@@ -7,6 +7,44 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Comments column: one unified card design (comments / flashcards / AI).**
+  The three card types had drifted into three visual vocabularies; this
+  unifies them.
+  - **Type chip.** Every card leads with a shared chip (`makeCardTypeChip`
+    → `.pmd-card-type-chip`): `COMMENT` / `Q&A` · `CLOZE` / `AI`, colored
+    to mirror the in-text highlight hue (gold / accent / purple).
+    Replaces the flashcard's bespoke `.pmd-flashcard-card-badge` and the
+    per-turn `.pmd-ai-chip`.
+  - **No left borders.** Per-card identity is now a CSS var
+    `--pmd-card-accent` (gold / accent / purple) set on the card, driving
+    both the chip and the **active** state — which now takes the card's
+    own color (border + a same-hue tinted glow) instead of always-blue.
+  - **Avatar only when expanded.** Collapsed previews drop the round
+    avatar (chip + excerpt + count); the avatar returns when expanded,
+    where it separates the thread-opening turn from replies. AI turns
+    keep the purple avatar (`pmd-comment-ai`) + persona name; the
+    per-turn AI tag is gone (the card chip carries it).
+  - **AI opening question renders as root.** `populateAiThread` renders
+    the first turn via `renderAiComment(c, isRoot=true)` → un-indented
+    `pmd-comment-root` (it begins the conversation); answers + follow-ups
+    are `pmd-comment-reply`. Previously every AI turn was a reply, so the
+    opening question looked like a reply to nothing.
+  - **Delete affordances split by type.** Comment + AI cards get a
+    thread-delete `✕` in a shared card header (`buildThreadHeader`);
+    comment replies keep a per-reply `✕`; flashcards keep the two-click
+    Delete pill. The AI ghost-pill action row is gone — **Convert to
+    Flashcard** is promoted to a filled-blue button (`.pmd-ai-convert-btn`)
+    below Reply.
+  - **Header row + date; send-key input.** The type chip sits in its own
+    header row in every state (collapsed too, via `buildThreadHeader`),
+    with the card's date right-aligned beside it (comment = root date, AI
+    = thread `createdAt`) — the slot the flashcard's status chip occupies.
+    The reply / ask / comment submit is now a compact `send-cursor` icon
+    button to the right of the textarea (row layout), not a full-width
+    button below.
+  - Removed `renderAiHeader` / `renderRootHeader` / `buildAiActions` /
+    `aiChip`. Unanchored rows unchanged.
+
 - **AI threads → local annotation layer.** Migrated the "Ask AI about
   selection" explainer off comment threads (round-tripping
   `comment_range` marks) onto the same per-user local layer flashcards

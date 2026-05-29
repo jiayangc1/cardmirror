@@ -256,6 +256,19 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Changed
 
+- **Comments, flashcards, and AI notes now share one card design.** Every
+  card in the comments pane leads with a small **type chip** — `COMMENT`,
+  `Q&A`/`CLOZE`, or `AI` — color-matched to the highlight it sits on
+  (gold / blue / purple). Collapsed cards show just the chip and a
+  one-line preview; expanding a comment or AI note brings back the round
+  author avatars, so the question that *opens* a thread reads apart from
+  the replies (an AI note's first question is no longer styled as a reply
+  to nothing). The open card now glows in its own color. Delete is an `✕`
+  on comments and AI notes and a confirm-press **Delete** on flashcards;
+  on an AI note, **Convert to Flashcard** is now a prominent button under
+  Reply. The reply box now has a compact **send** button at its right
+  edge, and each card shows its date next to the type chip.
+
 - **"Ask AI about selection" notes are now private to you.** AI
   explanations no longer live as comments in the document — they're kept
   in the same per-user, on-your-machine layer as flashcards, so they
