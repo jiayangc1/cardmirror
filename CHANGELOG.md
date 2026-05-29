@@ -153,7 +153,10 @@ see `DETAILED_CHANGELOG.md`.
   ribbon's top-right button cluster; rebindable via Settings →
   Keybindings) returns to it any time — with a "Back to document"
   link and Esc to dismiss back to what you were editing. On the
-  home screen, **1 / 2 / 3** trigger New / New speech / Open.
+  home screen, the number keys trigger the action cards in reading
+  order — **1** New, **2** New speech, **3** Open, **4** Manage quick
+  cards, **5** Bulk convert, **6** Review all, **7** Manage flashcards
+  (each only while its card is shown).
   **Ctrl+W** (single-doc) now closes the current doc back to the
   home screen rather than closing the window (the window's close
   button still quits); confirms unsaved changes first. Available

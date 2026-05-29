@@ -7,6 +7,13 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Home screen: number keys 5-7 for the newer action cards.** Extended
+  `actionRunners` + the `onKeyDown` digit map (`home-screen.ts`) from 1-4
+  to 1-7: 5 = Bulk convert, 6 = Review all, 7 = Manage flashcards. The
+  three new runners guard on the same conditions that render their card
+  (`callbacks.bulkConvert` present; `learnStore.totalCount > 0`), so a key
+  only fires while its button is on screen.
+
 - **Ribbon: Create-flashcard + Ask-AI buttons in the comments group.**
   Both commands were bindable / palette-only; they now have ribbon
   buttons. The comments ops-panel becomes a 2×2 grid (`ribbon-doc-ops-

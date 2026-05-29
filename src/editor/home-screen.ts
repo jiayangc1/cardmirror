@@ -91,16 +91,28 @@ class HomeScreen {
     header.appendChild(tagline);
     inner.appendChild(header);
 
-    // Number-key actions. Order matters: index 0/1/2/3 map to the
-    // 1 / 2 / 3 / 4 keyboard shortcuts (handled in onKeyDown),
-    // mirroring the number-key panels elsewhere in the UI. The first
-    // three are the primary action cards; 4 is Manage quick cards
-    // (its card is built further down).
+    // Number-key actions. Order matters: index 0..6 map to the 1..7
+    // keyboard shortcuts (handled in onKeyDown), mirroring the number-key
+    // panels elsewhere. Reading order down the page: 1-3 primary action
+    // cards, 4 Manage quick cards, 5 Bulk convert, 6 Review all, 7 Manage
+    // flashcards (their cards are built further down). 5-7 guard on the
+    // same conditions that show their card, so a key only fires when its
+    // button is on screen (no bulk-convert off Electron; no Learn actions
+    // before any flashcards exist).
     this.actionRunners = [
       () => this.callbacks?.newDoc(),
       () => this.callbacks?.newSpeechDoc(),
       () => this.callbacks?.open(),
       () => this.callbacks?.manageQuickCards(),
+      () => this.callbacks?.bulkConvert?.(),
+      () => {
+        if (learnStore.totalCount({ kind: 'all' }) > 0) {
+          openLearnSession({ kind: 'all' }, { title: 'Review — all' });
+        }
+      },
+      () => {
+        if (learnStore.totalCount({ kind: 'all' }) > 0) openLearnManage();
+      },
     ];
     const actions = document.createElement('div');
     actions.className = 'pmd-home-actions';
@@ -237,13 +249,13 @@ class HomeScreen {
       this.hide();
       return;
     }
-    // 1 / 2 / 3 / 4 trigger New / New speech / Open / Manage quick
-    // cards, mirroring the number-key button panels elsewhere. Bare
-    // keys only — the home screen has no text inputs to conflict with,
-    // but still ignore the chord variants so a stray modifier doesn't
-    // fire an action unexpectedly.
+    // 1-7 trigger New / New speech / Open / Manage quick cards / Bulk
+    // convert / Review all / Manage flashcards, mirroring the number-key
+    // button panels elsewhere. Bare keys only — the home screen has no
+    // text inputs to conflict with, but still ignore the chord variants
+    // so a stray modifier doesn't fire an action unexpectedly.
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const idx = { '1': 0, '2': 1, '3': 2, '4': 3 }[e.key];
+    const idx = { '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6 }[e.key];
     if (idx === undefined) return;
     const run = this.actionRunners[idx];
     if (run) {
