@@ -262,9 +262,10 @@ see `DETAILED_CHANGELOG.md`.
   never get written into a `.docx`/`.cmir` you share (sending a file
   no longer leaks your AI Q&A). It works the same as before: select
   text, ask, and follow up in a back-and-forth — but the thread shows
-  up as a purple note in the comments pane, anchored to the text, and
-  follows it as you edit (dropping into the **Unanchored** list with a
-  **Re-ground** button if its text is deleted). Existing AI *comments*
+  up as a purple note in the comments pane, under your AI persona's name
+  with an **AI** chip (no more `(AI)` tacked onto the name), anchored to
+  the text and following it as you edit (dropping into the **Unanchored**
+  list with a **Re-ground** button if its text is deleted). Existing AI *comments*
   in older documents are left as-is. (Typing `@AI` inside a regular
   comment still works the usual way, as a comment.)
 

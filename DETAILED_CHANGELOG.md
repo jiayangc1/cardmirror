@@ -34,7 +34,12 @@ in each release, see `CHANGELOG.md`.
     kind in the sorted column list (purple `pmd-ai-card`): producer
     "ask" input when empty, collapsed preview, active conversation
     (`LocalComment[]`) with reply box + two-click delete, plus a
-    re-ground row + Unanchored section (mirroring flashcards).
+    re-ground row + Unanchored section (mirroring flashcards). AI turns
+    show the persona name with initials derived from it (`aiPersonaName`
+    / `aiPersonaInitials`) and an **"AI" chip** (`.pmd-ai-chip`) — the
+    round-trip-safe `'AI'` initials + `(AI)` name suffix the comment path
+    needs are dropped here, since a local thread never serializes so the
+    docx-survival heuristic is moot; the chip carries the AI signal.
   - **Model call.** `askAi` records the user's turn then calls
     `invokeAiLocal`, which mirrors the comment-thread `invokeAi` against
     the store `AiThread`: builds the multi-turn message list from

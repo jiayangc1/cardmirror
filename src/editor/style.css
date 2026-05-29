@@ -5236,6 +5236,19 @@ body.pmd-comments-resize-active {
 .pmd-comment-thread.pmd-ai-card {
   border-left: 3px solid var(--pmd-c-comment-thread);
 }
+/* "AI" chip — marks an AI turn now that the badge shows the persona's
+   initials (not "AI") and the author name drops the "(AI)" suffix. */
+.pmd-ai-chip {
+  align-self: center;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.03rem 0.3rem;
+  border-radius: 3px;
+  background: var(--pmd-c-comment-thread-soft);
+  color: var(--pmd-c-comment-thread-text);
+}
 .pmd-flashcard-card-header {
   display: flex;
   align-items: center;

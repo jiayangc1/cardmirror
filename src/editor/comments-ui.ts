@@ -145,6 +145,33 @@ function aiAuthorName(): string {
   return `${base}${AI_NAME_SUFFIX}`;
 }
 
+/** Author name for a LOCAL AI thread turn: the persona name, with no
+ *  round-trip "(AI)" suffix. Local AI threads never serialize, so the
+ *  docx-survival heuristic isn't needed — the "AI" chip carries the
+ *  signal instead. Falls back to plain "AI" when Clod mode is off. */
+function aiPersonaName(): string {
+  return settings.get('clodEnabled') ? getAiPersona().name.trim() || 'AI' : 'AI';
+}
+
+/** Derive a 1–2 letter badge from a persona name (unlike `badgeText`,
+ *  which gives up on single-word names and shows a silhouette). */
+function aiPersonaInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return ((parts[0]?.[0] ?? '') + (parts[parts.length - 1]?.[0] ?? '')).toUpperCase();
+  }
+  return (parts[0]?.slice(0, 2) ?? 'AI').toUpperCase();
+}
+
+/** Small "AI" chip marking an AI turn/card — the visual AI signal now
+ *  that the badge shows the persona's initials rather than "AI". */
+function aiChip(): HTMLElement {
+  const chip = document.createElement('span');
+  chip.className = 'pmd-ai-chip';
+  chip.textContent = 'AI';
+  return chip;
+}
+
 export class CommentsColumn {
   private readonly root: HTMLElement;
   /** Inner container that holds the threads + empty-state + toggle.
@@ -1031,7 +1058,7 @@ export class CommentsColumn {
       return;
     }
     for (const c of thread.comments) card.appendChild(this.renderAiComment(c));
-    if (this.aiInFlight.has(threadId)) card.appendChild(this.renderAiThinkingPlaceholder());
+    if (this.aiInFlight.has(threadId)) card.appendChild(this.renderAiThinkingPlaceholder(true));
     card.appendChild(this.buildAiInput(threadId, 'Reply…', 'Reply'));
     card.appendChild(this.buildAiActions(threadId));
   }
@@ -1045,12 +1072,14 @@ export class CommentsColumn {
     header.className = 'pmd-comment-header';
     const badge = document.createElement('span');
     badge.className = 'pmd-comment-initials';
-    badge.textContent = 'AI';
+    const personaName = aiPersonaName();
+    fillBadge(badge, personaName, aiPersonaInitials(personaName));
     header.appendChild(badge);
     const name = document.createElement('span');
     name.className = 'pmd-comment-author';
-    name.textContent = aiAuthorName();
+    name.textContent = personaName;
     header.appendChild(name);
+    header.appendChild(aiChip());
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'pmd-comment-delete';
@@ -1071,9 +1100,9 @@ export class CommentsColumn {
     const first = thread.comments[0]!;
     const badge = document.createElement('span');
     badge.className = 'pmd-comment-initials';
-    if (first.ai) fillBadge(badge, first.author, 'AI');
-    else fillBadge(badge, first.author, '');
+    fillBadge(badge, first.author, first.ai ? aiPersonaInitials(first.author) : '');
     block.appendChild(badge);
+    block.appendChild(aiChip());
     const text = document.createElement('span');
     text.className = 'pmd-comment-preview-text';
     const body = first.text.replace(/\s+/g, ' ').trim();
@@ -1096,12 +1125,13 @@ export class CommentsColumn {
     header.className = 'pmd-comment-header';
     const badge = document.createElement('span');
     badge.className = 'pmd-comment-initials';
-    fillBadge(badge, c.author, c.ai ? 'AI' : '');
+    fillBadge(badge, c.author, c.ai ? aiPersonaInitials(c.author) : '');
     header.appendChild(badge);
     const name = document.createElement('span');
     name.className = 'pmd-comment-author';
     name.textContent = c.author || 'Unknown';
     header.appendChild(name);
+    if (c.ai) header.appendChild(aiChip());
     if (c.at) {
       const date = document.createElement('span');
       date.className = 'pmd-comment-date';
@@ -1236,7 +1266,7 @@ export class CommentsColumn {
         this.aiInFlight.delete(threadId);
         if (this.aiInFlight.size === 0) this.stopActivityTicker();
         learnStore.appendAiComment(threadId, {
-          author: aiAuthorName(),
+          author: aiPersonaName(),
           text: reply.text.trim(),
           at: new Date().toISOString(),
           ai: true,
@@ -1401,22 +1431,26 @@ export class CommentsColumn {
     return block;
   }
 
-  private renderAiThinkingPlaceholder(): HTMLElement {
+  /** `local` → match a local AI thread's turn (persona name + derived
+   *  initials + AI chip); default → match a comment-thread AI reply
+   *  (fixed 'AI' initials + `(AI)`-suffixed name for docx round-trip), so
+   *  the placeholder doesn't visually jump when the response arrives. */
+  private renderAiThinkingPlaceholder(local = false): HTMLElement {
     const block = document.createElement('div');
     block.className = 'pmd-comment-reply pmd-comment-ai pmd-comment-ai-thinking';
     const header = document.createElement('header');
     header.className = 'pmd-comment-header';
     const badge = document.createElement('span');
     badge.className = 'pmd-comment-initials';
-    // Match what the real AI comment will carry — fixed 'AI'
-    // initials + author with the `(AI)` suffix — so the placeholder
-    // doesn't visually jump when the response arrives.
-    badge.textContent = 'AI';
+    const author = local ? aiPersonaName() : aiAuthorName();
+    if (local) fillBadge(badge, author, aiPersonaInitials(author));
+    else badge.textContent = 'AI';
     header.appendChild(badge);
     const name = document.createElement('span');
     name.className = 'pmd-comment-author';
-    name.textContent = aiAuthorName();
+    name.textContent = author;
     header.appendChild(name);
+    if (local) header.appendChild(aiChip());
     block.appendChild(header);
     const body = document.createElement('div');
     body.className = 'pmd-comment-body';
