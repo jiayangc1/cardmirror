@@ -311,6 +311,12 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
+- **Your selection stays visible when a palette or the find bar opens.**
+  Selecting text and then opening the command / search palette (or any
+  panel that takes keyboard focus) used to grey out or hide the
+  selection, because the editor lost focus. It now stays highlighted, so
+  you can see what a command will act on.
+
 - **Pasted sections now work in the navigation pane.** When you copied
   pockets/hats/blocks (and the cards under them) from one document and
   pasted them into another, the pasted headings were inert in the

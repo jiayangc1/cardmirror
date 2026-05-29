@@ -1814,6 +1814,14 @@ code {
   background: color-mix(in srgb, var(--pmd-c-accent) 30%, transparent);
 }
 
+/* Frozen selection: while the editor is blurred (e.g. the command /
+   search palette took focus), the browser hides the native selection,
+   so `frozen-selection-plugin` paints the selected range with the same
+   tint so it stays visible. */
+:is(#editor, .pmd-pane-editor) .pmd-frozen-selection {
+  background: color-mix(in srgb, var(--pmd-c-accent) 30%, transparent);
+}
+
 /* Image-selected state. PM marks the clicked image node with
    `ProseMirror-selectednode`; without an explicit rule the default
    outline is easy to miss (especially on dark images), so users

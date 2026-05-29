@@ -84,6 +84,7 @@ import { namedStyleNormalizerPlugin } from './named-style-normalizer-plugin.js';
 import { fontSizeClassPlugin } from './font-size-class-plugin.js';
 import { buildSimilarSelectionPlugin } from './similar-selection-plugin.js';
 import { findReplacePlugin } from './find-replace-plugin.js';
+import { frozenSelectionPlugin } from './frozen-selection-plugin.js';
 import { FindReplaceBar } from './find-replace-ui.js';
 import { tableEditing, columnResizing } from 'prosemirror-tables';
 import { buildPastePlugin } from './paste-plugin.js';
@@ -3121,6 +3122,7 @@ export function buildEditorPlugins(): Plugin[] {
     readModePlugin,
     commentsPlugin,
     learnHighlightPlugin,
+    frozenSelectionPlugin,
     absorbPlugin,
     citeClassifierPlugin,
     namedStyleNormalizerPlugin,

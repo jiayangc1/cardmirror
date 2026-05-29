@@ -7,6 +7,20 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Frozen selection: keep the selection painted while the editor is
+  blurred.** A contenteditable's native selection vanishes when focus
+  leaves it (the command / search palette input, the find bar, etc.), so
+  a user who selected text then opened a palette lost sight of it. New
+  `frozen-selection-plugin.ts` tracks focus via `blur`/`focus` listeners
+  on `view.dom` (a doc-neutral `addToHistory:false` meta) and, while
+  blurred, renders an inline decoration over the current `TextSelection`
+  with the same tint as the live `::selection` (`.pmd-frozen-selection`,
+  accent 30%); cleared on focus so PM's real selection takes back over.
+  Registered in `buildEditorPlugins`, so single-doc, multi-pane, and the
+  quick-cards editors all get it. Node selections keep their own
+  `ProseMirror-selectednode` styling, so the plugin paints text
+  selections only.
+
 - **Comments column: one unified card design (comments / flashcards / AI).**
   The three card types had drifted into three visual vocabularies; this
   unifies them.
