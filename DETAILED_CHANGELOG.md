@@ -519,6 +519,9 @@ in each release, see `CHANGELOG.md`.
   - New main IPC + host methods: `host:list-files-recursive` (recursive
     `readdir` by extension) and `host:write-file-at-path` (now mkdir-ps
     the parent so nested + destination writes work).
+  - The modal's Escape handler (a capture-phase `document` keydown)
+    `stopPropagation()`s so closing the dialog doesn't also reach the
+    home screen's bubble-phase keydown and dismiss Home underneath it.
 
 - **Quick Cards — store foundation (no UI yet).** First slice of the
   Quick Cards feature (see `reference-docs/SPEC-quick-cards.md`): a

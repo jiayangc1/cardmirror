@@ -74,7 +74,8 @@ see `DETAILED_CHANGELOG.md`.
   extension, mirroring the input's subfolder structure) or a single
   `.zip`, both written into the destination you pick. The chosen input
   and destination paths are shown before you convert. Comments carry
-  across the conversion.
+  across the conversion. Esc closes the dialog without also dismissing
+  the Home screen behind it.
 
 - **Quick Cards** — a persistent, cross-window library of reusable
   rich-text snippets (think Verbatim's quick cards), reached from a

@@ -89,6 +89,10 @@ class BulkConvertModal {
   private onKey = (e: KeyboardEvent): void => {
     if (e.key === 'Escape' && !this.busy) {
       e.preventDefault();
+      // Capture-phase listener: stop the Escape here so it doesn't also
+      // reach the home screen's keydown handler (which would dismiss
+      // home out from under the closing modal).
+      e.stopPropagation();
       this.close();
     }
   };
