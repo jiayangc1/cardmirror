@@ -24,6 +24,15 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
+- **Old docs with id-less tags now self-repair on load.** Tags
+  synthesized by the pre-alpha.6 F2 schema-fitter bubble-up were
+  saved into `.cmir` files with `id: null` (the schema's default
+  — every code path that creates a tag stamps a fresh id, but
+  PM's fitter bypassed all of them). The nav-pane highlight skips
+  id-less headings, so the cursor sitting in one of those cards
+  used to show as being in the *previous* card. Loading a `.cmir`
+  now walks the doc and stamps a fresh id on any pocket / hat /
+  block / tag / analytic whose id came in null.
 - **F2 plain-paste no longer occasionally elevates a pasted line into
   a card tag.** Pasting 3+ lines of plain text into a card body used
   to let PM's schema-fitting bubble the split up to the card itself —

@@ -7,6 +7,36 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **`.cmir` loader stamps fresh ids on id-less headings at parse
+  time.** New `stampMissingHeadingIds(doc)` in `src/schema/ids.ts`
+  walks the parsed `PMNode` tree and reconstructs any pocket /
+  hat / block / tag / analytic whose `id` attr is null with a
+  fresh UUID. `parseNative` calls it on the
+  `schema.nodeFromJSON(file.doc)` output. Origin of the id-less
+  headings: PM's schema fitter, when it bubbled up F2's
+  multi-line plain-paste split to the card level, synthesized
+  the second-half card's mandatory first-child tag from the
+  schema's `headingAttrs.id.default` (= `null`) rather than via
+  `newHeadingId()`. That path is closed at the source as of the
+  F2 fix earlier in this release, but old docs written before
+  the fix carry those id-less tags frozen into the file.
+  `setCaretHeading` in `nav-panel.ts` keys the cursor → nav
+  highlight on the heading id (skipping null), so an id-less tag
+  is functionally invisible to the highlight — the cursor in
+  that card appears in the *previous* card's slot. Stamping at
+  load repairs the file in place; the next save (in any path
+  that writes the doc back through `serializeNative`) makes the
+  repair persistent. The walk runs once at parse time, returns
+  the original node by identity when nothing needed stamping
+  (no-op cost), and preserves indent / spacing / other attrs
+  on the stamped heading. A pair of tests in
+  `tests/native/native.test.ts` covers the load-time stamp and
+  the existing-id no-op; a focused suite in
+  `tests/schema/stamp-missing-heading-ids.test.ts` covers the
+  helper across the full heading set + edge cases (round-trip
+  identity when nothing's null, isolated stamping in mixed docs,
+  attr preservation).
+
 - **Fast Debate Paste integration — main-process HTTP bridge +
   renderer-side insertion primitive.** Spec lives at
   `reference-docs/cardmirror-integration-spec.md`. New

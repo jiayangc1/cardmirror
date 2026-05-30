@@ -30,6 +30,7 @@
 
 import type { Node as PMNode } from 'prosemirror-model';
 import { schema } from '../schema/index.js';
+import { stampMissingHeadingIds } from '../schema/ids.js';
 import type { Thread } from '../editor/comments-plugin.js';
 
 /** Magic identifier present in every CardMirror native file. Rejects
@@ -144,7 +145,15 @@ export function parseNative(bytes: Uint8Array): ParseNativeResult {
   if (file.doc === undefined) {
     throw new Error('CardMirror file is missing its doc field.');
   }
-  const doc = schema.nodeFromJSON(file.doc);
+  // Defensive: stamp any heading whose `id` came in null. Old
+  // files written before the alpha.6 F2 fix can contain
+  // synthesized tag nodes that PM's schema fitter built from the
+  // tag attrs' defaults, missing the id-generation step every code
+  // path uses (see `stampMissingHeadingIds`'s JSDoc for the
+  // mechanism). An id-less heading is invisible to the nav-pane
+  // highlight + jump and to the level filter, so this stamps a
+  // fresh id at load to repair the doc in place.
+  const doc = stampMissingHeadingIds(schema.nodeFromJSON(file.doc));
   return {
     doc,
     threads: Array.isArray(file.threads) ? file.threads : [],

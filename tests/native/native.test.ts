@@ -208,4 +208,45 @@ describe('native format (.cmir)', () => {
     expect(parsed.doc.eq(original)).toBe(true);
     expect(parsed.threads).toEqual(threads);
   });
+
+  // ── Heading-id stamping at load ────────────────────────────────
+  // Old files (pre-alpha.6) can carry tag/analytic/etc. nodes with
+  // `id: null` — synthesized by the F2 schema-fitter bubble-up
+  // before that path was closed. An id-less heading is invisible to
+  // the nav-pane highlight, so `parseNative` stamps a fresh id at
+  // load to repair the doc in place.
+  it('stamps a fresh id on a heading whose id is null in the file', () => {
+    const payload = JSON.stringify({
+      format: 'cardmirror-doc',
+      formatVersion: 1,
+      createdBy: 'cardmirror-test',
+      createdAt: '2026-05-30T00:00:00.000Z',
+      doc: {
+        type: 'doc',
+        content: [
+          {
+            type: 'card',
+            content: [
+              { type: 'tag', attrs: { id: null }, content: [{ type: 'text', text: 'orphan' }] },
+              { type: 'card_body', content: [{ type: 'text', text: 'body' }] },
+            ],
+          },
+        ],
+      },
+    });
+    const bytes = new TextEncoder().encode(payload);
+    const { doc } = parseNative(bytes);
+    const tag = doc.firstChild!.firstChild!;
+    expect(tag.type.name).toBe('tag');
+    const id = tag.attrs['id'];
+    expect(typeof id).toBe('string');
+    expect(id).toMatch(/[0-9a-f-]{30,}/);
+  });
+
+  it('leaves existing heading ids alone (round-trip preserves them)', () => {
+    const original = makeSampleDoc();
+    const bytes = serializeNative(original);
+    const { doc } = parseNative(bytes);
+    expect(doc.eq(original)).toBe(true);
+  });
 });
