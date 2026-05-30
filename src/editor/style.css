@@ -2667,9 +2667,15 @@ html:not(.pmd-dropzone-pill-hidden) body:not(.pmd-multi-doc) #editor .ProseMirro
      a nav-bottom pill sat in the outline's auto-scroll zone). Fixed
      so it floats over the editor; `positionDropzone` (index.ts) sets
      left/bottom from the editor element's live rect. The values here
-     are a sane fallback before the first positioning pass. */
+     are a sane fallback before the first positioning pass — bottom
+     already clears the status bar so a missed positioning pass (a
+     boot where `target.getBoundingClientRect()` came back 0×0 and
+     the function early-returned, observed on some Windows machines)
+     doesn't strand the pill in the status bar's vertical band. The
+     fallback uses the same `--status-bar-height` var the status bar
+     itself reads from, so they can't drift. */
   position: fixed;
-  bottom: 0.5rem;
+  bottom: calc(var(--status-bar-height) + 0.5rem);
   left: calc(var(--nav-width) + 0.5rem);
   right: auto;
   /* Fallback width cap before `positionDropzone` runs; it then sets an
@@ -2678,7 +2684,15 @@ html:not(.pmd-dropzone-pill-hidden) body:not(.pmd-multi-doc) #editor .ProseMirro
   max-width: calc(100vw - var(--nav-width) - 1rem);
   max-height: 60vh;
   pointer-events: auto;
-  z-index: 12;
+  /* Above the status bar (z=200). In the spec-correct world the pill
+     and the status bar never overlap, so z-index only matters if the
+     pill ends up in the bar's band — but on some Windows boots that
+     happened anyway and the pill rendered over the bar instead of
+     being clipped by it (suspected Chromium layer-promotion quirk).
+     Keeping z-index above the bar's makes the failure mode visible
+     and clickable while the new bottom-fallback prevents the
+     overlap in the first place. */
+  z-index: 220;
   display: flex;
   flex-direction: column;
   /* Left-anchored pill; the bar sizes to content. */

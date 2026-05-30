@@ -7,6 +7,28 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Dropzone pill fallback now clears the status bar.** `.pmd-dropzone-
+  root`'s CSS fallback `bottom` is now `calc(var(--status-bar-height)
+  + 0.5rem)` (was `0.5rem`), and its `z-index` is `220` (was `12`,
+  above the status bar's `200`). `positionDropzone` (`index.ts`) still
+  reads `#app`'s / the focused pane body's live rect and inlines the
+  exact `bottom`, but on some Windows machines that pass landed when
+  the target's `getBoundingClientRect()` was 0×0 — the function
+  early-returns there, and nothing later was firing to re-run it
+  (`ResizeObserver` only fires on size *changes*; the layout-stabilizes-
+  to-its-final-size case doesn't trigger a delta). The pill stayed at
+  its CSS fallback, ~8px above the viewport bottom, sitting in the
+  status bar's vertical band. A second symptom in the same screenshot
+  (the pill rendering visibly on top of the status bar rather than
+  being clipped by it despite `z-index: 12` losing to the bar's `200`)
+  is consistent with a Chromium layer-promotion quirk on Windows,
+  rooted in two body-level `position: fixed` elements with `box-
+  shadow` ending up on independent composited layers whose paint
+  order doesn't always honor the in-spec stacking. The new fallback
+  prevents the overlap from happening in the first place; the z-index
+  bump keeps the pill visible and clickable if a future layout change
+  recreates an overlap.
+
 - **Paste-time unwrap of single-cell layout tables.** `paste-plugin.ts`'s
   `transformPasted` hook now runs a new `unwrapSingleCellTables` pass
   ahead of `freshHeadingIds`. Pasting from sources that use `<table>`

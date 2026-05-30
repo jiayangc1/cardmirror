@@ -9,6 +9,15 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
+- **Dropzone pill no longer ends up in the status bar's band on some
+  Windows machines.** Before its dynamic positioning pass had a chance
+  to land, the pill fell back to a CSS bottom that put it ~8px above
+  the viewport bottom — in the same vertical strip as the zoom
+  controls and reader read-time readouts. On some Windows boots the
+  positioning pass never recovered (target rect came back zero-sized
+  at the moment it ran), so the pill stayed there. The CSS fallback
+  now already clears the status bar, and the pill stacks above the
+  bar if anything ever does push the two together.
 - **Paste no longer drops an undeletable "intermediate line" below a
   tag/cite.** Sources that wrap content in layout tables — Google Docs
   published views, news-site article bodies, marketing emails, .docx
