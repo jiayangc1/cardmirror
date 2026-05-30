@@ -18,7 +18,28 @@ see `DETAILED_CHANGELOG.md`.
   navigation pane toggle, and more. These are search aliases only —
   the displayed names are unchanged.
 
+- **Reset-to-default buttons next to the Analytic / Undertag color
+  pickers** (Settings → Appearance → Style colors).
+
+- **"Cycle Theme" command** that steps the theme Light → Dark → System.
+  Unbound by default — assign a key in Settings → Keybindings (or run it
+  from the search palette; it also answers to "dark mode" / "toggle
+  theme").
+
 ### Fixed
+
+- **The Analytic / Undertag color pickers now actually work, and the
+  Appearance and Accessibility copies are linked.** The Appearance
+  "Style colors" picker had no visible effect — the Accessibility
+  "Color overrides" system silently wiped it on every load. The two are
+  now one linked value: set the color in either place and both update.
+  Dark-mode behavior follows what you'd expect: your colors stay put
+  when dark mode is on but isn't applied to the document; the document
+  switches to a lighter built-in blue/green only when you apply the
+  theme to the document area (the navigation pane, being chrome, always
+  uses the lighter colors in dark mode for contrast). Any color you'd
+  previously set through the Accessibility panel is migrated over
+  automatically.
 
 - **The home screen's Learn section no longer locks you out of Manage
   when you have no flashcards.** Previously the whole section greyed

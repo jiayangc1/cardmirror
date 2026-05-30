@@ -140,7 +140,7 @@ export interface DisplayColors {
   undertag: string;
 }
 
-const DEFAULT_DISPLAY_COLORS: DisplayColors = {
+export const DEFAULT_DISPLAY_COLORS: DisplayColors = {
   analytic: '#1F3864',
   undertag: '#385623',
 };
@@ -1219,7 +1219,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     key: 'displayColors',
     label: 'Style colors',
     description:
-      'Pick the color used for Analytic and Undertag text.',
+      'Pick the color used for Analytic and Undertag text. The same colors appear under Accessibility → Color overrides (Document text) — editing either place changes both. In dark mode they stay on these colors as long as the theme isn’t applied to the document; when it is, the document switches to a lighter built-in blue/green for contrast.',
     kind: 'displayColors',
     category: 'appearance',
   },
@@ -1764,7 +1764,7 @@ function sanitize(s: Settings): Settings {
     readers: sanitizeReaders(s.readers),
     displaySizes: sanitizeDisplaySizes(s.displaySizes),
     displayTypography: sanitizeDisplayTypography(s.displayTypography),
-    displayColors: sanitizeDisplayColors(s.displayColors),
+    displayColors: sanitizeDisplayColors(s.displayColors, s.customColorOverrides),
     bodyFont: sanitizeBodyFont(s.bodyFont),
     uiFont: sanitizeUiFont(s.uiFont),
     ribbonTooltipMode: sanitizeRibbonTooltipMode(s.ribbonTooltipMode),
@@ -1940,6 +1940,11 @@ function sanitizeCustomColorOverrides(raw: unknown): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!known.has(k)) continue;
+    // Document-text colors are backed by displayColors now; their
+    // legacy values migrate there (see sanitizeDisplayColors) and must
+    // not linger here, or applyCustomColorOverrides would re-clobber
+    // the displayColors write.
+    if (k in DISPLAY_COLOR_TOKEN_TO_KEY) continue;
     if (typeof v !== 'string' || v.trim() === '') continue;
     out[k] = v.trim();
   }
@@ -2015,11 +2020,36 @@ export const CUSTOMIZABLE_COLOR_TOKENS: readonly CustomizableColorToken[] = [
   { group: 'Editor', name: 'pmd-c-emphasis-box', label: 'Emphasis box border' },
   { group: 'Editor', name: 'pmd-c-highlight-default', label: 'New-highlight default color' },
 
-  // Per-style document colors (these duplicate displayColors but
-  // are reachable via this panel too for advanced users).
+  // Per-style document colors. These are reachable here too, but
+  // they're BACKED BY `displayColors` (Appearance → Style colors),
+  // not `customColorOverrides` — see DISPLAY_COLOR_TOKEN_TO_KEY. The
+  // Accessibility rows for them read / write displayColors so the two
+  // pickers stay linked to one value.
   { group: 'Document text', name: 'pmd-color-analytic', label: 'Analytic text' },
   { group: 'Document text', name: 'pmd-color-undertag', label: 'Undertag text' },
 ];
+
+/** The CUSTOMIZABLE_COLOR_TOKENS whose value lives in `displayColors`
+ *  (Appearance → Style colors) instead of `customColorOverrides`.
+ *  Maps the CSS-var token name (no `--`) to its DisplayColors key.
+ *  `applyDisplayColors` writes the user's pick to `--pmd-user-color-*`;
+ *  style.css layers the theme on top (light/dark/apply-to-doc) and
+ *  resolves `--pmd-color-*` from it. Both the Appearance and the
+ *  Accessibility pickers read / write displayColors, so they're one
+ *  linked value. */
+export const DISPLAY_COLOR_TOKEN_TO_KEY: Readonly<Record<string, keyof DisplayColors>> = {
+  'pmd-color-analytic': 'analytic',
+  'pmd-color-undertag': 'undertag',
+};
+
+/** Token names actually managed by `customColorOverrides` — every
+ *  CUSTOMIZABLE_COLOR_TOKENS name EXCEPT the displayColors-backed ones.
+ *  Passed to `applyCustomColorOverrides` so it never `removeProperty`s
+ *  the document-text vars (which would wipe the displayColors write,
+ *  the original "Appearance picker has no effect" bug). */
+export const CUSTOM_OVERRIDE_TOKEN_NAMES: readonly string[] = CUSTOMIZABLE_COLOR_TOKENS
+  .filter((t) => !(t.name in DISPLAY_COLOR_TOKEN_TO_KEY))
+  .map((t) => t.name);
 
 /** Validate a 3-tuple of positive integer minutes for the
  *  timer's speech presets. Fills missing / invalid entries with
@@ -2282,12 +2312,30 @@ function sanitizeColor(raw: unknown, fallback: string): string {
   return fallback;
 }
 
-function sanitizeDisplayColors(raw: unknown): DisplayColors {
+function sanitizeDisplayColors(raw: unknown, rawOverrides?: unknown): DisplayColors {
   const out = { ...DEFAULT_DISPLAY_COLORS };
-  if (!raw || typeof raw !== 'object') return out;
-  const r = raw as Partial<Record<keyof DisplayColors, unknown>>;
+  const r =
+    raw && typeof raw === 'object'
+      ? (raw as Partial<Record<keyof DisplayColors, unknown>>)
+      : {};
   for (const key of DISPLAY_COLOR_KEYS) {
     out[key] = sanitizeColor(r[key], DEFAULT_DISPLAY_COLORS[key]);
+  }
+  // Migration: older builds let the Accessibility "Color overrides"
+  // panel set pmd-color-analytic / pmd-color-undertag via
+  // customColorOverrides, which — applied last — is what actually
+  // rendered. Fold any such value into displayColors so the now-linked
+  // pickers reflect the color the user was really seeing. The legacy
+  // override wins over the displayColors entry (which never rendered).
+  // `sanitizeCustomColorOverrides` then drops these tokens from the
+  // overrides blob, so there's no double source going forward.
+  if (rawOverrides && typeof rawOverrides === 'object') {
+    const ov = rawOverrides as Record<string, unknown>;
+    for (const [token, key] of Object.entries(DISPLAY_COLOR_TOKEN_TO_KEY)) {
+      if (Object.prototype.hasOwnProperty.call(ov, token)) {
+        out[key] = sanitizeColor(ov[token], out[key]);
+      }
+    }
   }
   return out;
 }

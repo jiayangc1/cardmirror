@@ -1443,8 +1443,21 @@ specific things need to be true from the ground up:
   document-style colors). Changing a palette is a swap of variable
   values, not a sweep through 1000+ lines of CSS.
 - **Per-style color overrides.** `displayColors.{analytic,undertag}` in
-  settings let users pick those two per-style colors directly. The same
-  mechanism extends to other styles when needed.
+  settings let users pick those two per-style colors directly; the same
+  mechanism extends to other styles when needed. `displayColors` is the
+  single source of truth — the Appearance "Style colors" picker and the
+  Accessibility "Color overrides → Document text" rows are both linked
+  views of it (`DISPLAY_COLOR_TOKEN_TO_KEY` routes the latter), and the
+  two document-text tokens are excluded from `customColorOverrides`
+  (`CUSTOM_OVERRIDE_TOKEN_NAMES`) so the generic override system can't
+  clobber them. Theme layering uses a CSS indirection: `applyDisplayColors`
+  writes the user's pick to `--pmd-user-color-*`, and `style.css` resolves
+  the effective `--pmd-color-*` from it per theme state — light/`apply-to-
+  doc-off` document = user color; dark chrome (nav) and `apply-to-doc-on`
+  document = the built-in lighter blue/green for contrast on dark
+  surfaces. Writing the user value to a *separate* variable is what lets
+  the dark-theme value win on chrome while the document re-asserts the
+  user color (the inline write would otherwise outrank the theme rule).
 - **Per-style typography flags** continue the §5 pattern: each flag
   toggles a class on `#editor`; CSS rules predicated on the class apply
   the decoration. Adding a new flag is one line in DisplayTypography +

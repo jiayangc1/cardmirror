@@ -141,6 +141,7 @@ export const RIBBON_GROUPS: RibbonGroup[] = [
       'toggleNavPane',
       'wordCountSelection',
       'openSettings',
+      'cycleTheme',
       'openShortcutsReference',
     ],
   },

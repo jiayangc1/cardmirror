@@ -3428,6 +3428,9 @@ export type RibbonCommandId =
   | 'adjustFontSizeDown'
   | 'applyFontColor'
   | 'openSettings'
+  // Cycle the theme setting light → dark → system → light. No default
+  // binding; bind via Settings → Keybindings.
+  | 'cycleTheme'
   | 'toggleParagraphIntegrity'
   | 'selectSpeechDoc'
   | 'goHome'
@@ -3550,6 +3553,7 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'adjustFontSizeDown',
   'applyFontColor',
   'openSettings',
+  'cycleTheme',
   'toggleParagraphIntegrity',
   'selectSpeechDoc',
   'goHome',
@@ -3658,6 +3662,7 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   adjustFontSizeDown: 'Decrease Font Size by 1pt',
   applyFontColor: 'Apply Font Color',
   openSettings: 'Open Settings',
+  cycleTheme: 'Cycle Theme (Light → Dark → System)',
   toggleParagraphIntegrity: 'Toggle Paragraph Integrity',
   selectSpeechDoc: 'Select Speech Document',
   goHome: 'Go to Home Screen',
@@ -3706,6 +3711,7 @@ export const RIBBON_COMMAND_ALIASES: Partial<Record<RibbonCommandId, readonly st
   goHome: ['start screen', 'welcome screen', 'dashboard'],
   openShortcutsReference: ['hotkeys', 'key bindings', 'shortcuts'],
   zoomReset: ['actual size'],
+  cycleTheme: ['dark mode', 'light mode', 'toggle theme', 'switch theme', 'appearance'],
 };
 
 /**
@@ -3847,6 +3853,7 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   adjustFontSizeDown: '',
   applyFontColor: '',
   openSettings: '',
+  cycleTheme: '',
   toggleParagraphIntegrity: '',
   selectSpeechDoc: '',
   goHome: '',
@@ -4004,6 +4011,8 @@ export interface RibbonContext {
    *  ribbon-button counterparts. All optional (default no-op) so
    *  tests and headless callers don't have to wire them up. */
   openSettings: () => void;
+  /** Cycle the theme setting light → dark → system → light. */
+  cycleTheme: () => void;
   toggleParagraphIntegrity: () => void;
   selectSpeechDoc: () => void;
   goHome: () => void;
@@ -4071,6 +4080,7 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   toggleNavPane: () => {},
   lastFontColor: () => null,
   openSettings: () => {},
+  cycleTheme: () => {},
   toggleParagraphIntegrity: () => {},
   selectSpeechDoc: () => {},
   goHome: () => {},
@@ -4434,6 +4444,12 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
       return (_state, dispatch) => {
         if (!dispatch) return true;
         ctx.openSettings();
+        return true;
+      };
+    case 'cycleTheme':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.cycleTheme();
         return true;
       };
     case 'toggleParagraphIntegrity':

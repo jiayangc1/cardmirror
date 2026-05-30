@@ -9,6 +9,8 @@
 
 import {
   CUSTOMIZABLE_COLOR_TOKENS,
+  DISPLAY_COLOR_TOKEN_TO_KEY,
+  DEFAULT_DISPLAY_COLORS,
   SETTING_METADATA,
   SETTINGS_DEFAULTS,
   settings,
@@ -903,14 +905,21 @@ function buildColorsEditor(): HTMLElement {
   wrap.className = 'pmd-colors-editor';
 
   const inputs: Partial<Record<keyof DisplayColors, HTMLInputElement>> = {};
+  const resets: Partial<Record<keyof DisplayColors, HTMLButtonElement>> = {};
 
   const LABELS: Record<keyof DisplayColors, string> = {
     analytic: 'Analytic',
     undertag: 'Undertag',
   };
 
+  function setColor(key: keyof DisplayColors, value: string): void {
+    settings.set('displayColors', { ...settings.get('displayColors'), [key]: value });
+  }
+
   for (const key of DISPLAY_COLOR_KEYS) {
-    const row = document.createElement('label');
+    // A plain <div> wrapper, not <label> — a <label> would forward
+    // clicks on the reset button to the color input and pop the picker.
+    const row = document.createElement('div');
     row.className = 'pmd-colors-row';
 
     const lbl = document.createElement('span');
@@ -922,26 +931,36 @@ function buildColorsEditor(): HTMLElement {
     picker.type = 'color';
     picker.className = 'pmd-colors-input';
     picker.value = settings.get('displayColors')[key];
-    picker.addEventListener('input', () => {
-      settings.set('displayColors', {
-        ...settings.get('displayColors'),
-        [key]: picker.value,
-      });
-    });
+    picker.addEventListener('input', () => setColor(key, picker.value));
     row.appendChild(picker);
 
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'pmd-colors-reset';
+    setIcon(reset, 'reset');
+    reset.title = 'Reset to default';
+    reset.setAttribute('aria-label', `Reset ${LABELS[key]} color to default`);
+    reset.addEventListener('click', () => setColor(key, DEFAULT_DISPLAY_COLORS[key]));
+    row.appendChild(reset);
+
     inputs[key] = picker;
+    resets[key] = reset;
     wrap.appendChild(row);
   }
 
-  // Sync if settings change elsewhere (e.g. another tab).
-  const unsubscribe = settings.subscribe(() => {
+  // Keep pickers + reset-enabled state in sync with the store (covers
+  // edits from the linked Accessibility panel, another tab, or reset).
+  function refresh(): void {
     const c = settings.get('displayColors');
     for (const key of DISPLAY_COLOR_KEYS) {
       const inp = inputs[key];
       if (inp && inp.value !== c[key]) inp.value = c[key];
+      const rst = resets[key];
+      if (rst) rst.disabled = c[key].toLowerCase() === DEFAULT_DISPLAY_COLORS[key].toLowerCase();
     }
-  });
+  }
+  refresh();
+  const unsubscribe = settings.subscribe(refresh);
   onDetached(wrap, () => unsubscribe());
 
   return wrap;
@@ -1961,12 +1980,24 @@ function buildColorOverridesEditor(): HTMLElement {
   resetAll.title = 'Drop every override and fall back to defaults';
   resetAll.addEventListener('click', () => {
     settings.set('customColorOverrides', {});
+    // The document-text rows are backed by displayColors, not the
+    // overrides blob — reset them too so "Reset all" clears every
+    // row the user sees in this panel.
+    settings.set('displayColors', { ...DEFAULT_DISPLAY_COLORS });
   });
   header.appendChild(resetAll);
   wrap.appendChild(header);
 
+  function displayColorsAtDefault(): boolean {
+    const dc = settings.get('displayColors');
+    return DISPLAY_COLOR_KEYS.every(
+      (k) => dc[k].toLowerCase() === DEFAULT_DISPLAY_COLORS[k].toLowerCase(),
+    );
+  }
   function refreshResetAll(): void {
-    const has = Object.keys(settings.get('customColorOverrides')).length > 0;
+    const has =
+      Object.keys(settings.get('customColorOverrides')).length > 0 ||
+      !displayColorsAtDefault();
     resetAll.disabled = !has;
   }
   refreshResetAll();
@@ -2063,6 +2094,13 @@ function buildColorOverridesEditor(): HTMLElement {
     input.type = 'color';
     input.className = 'pmd-color-override-input';
 
+    // Document-text tokens (analytic / undertag) are backed by the
+    // `displayColors` setting, linked to the Appearance → Style colors
+    // picker. For these the row reads / writes displayColors (a plain
+    // opaque hex) instead of the overrides blob, and the alpha slider
+    // is hidden — document text is never translucent.
+    const dcKey = DISPLAY_COLOR_TOKEN_TO_KEY[tok.name];
+
     // Alpha slider, sized 0–1 with two-decimal steps. Lets the
     // user tune translucent tokens (`pmd-c-overlay`, the various
     // soft accents) — important for an accessibility tool, where
@@ -2075,6 +2113,7 @@ function buildColorOverridesEditor(): HTMLElement {
     alpha.max = '1';
     alpha.step = '0.01';
     alpha.title = 'Opacity';
+    if (dcKey) alpha.hidden = true;
 
     const reset = document.createElement('button');
     reset.type = 'button';
@@ -2083,6 +2122,15 @@ function buildColorOverridesEditor(): HTMLElement {
     reset.title = 'Reset to default';
 
     function refresh(): void {
+      if (dcKey) {
+        const value = settings.get('displayColors')[dcKey];
+        swatch.style.background = value;
+        hex.textContent = value;
+        input.value = value;
+        reset.disabled =
+          value.toLowerCase() === DEFAULT_DISPLAY_COLORS[dcKey].toLowerCase();
+        return;
+      }
       const value = currentValue(tok.name);
       const { r, g, b, a } = parseToRgbaParts(value);
       swatch.style.background = value;
@@ -2097,6 +2145,13 @@ function buildColorOverridesEditor(): HTMLElement {
     }
 
     function write(): void {
+      if (dcKey) {
+        settings.set('displayColors', {
+          ...settings.get('displayColors'),
+          [dcKey]: input.value,
+        });
+        return;
+      }
       const { r, g, b } = parseToRgbaParts(input.value);
       const a = Math.max(0, Math.min(1, +alpha.value));
       setOverride(tok.name, composeColor(r, g, b, a));
@@ -2104,7 +2159,16 @@ function buildColorOverridesEditor(): HTMLElement {
 
     input.addEventListener('input', write);
     alpha.addEventListener('input', write);
-    reset.addEventListener('click', () => clearOverride(tok.name));
+    reset.addEventListener('click', () => {
+      if (dcKey) {
+        settings.set('displayColors', {
+          ...settings.get('displayColors'),
+          [dcKey]: DEFAULT_DISPLAY_COLORS[dcKey],
+        });
+      } else {
+        clearOverride(tok.name);
+      }
+    });
 
     right.appendChild(swatch);
     right.appendChild(hex);

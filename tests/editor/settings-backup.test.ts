@@ -61,3 +61,46 @@ describe('settings import (replaceAll)', () => {
     expect(b.get('anthropicApiKey')).toBe('b-key'); // not carried by export
   });
 });
+
+// Document-text colors (analytic / undertag) are backed by
+// `displayColors` and shown in BOTH the Appearance and Accessibility
+// pickers. They used to be settable via `customColorOverrides` too,
+// where (applied last) they won — but that left the Appearance picker
+// inert. They're now unified onto displayColors; sanitize migrates any
+// legacy override into displayColors and drops it from the overrides
+// blob.
+describe('document-text color migration', () => {
+  it('folds a legacy customColorOverrides analytic color into displayColors', () => {
+    const s = new SettingsStore();
+    s.replaceAll({
+      displayColors: { analytic: '#1f3864', undertag: '#385623' },
+      customColorOverrides: { 'pmd-color-analytic': '#ff0000' },
+    });
+    // The override value wins (it's what actually rendered before).
+    expect(s.get('displayColors').analytic).toBe('#ff0000');
+    // …and it's removed from the overrides blob so nothing re-clobbers it.
+    expect('pmd-color-analytic' in s.get('customColorOverrides')).toBe(false);
+  });
+
+  it('keeps non-document overrides in customColorOverrides untouched', () => {
+    const s = new SettingsStore();
+    s.replaceAll({
+      customColorOverrides: {
+        'pmd-c-accent': '#123456',
+        'pmd-color-undertag': '#00ff00',
+      },
+    });
+    expect(s.get('customColorOverrides')['pmd-c-accent']).toBe('#123456');
+    expect('pmd-color-undertag' in s.get('customColorOverrides')).toBe(false);
+    expect(s.get('displayColors').undertag).toBe('#00ff00');
+  });
+
+  it('leaves displayColors at its own value when there is no legacy override', () => {
+    const s = new SettingsStore();
+    s.replaceAll({
+      displayColors: { analytic: '#abcdef', undertag: '#385623' },
+      customColorOverrides: {},
+    });
+    expect(s.get('displayColors').analytic).toBe('#abcdef');
+  });
+});

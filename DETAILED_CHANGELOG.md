@@ -7,6 +7,64 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **"Cycle Theme" ribbon command (`cycleTheme`).** A bindable command
+  that rotates the `theme` setting light → dark → system → light. Added
+  through the standard registry path: the `RibbonCommandId` union,
+  `RIBBON_COMMAND_IDS`, `RIBBON_COMMAND_LABELS` ("Cycle Theme (Light →
+  Dark → System)"), `RIBBON_COMMAND_ALIASES` (dark mode / light mode /
+  toggle theme / switch theme), `DEFAULT_RIBBON_KEYS` (`''` — unbound),
+  the `View` ribbon group (satisfies the drift guard), and a
+  `commandFor` case that calls a new `RibbonContext.cycleTheme` hook.
+  The hook is implemented in `index.ts` where the context is built: it
+  reads `settings.get('theme')`, advances through `['light','dark',
+  'system']`, calls `settings.set('theme', next)` (the existing
+  subscription re-runs `applyTheme`), and shows a `Theme: <next>` toast.
+  Being in the registry, it auto-appears in the keybindings editor, the
+  shortcuts reference, and the command palette — no per-surface wiring.
+
+- **Analytic / Undertag document colors: unified the two settings,
+  fixed the inert Appearance picker, and made dark-mode behavior
+  correct.** Two settings both targeted the same CSS vars and fought.
+  `applyDisplayColors` (Appearance → "Style colors", `displayColors`)
+  wrote `--pmd-color-analytic` / `--pmd-color-undertag` inline on
+  `:root`; `applyCustomColorOverrides` (Accessibility → "Color
+  overrides", `customColorOverrides`, whose `CUSTOMIZABLE_COLOR_TOKENS`
+  includes those two) ran *last* and, for any token not in the
+  overrides blob, called `removeProperty('--pmd-color-analytic')` —
+  wiping the displayColors write. Net effect: the Appearance picker did
+  nothing unless you also set an Accessibility override.
+
+  Reworked onto a single source of truth (`displayColors`) with a
+  CSS-variable indirection so the theme can layer on top:
+  - `applyDisplayColors` now writes the user's pick to
+    `--pmd-user-color-*` (not `--pmd-color-*`). `style.css` resolves
+    the effective `--pmd-color-*` from it: `:root` →
+    `var(--pmd-user-color-analytic, #1F3864)` (light = user color);
+    `:root[data-theme="dark"]` → the built-in `#8aa9d1` / `#8fb377`
+    (chrome/nav, readable on dark — now actually effective because the
+    inline write targets a *different* variable);
+    `:root[data-theme="dark"]:not([data-theme-doc="dark"]) :is(#editor,
+    .pmd-pane-editor)` → back to `var(--pmd-user-color-*, …)` so the
+    document keeps the user color while it's on paper; with apply-to-doc
+    ON the editor inherits the dark `#8aa9d1` instead. Behavior matrix:
+    light = user / user; dark not-applied = light-blue nav / user doc;
+    dark applied = light-blue / light-blue.
+  - `applyCustomColorOverrides` is now passed `CUSTOM_OVERRIDE_TOKEN_NAMES`
+    (the manifest minus the two document-text tokens) so it can no
+    longer remove/clobber them.
+  - The Accessibility "Document text" rows (`buildColorOverridesEditor`)
+    are special-cased via `DISPLAY_COLOR_TOKEN_TO_KEY`: they read/write
+    `displayColors`, hide the alpha slider, and reset to
+    `DEFAULT_DISPLAY_COLORS` — so they're a linked view of the same
+    value the Appearance picker edits.
+  - `buildColorsEditor` (Appearance) gains a per-row reset-to-default
+    button; "Reset all overrides" also resets `displayColors`.
+  - Migration: `sanitizeDisplayColors(raw, rawOverrides)` folds any
+    legacy `customColorOverrides['pmd-color-analytic'|'pmd-color-undertag']`
+    into `displayColors` (the override wins — it's what actually
+    rendered), and `sanitizeCustomColorOverrides` drops those two tokens
+    so there's no double source going forward.
+
 - **Command-palette search aliases for settings and commands.** The
   Search-Everything palette matched a query only against a command's
   `RIBBON_COMMAND_LABELS` entry or a setting's `SettingMeta.label`, so

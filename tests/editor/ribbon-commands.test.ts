@@ -31,6 +31,7 @@ import {
   RIBBON_COMMAND_LABELS,
   RIBBON_COMMAND_ALIASES,
   getRibbonCommand,
+  type RibbonContext,
 } from '../../src/editor/ribbon-commands.js';
 import { SETTING_METADATA } from '../../src/editor/settings.js';
 import {
@@ -4163,5 +4164,35 @@ describe('command palette aliases', () => {
     expect(RIBBON_COMMAND_ALIASES.toggleNavPane).toEqual(
       expect.arrayContaining(['toggle navigation pane', 'toggle nav pane']),
     );
+  });
+});
+
+// ── cycleTheme command ───────────────────────────────────────────────
+// Bindable command that cycles the theme setting. The actual
+// light → dark → system rotation lives in the editor's RibbonContext
+// wiring (index.ts); here we lock down the command plumbing: it's
+// registered, labeled, searchable, and dispatches to the ctx hook.
+describe('cycleTheme command', () => {
+  it('is registered with a label', () => {
+    expect(RIBBON_COMMAND_IDS).toContain('cycleTheme');
+    expect(RIBBON_COMMAND_LABELS.cycleTheme).toBeTruthy();
+  });
+
+  it('is searchable by "dark mode" / "toggle theme"', () => {
+    expect(RIBBON_COMMAND_ALIASES.cycleTheme).toEqual(
+      expect.arrayContaining(['dark mode', 'light mode', 'toggle theme']),
+    );
+  });
+
+  it('dispatches to ctx.cycleTheme only when a dispatch fn is present', () => {
+    let calls = 0;
+    const ctx = { cycleTheme: () => { calls++; } } as unknown as RibbonContext;
+    const cmd = getRibbonCommand('cycleTheme', ctx);
+    // Dry run (no dispatch) reports availability without side effects.
+    expect(cmd(null as never, undefined)).toBe(true);
+    expect(calls).toBe(0);
+    // Real run fires the hook.
+    expect(cmd(null as never, () => {})).toBe(true);
+    expect(calls).toBe(1);
   });
 });

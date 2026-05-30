@@ -304,12 +304,16 @@ button {
   --pmd-c-image-placeholder-border: #999;
   --pmd-c-highlight-default: #ffff66;  /* default user-applied highlight color */
 
-  /* Per-style document colors. Defaults match Verbatim's canonical
-     hues; settings.displayColors pushes overrides onto the document
-     root at runtime so both the editor and the nav pane (which lives
-     outside the #editor element) stay in sync. */
-  --pmd-color-analytic: #1F3864;
-  --pmd-color-undertag: #385623;
+  /* Per-style document colors. The user's chosen color lives in
+     `--pmd-user-color-*` (written inline on :root by
+     `applyDisplayColors` from settings.displayColors); the effective
+     `--pmd-color-*` is resolved from it here, with the canonical
+     Verbatim hues as the pre-JS fallback. The theme then layers on
+     top (see the dark-theme + apply-to-doc rules below): in light
+     mode this user value is what both the editor and the nav pane
+     (outside #editor) inherit. */
+  --pmd-color-analytic: var(--pmd-user-color-analytic, #1F3864);
+  --pmd-color-undertag: var(--pmd-user-color-undertag, #385623);
 }
 
 /* Dark theme. Active when `<html data-theme="dark">` — set by JS
@@ -465,9 +469,14 @@ button {
   --pmd-c-image-placeholder-border: #555;
   --pmd-c-highlight-default: #5a5a00;
 
-  /* Per-style document colors — keep the structural family
-     hues (blue for analytic, green for undertag) but lighten so
-     they read against the dark page bg. */
+  /* Per-style document colors — keep the structural family hues
+     (blue for analytic, green for undertag) but lighten so they read
+     against dark surfaces. This is the CHROME value: it applies to
+     the nav pane and any dark surface, and (because it sets
+     `--pmd-color-*` directly rather than the `--pmd-user-color-*`
+     the inline write targets) it correctly wins over the user's pick
+     on dark backgrounds. The document area re-asserts the user color
+     when apply-to-doc is off — see the rule below. */
   --pmd-color-analytic: #8aa9d1;
   --pmd-color-undertag: #8fb377;
 
@@ -537,8 +546,17 @@ button {
   --pmd-c-highlight-default: #ffff66;
   --pmd-c-image-placeholder-bg: #f0f0f0;
   --pmd-c-image-placeholder-border: #999;
-  --pmd-color-analytic: #1F3864;
-  --pmd-color-undertag: #385623;
+  /* Re-assert the user's document colors inside the editor. The dark
+     chrome above lightened `--pmd-color-*` to the built-in blue/green
+     for readability on dark surfaces (nav pane etc.); but with
+     apply-to-doc OFF the document stays on paper, so it must show the
+     user's chosen color — exactly what light mode shows. Resolve from
+     `--pmd-user-color-*` (the inline displayColors write) with the
+     canonical hues as fallback. When apply-to-doc is ON this rule
+     doesn't match, so the document inherits the dark blue/green
+     above. */
+  --pmd-color-analytic: var(--pmd-user-color-analytic, #1F3864);
+  --pmd-color-undertag: var(--pmd-user-color-undertag, #385623);
   --pmd-c-table-border: #888;
   --pmd-c-table-header-bg: #f0f0f0;
   --pmd-c-table-resize-handle: #adf;
@@ -4015,6 +4033,29 @@ html.pmd-nav-flat .pmd-nav-type-analytic:hover .pmd-nav-label {
   border-radius: 3px;
   cursor: pointer;
   background: var(--pmd-c-bg);
+}
+
+/* Per-row "reset to default" button beside each Style-colors picker —
+   matches the accessibility panel's per-token reset. */
+.pmd-colors-reset {
+  flex: 0 0 auto;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 3px;
+  background: var(--pmd-c-bg);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--pmd-c-text);
+}
+.pmd-colors-reset:hover:not(:disabled) {
+  background: var(--pmd-c-hover);
+}
+.pmd-colors-reset:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .pmd-body-font-editor {

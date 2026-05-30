@@ -67,7 +67,7 @@ import { recordRecent, removeRecent, type RecentFile } from './recents-store.js'
 import {
   settings,
   condenseWarningCloseFor,
-  CUSTOMIZABLE_COLOR_TOKENS,
+  CUSTOM_OVERRIDE_TOKEN_NAMES,
   DISPLAY_SIZE_KEYS,
   DISPLAY_COLOR_KEYS,
   type DisplaySizes,
@@ -1031,6 +1031,15 @@ const ribbonContext: RibbonContext = {
   // duplicate the host-side menu construction in two places.
   lastFontColor: () => settings.get('lastFontColor'),
   openSettings: () => settingsBtn.click(),
+  cycleTheme: () => {
+    // light → dark → system → light. The settings subscription
+    // re-runs applyTheme, so this is all the command needs to do.
+    const order = ['light', 'dark', 'system'] as const;
+    const cur = settings.get('theme');
+    const next = order[(order.indexOf(cur) + 1) % order.length]!;
+    settings.set('theme', next);
+    showToast(`Theme: ${next}`);
+  },
   toggleParagraphIntegrity: () => {
     settings.set('paragraphIntegrity', !settings.get('paragraphIntegrity'));
   },
@@ -1881,8 +1890,15 @@ function applyIconSet(set: 'modern' | 'classic'): void {
 }
 
 function applyDisplayColors(c: DisplayColors): void {
+  // Write to `--pmd-user-color-*`, NOT `--pmd-color-*`. style.css
+  // resolves the effective `--pmd-color-*` from this user value plus
+  // the theme layer (light → user color; dark chrome → built-in light
+  // blue/green; dark document → user color unless apply-to-doc is on).
+  // Writing `--pmd-color-*` directly would pin it past the theme and
+  // make the dark-mode values dead. See the `--pmd-color-analytic`
+  // cascade in style.css.
   for (const key of DISPLAY_COLOR_KEYS) {
-    document.documentElement.style.setProperty(`--pmd-color-${key}`, c[key]);
+    document.documentElement.style.setProperty(`--pmd-user-color-${key}`, c[key]);
   }
 }
 
@@ -2028,7 +2044,7 @@ settings.subscribe((s) => {
   );
   applyCustomColorOverrides(
     s.customColorOverrides,
-    CUSTOMIZABLE_COLOR_TOKENS.map((t) => t.name),
+    CUSTOM_OVERRIDE_TOKEN_NAMES,
   );
   applyBodyFont(s.bodyFont);
   applyUiFont(s.uiFont);
@@ -2319,7 +2335,7 @@ applyHighlightShadingOverride(
 );
 applyCustomColorOverrides(
   settings.get('customColorOverrides'),
-  CUSTOMIZABLE_COLOR_TOKENS.map((t) => t.name),
+  CUSTOM_OVERRIDE_TOKEN_NAMES,
 );
 applyBodyFont(settings.get('bodyFont'));
 applyUiFont(settings.get('uiFont'));
