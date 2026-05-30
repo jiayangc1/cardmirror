@@ -29,6 +29,7 @@ import {
 import { autoUpdater } from 'electron-updater';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
+import { startFastPasteBridge, stopFastPasteBridge } from './fast-paste-bridge.js';
 
 const DEV_SERVER_URL = 'http://localhost:5173';
 
@@ -1800,6 +1801,12 @@ void app.whenReady().then(() => {
     createWindow();
   }
   startAutoUpdate();
+  // Fast Debate Paste integration — 127.0.0.1-only HTTP server
+  // exposing `/ping` and `/insert` for the external client. If the
+  // port is taken or the discovery file can't be written, the
+  // bridge silently bails and the client falls back to its
+  // keystroke path (the integration is never a hard dependency).
+  void startFastPasteBridge();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1808,4 +1815,12 @@ void app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// Tear down the Fast Debate Paste bridge before the app exits so
+// the discovery file goes with us (stale-file tolerance is
+// designed in, but cleaning up our own state means the next launch
+// starts from a known-empty state).
+app.on('before-quit', () => {
+  void stopFastPasteBridge();
 });

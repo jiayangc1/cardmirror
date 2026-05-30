@@ -43,6 +43,7 @@ import { showToast } from './toast.js';
 import { openSelectSpeechDocModal } from './select-speech-doc-ui.js';
 import { dropzoneStore, deriveDropzoneLabel } from './dropzone-store.js';
 import { DropzoneController } from './dropzone-ui.js';
+import { installExternalInsertHost } from './external-insert-host.js';
 import {
   quickCardsStore,
   buildQuickCard,
@@ -4921,6 +4922,16 @@ const dropzoneController = new DropzoneController();
 dropzoneController.mount({
   parent: document.body,
   getFocusedView: () => getActiveView(),
+});
+
+// Fast Debate Paste integration — subscribe to `external:insert-text`
+// IPC dispatched by the main-process bridge so its `POST /insert`
+// can drive an insertion against the focused window's live editor.
+// Builds the inserted body nodes directly (no F2 routing), so the
+// historical stray-tag bug the spec calls out can't happen here.
+installExternalInsertHost({
+  getFocusedView: () => getActiveView(),
+  getFocusedDocTitle: () => activeFile().filename,
 });
 requestAnimationFrame(positionDropzone);
 window.addEventListener('resize', positionDropzone);

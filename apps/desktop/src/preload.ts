@@ -336,6 +336,41 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('menu-command', listener);
   },
 
+  /** Fast Debate Paste integration — receive an `external:insert-text`
+   *  request from the main-process HTTP bridge (`fast-paste-bridge.ts`),
+   *  hand it to the renderer's external-insert handler, and send the
+   *  ack back via `external:insert-result`. The pair stays on a
+   *  contextBridge-exposed channel so the renderer never has to be
+   *  injected with `executeJavaScript` under contextIsolation. */
+  onExternalInsertRequest(handler: (req: {
+    requestId: string;
+    text: string;
+    role: 'card' | 'cite' | 'inline';
+    newParagraph: boolean;
+    omitted: boolean;
+  }) => void): () => void {
+    const listener = (
+      _evt: unknown,
+      req: {
+        requestId: string;
+        text: string;
+        role: 'card' | 'cite' | 'inline';
+        newParagraph: boolean;
+        omitted: boolean;
+      },
+    ): void => handler(req);
+    ipcRenderer.on('external:insert-text', listener);
+    return () => ipcRenderer.removeListener('external:insert-text', listener);
+  },
+  sendExternalInsertResult: (result: {
+    requestId: string;
+    ok: boolean;
+    error?: string;
+    docTitle?: string;
+  }): void => {
+    ipcRenderer.send('external:insert-result', result);
+  },
+
   /** Chrome scale — Chromium's per-frame page-zoom factor.
    *  Identical mechanism to the browser's Ctrl-+ / Ctrl-- chord:
    *  reflows the whole document including the editor surface,

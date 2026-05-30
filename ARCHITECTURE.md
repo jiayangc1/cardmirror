@@ -312,7 +312,7 @@ isn't platform-specific lives in the shared core.
 | ProseMirror NodeViews + display config | ✓ | | |
 | File I/O | (interface) | local FS | File System Access API + cloud |
 | Read-mode keyboard lockdown | (logic) | OS-level | best-effort browser |
-| Cross-app capture (Fast Debate Paste) | | OS hotkeys | n/a (browser limit) |
+| Cross-app capture (Fast Debate Paste) | | loopback HTTP bridge + OS hotkeys | n/a (browser limit) |
 | Real-time collab (eventual) | (CRDT integration) | | sync server |
 
 **Offline-primary positioning.** Tournament use is exclusively offline; the

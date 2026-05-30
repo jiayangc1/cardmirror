@@ -7,6 +7,73 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Fast Debate Paste integration — main-process HTTP bridge +
+  renderer-side insertion primitive.** Spec lives at
+  `reference-docs/cardmirror-integration-spec.md`. New
+  `apps/desktop/src/fast-paste-bridge.ts` boots a Node `http`
+  server on `127.0.0.1:17699` (ephemeral fallback on EADDRINUSE)
+  in `app.whenReady()`. On start it generates a fresh per-launch
+  token via `crypto.randomBytes(24)`, writes the discovery file
+  at `app.getPath('userData')/fast-paste-bridge.json` via
+  tmp-then-rename, and tears both down on `before-quit`. Both
+  routes constant-time-compare `X-FDP-Token`; mismatched / absent
+  token → 403. Any request carrying `Origin` or `Referer` is
+  also rejected (the DNS-rebinding-from-a-browser-page guard the
+  spec calls out). `GET /ping` replies with
+  `{ok, app, appVersion, schema, hasActiveDoc}`. `POST /insert`
+  forwards `{requestId, text, role, newParagraph, omitted}` to
+  the focused window's renderer via `external:insert-text` IPC
+  and awaits the renderer's `external:insert-result` reply with
+  a hard 1200ms timeout so the client never hangs (it enforces
+  1500ms on its end before falling back to keystrokes). Error
+  codes map: `no-target-doc` / `doc-readonly` → 200 with
+  `ok:false`, `bad-request` → 400, `unauthorized` → 403,
+  anything else → 500. Unknown `role` values degrade to `card`.
+
+  Renderer side: new preload channels (`external:insert-text`
+  receive, `external:insert-result` send) on the existing
+  contextBridge surface — no `executeJavaScript` under
+  contextIsolation. `src/editor/external-insert-host.ts`
+  subscribes via `installExternalInsertHost`, called from the
+  boot block in `index.ts` alongside the dropzone controller.
+  When a request arrives it resolves the live `EditorView` (or
+  returns `no-target-doc` if none), checks `view.editable` for
+  the read-mode gate (returns `doc-readonly` when the flag is
+  off — the same gate that swallows F2 keystrokes today), and
+  hands `{text, newParagraph}` to
+  `src/editor/external-insert.ts`'s
+  `buildExternalInsertTransaction`. The primitive splits `text`
+  on `/\r\n|\r|\n/`, builds each piece as a `card_body` node
+  (or `paragraph` when the cursor has no `card` / `analytic_unit`
+  ancestor — i.e. at doc level), assembles a closed-start /
+  open-end Slice, and `tr.replaceSelection`. The closed start
+  makes the first inserted body a fresh sibling at the cursor
+  (mirrors the keystroke bridge's "press Return first"); the
+  open end merges the last body's content with whatever was
+  after the cursor in the original textblock (mirrors what F2
+  paste does after the Return). Because the node types are
+  chosen directly, the schema's content expression is satisfied
+  in one pass — no contextual fitting, no fitter bubble-up, no
+  way for a pasted line to be elevated to a tag (which is the
+  same failure mode the F2 fix in this release closes from the
+  other direction).
+
+  Tests cover the route layer (`tests/desktop/fast-paste-bridge.test.ts`,
+  16 cases — token, ping shape, Origin/Referer rejection, all
+  five error codes, payload validation, unknown-role degradation,
+  no-focused-window short-circuit, discovery-file lifecycle),
+  the primitive (`tests/editor/external-insert.test.ts`, 10
+  cases — mid/start/end of card_body, multi-line, the spec's
+  §9 acceptance case, doc-level fallback to `paragraph`, empty
+  text, trailing newline, inline + leading-space convention),
+  and the renderer-side host (`tests/editor/external-insert-host.test.ts`,
+  7 cases — happy path with docTitle, inline, no-target-doc,
+  doc-readonly, bad-request, docTitle suppression when no
+  filename). Vitest's `electron` module is aliased to
+  `tests/desktop/_electron-stub.ts` (electron isn't installed at
+  the project root) so the bridge can be driven without
+  bootstrapping a real Electron process.
+
 - **F2 plain-paste: route through `tryPasteAsCardBodies` like rich
   paste does.** `applyPlainPasteFromText` (the Electron F2 entry
   point) and the armed-paste branch of `handlePaste` (the browser

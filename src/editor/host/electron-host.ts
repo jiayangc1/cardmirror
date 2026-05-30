@@ -167,6 +167,27 @@ interface ElectronAPI {
    *  Synchronous renderer-side call into Electron's `webFrame`. */
   setZoomFactor(factor: number): void;
   getZoomFactor(): number;
+
+  /** Fast Debate Paste integration. The renderer subscribes to
+   *  `external:insert-text` requests dispatched from the main-process
+   *  HTTP bridge (`apps/desktop/src/fast-paste-bridge.ts`), and replies
+   *  via `external:insert-result`. Wire contract lives in the FDP
+   *  integration spec (reference-docs). */
+  onExternalInsertRequest(
+    handler: (req: {
+      requestId: string;
+      text: string;
+      role: 'card' | 'cite' | 'inline';
+      newParagraph: boolean;
+      omitted: boolean;
+    }) => void,
+  ): () => void;
+  sendExternalInsertResult(result: {
+    requestId: string;
+    ok: boolean;
+    error?: string;
+    docTitle?: string;
+  }): void;
 }
 
 function api(): ElectronAPI {
