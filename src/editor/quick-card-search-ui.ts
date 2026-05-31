@@ -414,7 +414,10 @@ function fileObjectResult(o: FileObject): PaletteResult {
   return {
     source: 'fileobject',
     name: o.label,
-    meta: o.detail,
+    // Tags show their card's cite (so a cite-match reads clearly and
+    // tags carry their citation like the nav pane); cites show their
+    // owning tag; everything else has no secondary text.
+    meta: o.cite ?? o.detail,
     matchedName: true,
     snippet: null,
     fileRange: { from: o.from, to: o.to },

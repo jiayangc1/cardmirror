@@ -63,6 +63,13 @@ describe('searchFileObjects', () => {
   it('empty query returns all', () => {
     expect(searchFileObjects(objs, '').length).toBe(3);
   });
+  it('matches a tag by its card cite, not just its label', () => {
+    const withCite: FileObject[] = [
+      { kind: 'tag', label: 'Heg good', detail: '', cite: 'Brooks 24', from: 0, to: 0 },
+    ];
+    // Query is only in the cite, not the tag label.
+    expect(searchFileObjects(withCite, 'brooks').map((o) => o.label)).toEqual(['Heg good']);
+  });
 });
 
 // ── Object extraction ───────────────────────────────────────────────
@@ -106,6 +113,19 @@ describe('extractFile — objects', () => {
   it('the cite object carries its owning tag as detail', () => {
     const cite = extractFile(sampleDoc(), enabled('cite')).objects.find((o) => o.kind === 'cite');
     expect(cite?.detail).toBe('Smith says X');
+  });
+
+  it('the tag object carries its card cite — even when the cite KIND is off', () => {
+    // `enabled('tag')` only: no standalone CITE rows, but the tag still
+    // carries its citation so it stays findable by it.
+    const tag = extractFile(sampleDoc(), enabled('tag')).objects.find((o) => o.kind === 'tag');
+    expect(tag?.cite).toBe('Smith 23');
+  });
+
+  it('a tag is searchable by its cite with the cite kind off', () => {
+    const { objects } = extractFile(sampleDoc(), enabled('tag'));
+    // "23" appears only in the cite (Smith 23), not the label (Smith says X).
+    expect(searchFileObjects(objects, '23').map((o) => o.label)).toEqual(['Smith says X']);
   });
 
   it('respects the enabled set', () => {

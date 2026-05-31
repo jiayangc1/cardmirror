@@ -7,6 +7,25 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **In-file object search matches a tag by its card's cite.** Diving
+  into a file (`extractFile` in `file-search.ts`) produced a `tag`
+  `FileObject` whose only searchable text was the tag's own words, and
+  `searchFileObjects` matched on `label` alone — so an author/date never
+  surfaced its tag (unlike Ctrl-F, which can match the card via the
+  `cite_paragraph`). `FileObject` gains an optional `cite` field;
+  `extractFile` now always collects cite text (`collectHeadings` without
+  `skipCite`, so it's available even when the standalone `cite` object
+  *kind* is off — that flag still only gates the separate CITE rows) and
+  attaches the card's cite to its tag object. `searchFileObjects` matches
+  against `label + cite` for tags (label leads, so a label hit still
+  outranks a cite-only hit). `fileObjectResult` shows the cite as the
+  row's secondary text for tags, so a cite-match reads clearly and tags
+  carry their citation like the nav pane. Since a tag is now findable by
+  its cite, the standalone `cite` object kind is redundant and now
+  defaults OFF (`fileSearchObjectTypes` default + sanitize fallback +
+  `DEFAULT_FILE_OBJECT_KINDS` all drop `'cite'`); it stays a configurable
+  toggle for anyone who wants separate CITE rows.
+
 - **OS "Open with…" routes into the workspace in multi-pane mode.**
   `openExternalFile` (main) always did `createWindow({ initialDoc })`,
   but the renderer's multi-pane boot never read `getInitialDoc()` (only

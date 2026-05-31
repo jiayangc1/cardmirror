@@ -852,7 +852,7 @@ const DEFAULTS: Settings = {
   ribbonTooltipMode: 'both',
   showDropzonePill: false,
   fileSearchRoot: '',
-  fileSearchObjectTypes: ['block', 'tag', 'cite'],
+  fileSearchObjectTypes: ['block', 'tag'],
   fileSearchOutlineDepth: 3,
   pinAutoEnabled: true,
   lineHeight: 1.3,
@@ -1053,7 +1053,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     key: 'fileSearchObjectTypes',
     label: 'File search: objects to find within a file',
     description:
-      'After picking a file in the search palette (Tab), which structural objects show up as you search inside it. Inserting one drops the matching card (tag/cite), block section (block/hat/pocket), or analytic unit into your document.',
+      'After picking a file in the search palette (Tab), which structural objects show up as you search inside it. Inserting one drops the matching card (tag/cite), block section (block/hat/pocket), or analytic unit into your document. Tags are always findable by their citation, so Cite (standalone cite rows) is off by default — turn it on to also list cites on their own.',
     kind: 'fileSearchObjectTypes',
     category: 'general',
     electronOnly: true,
@@ -2187,7 +2187,7 @@ function sanitizeClodTimePeriods(raw: unknown): Settings['clodTimePeriods'] {
  *  when the value is missing/garbage (but allow an explicit empty set). */
 function sanitizeFileObjectTypes(raw: unknown): string[] {
   const known = ['pocket', 'hat', 'block', 'tag', 'cite', 'analytic'];
-  if (!Array.isArray(raw)) return ['block', 'tag', 'cite'];
+  if (!Array.isArray(raw)) return ['block', 'tag'];
   return [...new Set(raw.filter((x): x is string => typeof x === 'string' && known.includes(x)))];
 }
 

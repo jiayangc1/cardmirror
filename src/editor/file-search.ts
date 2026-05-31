@@ -51,8 +51,10 @@ export const FILE_OBJECT_KIND_BADGES: Record<FileObjectKind, string> = {
   analytic: 'ANL',
 };
 
-/** Default within-file object set (requirement: blocks, tags, cites). */
-export const DEFAULT_FILE_OBJECT_KINDS: FileObjectKind[] = ['block', 'tag', 'cite'];
+/** Default within-file object set. Cites are off by default — a tag is
+ *  already findable by its cite (see `searchFileObjects`), so standalone
+ *  CITE rows are redundant; users can re-enable them in Settings. */
+export const DEFAULT_FILE_OBJECT_KINDS: FileObjectKind[] = ['block', 'tag'];
 
 /** A `.cmir` file discovered under the search root. */
 export interface FileEntry {
@@ -73,6 +75,11 @@ export interface FileObject {
   label: string;
   /** Secondary text — the owning tag for a cite, else ''. */
   detail: string;
+  /** For a `tag` object, the cite text of its card (author/date), so a
+   *  tag is findable by its citation — mirrors Ctrl-F, which can match
+   *  a tag's card via the cite_paragraph. Used for matching AND shown
+   *  as the row's secondary text. Undefined when the card has no cite. */
+  cite?: string;
   /** Doc range to slice on insert. Sliced lazily from the kept parsed
    *  doc (the palette holds it for the dive), so a dive never eagerly
    *  builds or holds a slice for every object. */
@@ -125,7 +132,10 @@ export function searchFiles(files: readonly FileEntry[], query: string): FileEnt
 }
 
 export function searchFileObjects(objects: readonly FileObject[], query: string): FileObject[] {
-  return rankByTokens(objects, query, (o) => o.label);
+  // Match a tag by its label OR its card's cite text, so searching an
+  // author/date surfaces the owning tag. Label leads the matched string
+  // so a label hit still ranks above a cite-only hit.
+  return rankByTokens(objects, query, (o) => (o.cite ? `${o.label} ${o.cite}` : o.label));
 }
 
 /**
@@ -150,7 +160,10 @@ export function extractFile(
   enabled: ReadonlySet<FileObjectKind>,
 ): { objects: FileObject[]; outline: OutlineEntry[] } {
   const needCite = enabled.has('cite');
-  const entries = collectHeadings(doc, { skipCite: !needCite });
+  // Always collect cite text: a tag is searchable by its cite even when
+  // the standalone `cite` object kind is off (that only gates the
+  // separate CITE rows below).
+  const entries = collectHeadings(doc);
   const objects: FileObject[] = [];
   const outline: OutlineEntry[] = [];
   for (const entry of entries) {
@@ -163,7 +176,10 @@ export function extractFile(
     outline.push({ level: entry.level, kind, label, from, to });
     // Search hits: enabled kinds (with a label), plus cites.
     if (enabled.has(kind) && label !== '') {
-      objects.push({ kind, label, detail: '', from, to });
+      const obj: FileObject = { kind, label, detail: '', from, to };
+      // Carry the card's cite on the tag so it's findable by citation.
+      if (kind === 'tag' && entry.cite) obj.cite = entry.cite;
+      objects.push(obj);
     }
     if (needCite && entry.type === 'tag' && entry.cite) {
       objects.push({ kind: 'cite', label: entry.cite.trim(), detail: label, from, to });

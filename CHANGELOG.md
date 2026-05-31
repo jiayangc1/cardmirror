@@ -26,6 +26,14 @@ see `DETAILED_CHANGELOG.md`.
   from the search palette; it also answers to "dark mode" / "toggle
   theme").
 
+- **Find a tag by its citation when searching inside a file.** Tab into
+  a file from the command bar and type an author/date — the tag whose
+  card carries that cite now shows up, the way Ctrl-F can find it. Tags
+  also display their cite alongside them in the results. Because tags
+  are now findable by cite, standalone "Cite" rows are off by default in
+  the file-search object types (re-enable them in Settings if you want
+  cites listed on their own).
+
 - **Selecting text auto-scrolls at the edges.** Dragging a selection to
   the top or bottom of the document now scrolls the view so the
   selection keeps extending past the originally visible area — no more
