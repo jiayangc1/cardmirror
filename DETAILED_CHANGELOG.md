@@ -7,6 +7,33 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Optional live selection word count (`liveSelectionWordCount`, default
+  off).** The status-bar read-time counter (`refreshWordCount` in
+  `index.ts`) only re-ran inside the debounced, `tx.docChanged`-gated
+  `scheduleHeavyUpdate`, so selecting text without editing never updated
+  the readout — and the `Selection: …` branch only ever showed on the
+  next edit, against whatever selection happened to exist then. Rather
+  than make every selection change pay an O(doc) recount (a cursor move
+  with no selection recomputes the whole doc), this is now an opt-in
+  setting:
+  - When on, `dispatchTransaction` has a selection-only branch that
+    calls `refreshWordCount({ selectionOnly: true })` — gated on the
+    selection actually changing and a range being involved on either
+    side, so plain cursor moves (empty → empty) do nothing. A non-empty
+    selection counts only its range (`countReadAloudWords(doc, from,
+    to)`); a collapse reuses a cached whole-doc count
+    (`lastWholeDocWords`) instead of re-walking. The cache is nulled on
+    any doc change so a collapse before the debounced recount can't show
+    a stale total.
+  - When off (default), `refreshWordCount` ignores the selection
+    entirely and always shows the whole-doc count, and the
+    selection-only branch is skipped — no per-selection work, and no
+    stale `Selection: …`. A selection's read time stays available via
+    the Word Count button (Σ / Word Count Selection dialog).
+  Added the boolean to the `Settings` interface, defaults (false),
+  sanitizer, and `SETTING_METADATA` (General, toggle); the existing
+  settings subscription re-renders the bar when the toggle flips.
+
 ## 0.1.0-alpha.7 — 2026-05-30
 
 - **"Delete Current Heading" bindable command (`deleteCurrentHeading`).**

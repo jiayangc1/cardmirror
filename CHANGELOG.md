@@ -7,6 +7,16 @@ see `DETAILED_CHANGELOG.md`.
 
 ## Unreleased
 
+### Added
+
+- **Live word count for the current selection (optional).** A new
+  Settings → General toggle, off by default. When on, the bottom bar's
+  word count / read time updates the moment you change the selection,
+  showing the selection's read time; when off, the bar stays on the
+  whole-document count and you get a selection's read time on demand via
+  the Word Count button (Σ). Leave it off on very large documents if you
+  notice lag while dragging a selection.
+
 ## 0.1.0-alpha.7 — 2026-05-30
 
 ### Added

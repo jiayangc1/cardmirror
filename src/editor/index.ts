@@ -2857,7 +2857,13 @@ function effectiveFontSizeForDisplay(state: EditorState): FontSizeInfo {
   return { pt: null, direct: false };
 }
 
-function refreshWordCount(): void {
+/** Cached whole-doc read-aloud word count. Recomputed only when the
+ *  doc changes (the O(doc) walk); reused when the selection collapses
+ *  back to a cursor so a selection change never re-walks the whole doc
+ *  just to restore the whole-doc readout. */
+let lastWholeDocWords: number | null = null;
+
+function refreshWordCount(opts?: { selectionOnly?: boolean }): void {
   // In multi-doc mode the shared status-bar word counter is hidden
   // (each pane shows its own in its footer). Skip the O(doc-size)
   // walk entirely — it's pure waste; the result lands in an
@@ -2868,10 +2874,24 @@ function refreshWordCount(): void {
     return;
   }
   const sel = view.state.selection;
-  const hasSelection = !sel.empty;
-  const words = hasSelection
-    ? countReadAloudWords(view.state.doc, sel.from, sel.to)
-    : countReadAloudWords(view.state.doc);
+  // Selection-aware readout is opt-in (`liveSelectionWordCount`). When
+  // off, the bar always shows the whole-doc count regardless of any
+  // selection — the Word Count button covers selection counts on demand.
+  const hasSelection = settings.get('liveSelectionWordCount') && !sel.empty;
+  let words: number;
+  if (hasSelection) {
+    // Selection read time: count only the selected range (O(range)).
+    // Leaves the cached whole-doc count untouched.
+    words = countReadAloudWords(view.state.doc, sel.from, sel.to);
+  } else if (opts?.selectionOnly && lastWholeDocWords !== null) {
+    // Selection just collapsed to a cursor on a selection-only
+    // transaction: the whole-doc count can't have changed, so reuse the
+    // cache instead of re-walking the doc on every cursor move.
+    words = lastWholeDocWords;
+  } else {
+    words = countReadAloudWords(view.state.doc);
+    lastWholeDocWords = words;
+  }
 
   const readers = settings.get('readers').slice(0, 2);
   const head = hasSelection
@@ -3274,6 +3294,11 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
         // Re-arm the autosave debounce. No-ops when the setting
         // is off, so the call is cheap to fire unconditionally.
         notifyEditForAutosave();
+        // The cached whole-doc word count is now stale. Null it so a
+        // selection collapse before the debounced recount re-walks the
+        // doc rather than showing a stale total (the debounced
+        // scheduleHeavyUpdate repopulates it on the next idle flush).
+        lastWholeDocWords = null;
       }
       // Cheap; runs on every transaction (selection moves included)
       // so the readout always reflects the cursor's current run.
@@ -3291,6 +3316,22 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
       if (tx.docChanged) {
         needsCommentsGC = true;
         scheduleHeavyUpdate();
+      }
+      // Selection-only changes refresh just the word-count readout so
+      // the read time reflects the selection immediately instead of
+      // waiting for the next edit. Opt-in (`liveSelectionWordCount`):
+      // when off, a selection never changes the whole-doc readout, so
+      // there's nothing to do. Cheap when on: a non-empty selection
+      // counts only its range; a collapse reuses the cached whole-doc
+      // count (no doc walk). Gated on the selection actually changing
+      // AND involving a range on either side, so plain cursor moves
+      // (empty → empty) — the common case — do no work at all.
+      else if (
+        settings.get('liveSelectionWordCount') &&
+        !prevState.selection.eq(next.selection) &&
+        (!prevState.selection.empty || !next.selection.empty)
+      ) {
+        refreshWordCount({ selectionOnly: true });
       }
       // Comments column refresh on doc / plugin-state change is
       // debounced via the column's own scheduleRender (matches the

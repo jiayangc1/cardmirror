@@ -427,6 +427,16 @@ export interface Settings {
    */
   readers: ReaderConfig[];
   /**
+   * When on, the status-bar read-time / word counter updates live as
+   * you change the selection (showing the selection's read time). Off
+   * by default: the counter then always reflects the whole doc, and a
+   * selection's read time is available on demand via the Word Count
+   * button. Live updates re-count on every selection change, which is
+   * O(selection) work per drag tick — opt-in so users on very large
+   * docs don't pay it.
+   */
+  liveSelectionWordCount: boolean;
+  /**
    * Per-style font sizes (in points). See DisplaySizes for details.
    * Each field becomes a CSS custom property on `#editor`.
    */
@@ -844,6 +854,7 @@ const DEFAULTS: Settings = {
     { name: 'Reader 1', wpm: 200 },
     { name: 'Reader 2', wpm: 250 },
   ],
+  liveSelectionWordCount: false,
   displaySizes: { ...DEFAULT_DISPLAY_SIZES },
   displayTypography: { ...DEFAULT_DISPLAY_TYPOGRAPHY },
   displayColors: { ...DEFAULT_DISPLAY_COLORS },
@@ -1004,6 +1015,14 @@ export const SETTING_METADATA: SettingMeta[] = [
     description:
       'Each reader has a name and a words-per-minute rate. The first two are displayed live in the bottom bar; all show up in the Word Count Selection dialog.',
     kind: 'readers',
+    category: 'general',
+  },
+  {
+    key: 'liveSelectionWordCount',
+    label: 'Live word count for the current selection',
+    description:
+      "Off by default. When on, the bottom bar's word count / read time updates the moment you change the selection, showing the selection's read time. Off keeps the bar on the whole-doc count — use the Word Count button (Σ) for a selection's read time on demand. Live updates re-count on every selection change, so leave this off on very large documents if you notice drag lag.",
+    kind: 'toggle',
     category: 'general',
   },
   {
@@ -1762,6 +1781,7 @@ function sanitize(s: Settings): Settings {
     zoomPct: clamp(Math.round(s.zoomPct / 10) * 10, 50, 200),
     chromeScalePct: clamp(Math.round(s.chromeScalePct / 10) * 10, 50, 200),
     readers: sanitizeReaders(s.readers),
+    liveSelectionWordCount: s.liveSelectionWordCount === true,
     displaySizes: sanitizeDisplaySizes(s.displaySizes),
     displayTypography: sanitizeDisplayTypography(s.displayTypography),
     displayColors: sanitizeDisplayColors(s.displayColors, s.customColorOverrides),
