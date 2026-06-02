@@ -225,12 +225,10 @@ button {
   --pmd-c-annotation-edge: rgba(0, 0, 0, 0.55);
   --pmd-c-comment-error: #b00;
 
-  /* Similar-selection plugin (Select Similar Formatting). Warm
-     amber tints for the scope band + dashed-outline matches. */
-  --pmd-c-similar-scope-bg: rgba(255, 196, 102, 0.18);
-  --pmd-c-similar-scope-outline: rgba(214, 142, 36, 0.35);
-  --pmd-c-similar-match-outline: #d68e24;
-  --pmd-c-similar-match-bg: rgba(255, 196, 102, 0.32);
+  /* Similar-selection plugin (Select Similar Formatting). The scope
+     band + match decorations reuse the Find palette (--pmd-c-drop-* /
+     --pmd-c-find-match-current-*); only the deep-text accent for the
+     manage-cards list remains here. */
   --pmd-c-similar-deep-text: #6a4a10;
 
   /* Focus glow on text inputs in the keybindings editor. */
@@ -414,12 +412,9 @@ button {
   --pmd-c-annotation-edge: rgba(255, 255, 255, 0.7);
   --pmd-c-comment-error: #ef4444;
 
-  /* Similar-selection plugin warm tints — slightly brighter on
-     dark to retain readability. */
-  --pmd-c-similar-scope-bg: rgba(255, 196, 102, 0.18);
-  --pmd-c-similar-scope-outline: rgba(255, 196, 102, 0.45);
-  --pmd-c-similar-match-outline: #f5a623;
-  --pmd-c-similar-match-bg: rgba(255, 196, 102, 0.32);
+  /* Similar-selection plugin: scope band + matches reuse the Find
+     palette (see light theme above); only the deep-text accent for
+     the manage-cards list is overridden for dark. */
   --pmd-c-similar-deep-text: #f5d489;
 
   /* Focus glow */
@@ -4930,19 +4925,22 @@ html.pmd-nav-flat .pmd-nav-type-analytic:hover .pmd-nav-label {
 
 /* Select Similar Formatting (shadow selection)
    `.pmd-similar-scope` is the outer container the user picked for
-   the scoped variant — faint background tint that doesn't compete
-   with run colors. `.pmd-similar-match` is each matched run — a
-   1px dashed outline in a saturated color so matches read as
-   "selected for action" without being mistaken for highlights. */
+   the scoped variant, and `.pmd-similar-match` is each matched run.
+   Both reuse the Find interface's selection palette so the two tiers
+   are easy to tell apart: the scope band is the same faint blue
+   "within selection" tint as `.pmd-find-scope`, and each match is the
+   same orange band + outline as `.pmd-find-match-current` (kept dashed
+   to read as a shadow selection rather than a literal one). Earlier
+   both were near-identical oranges and blurred together. */
 .pmd-similar-scope {
-  background-color: var(--pmd-c-similar-scope-bg);
-  box-shadow: inset 0 0 0 1px var(--pmd-c-similar-scope-outline);
+  background-color: var(--pmd-c-drop-tint);
+  box-shadow: inset 0 0 0 1px var(--pmd-c-drop-outline);
 }
 
 .pmd-similar-match {
-  outline: 1px dashed var(--pmd-c-similar-match-outline);
+  outline: 1px dashed var(--pmd-c-find-match-current-outline);
   outline-offset: 0;
-  background-color: var(--pmd-c-similar-match-bg);
+  background-color: var(--pmd-c-find-match-current);
 }
 
 /* ---------------------------------------------- Find: category-order editor */

@@ -95,7 +95,12 @@ import { absorbPlugin } from './absorb-plugin.js';
 import { citeClassifierPlugin } from './cite-classifier-plugin.js';
 import { namedStyleNormalizerPlugin } from './named-style-normalizer-plugin.js';
 import { fontSizeClassPlugin } from './font-size-class-plugin.js';
-import { buildSimilarSelectionPlugin } from './similar-selection-plugin.js';
+import {
+  buildSimilarSelectionPlugin,
+  selectAllOfStyle,
+  getSimilarSelectionState,
+  type StyleSelector,
+} from './similar-selection-plugin.js';
 import { findReplacePlugin } from './find-replace-plugin.js';
 import { frozenSelectionPlugin } from './frozen-selection-plugin.js';
 import { buildMacroKeymap } from './keyboard-macros.js';
@@ -1700,6 +1705,27 @@ const FORMATTING_PANEL_SHORT_LABEL: Record<FormattingPanelId, string> = {
   applyEmphasis: 'Emphasis',
   clearToNormal: 'Clear',
 };
+// Right-clicking a style button selects every instance of that style in
+// the document as a shadow selection (same display + bulk-operation
+// machinery as Select Similar Formatting). Structural buttons match
+// their block type's content runs; character buttons match the text runs
+// carrying their mark(s). Clear (normal) has nothing to "select all of".
+const FORMATTING_PANEL_SELECT_ALL: Partial<Record<FormattingPanelId, StyleSelector>> = {
+  setPocket: { kind: 'block', nodeType: 'pocket' },
+  setHat: { kind: 'block', nodeType: 'hat' },
+  setBlock: { kind: 'block', nodeType: 'block' },
+  setTag: { kind: 'block', nodeType: 'tag' },
+  setAnalytic: { kind: 'block', nodeType: 'analytic' },
+  setUndertag: { kind: 'block', nodeType: 'undertag' },
+  applyCite: { kind: 'mark', markTypes: ['cite_mark'] },
+  // Only the named "Underline" character style (a body mark) — NOT
+  // `underline_direct`, the raw underline used inside structural blocks
+  // (tag / analytic / pocket / hat / block / undertag). Those carry
+  // direct underline, not the underline style, so "select all underline"
+  // shouldn't sweep them up.
+  applyUnderline: { kind: 'mark', markTypes: ['underline_mark'] },
+  applyEmphasis: { kind: 'mark', markTypes: ['emphasis_mark'] },
+};
 const formattingPanelEl = document.getElementById('formatting-panel') as HTMLElement | null;
 const citePanelEl = document.getElementById('cite-panel') as HTMLElement | null;
 const paragraphIntegrityBtn = document.getElementById('paragraph-integrity-btn') as HTMLButtonElement | null;
@@ -1720,6 +1746,26 @@ for (const [id, btnId] of Object.entries(FORMATTING_PANEL_BUTTONS) as [Formattin
     cmd(view.state, view.dispatch.bind(view));
     view.focus();
   });
+  const selectAll = FORMATTING_PANEL_SELECT_ALL[id];
+  if (selectAll) {
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (!view) return;
+      // Scoped when there's a live selection OR a sticky scope from a
+      // prior right-click — both bound the search to a region.
+      const scoped =
+        !view.state.selection.empty || !!getSimilarSelectionState(view.state).scope;
+      const ok = selectAllOfStyle(selectAll)(view.state, view.dispatch.bind(view));
+      if (!ok) {
+        showToast(
+          `No ${FORMATTING_PANEL_SHORT_LABEL[id]} instances ${
+            scoped ? 'in the selection' : 'in this document'
+          }.`,
+        );
+      }
+      view.focus();
+    });
+  }
   formattingPanelBtnRefs.push({ id, btn });
   registerRibbonTooltip({ el: btn, commandId: id });
 }

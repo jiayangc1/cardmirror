@@ -13,6 +13,8 @@ import type { Node as PMNode } from 'prosemirror-model';
 import { schema, newHeadingId } from '../../src/schema/index.js';
 import {
   computeSimilarMatches,
+  computeStyleMatches,
+  selectAllOfStyle,
   buildSimilarSelectionPlugin,
   selectSimilar,
   getSimilarSelectionState,
@@ -459,5 +461,210 @@ describe('format commands consume the shadow selection', () => {
     expect(hasYellow('beta')).toBe(true);
     // Shadow selection should survive the format apply.
     expect(getSimilarSelectionState(s).matches.length).toBe(2);
+  });
+});
+
+// ---- Select all of a named style (right-click a ribbon style button) ----
+
+const citeMark = () => schema.marks['cite_mark']!.create();
+
+function pocket(text: string) {
+  return schema.nodes['pocket']!.create(
+    { id: newHeadingId() },
+    text ? schema.text(text) : undefined,
+  );
+}
+function bodyOf(...inline: PMNode[]) {
+  return schema.nodes['card_body']!.create(null, inline);
+}
+
+describe('computeStyleMatches', () => {
+  it('block selector matches every textblock of that type', () => {
+    const doc = schema.nodes['doc']!.create(null, [
+      pocket('Pocket A'),
+      card(tag('Tag 1'), cardBody('body 1')),
+      card(tag('Tag 2'), cardBody('body 2')),
+      pocket('Pocket B'),
+    ]);
+    const tags = computeStyleMatches(doc, { kind: 'block', nodeType: 'tag' });
+    expect(textAtRanges(doc, tags).sort()).toEqual(['Tag 1', 'Tag 2']);
+    const pockets = computeStyleMatches(doc, { kind: 'block', nodeType: 'pocket' });
+    expect(textAtRanges(doc, pockets).sort()).toEqual(['Pocket A', 'Pocket B']);
+  });
+
+  it('block selector skips empty blocks (no content range)', () => {
+    const doc = schema.nodes['doc']!.create(null, [pocket('Has text'), pocket('')]);
+    const matches = computeStyleMatches(doc, { kind: 'block', nodeType: 'pocket' });
+    expect(textAtRanges(doc, matches)).toEqual(['Has text']);
+  });
+
+  it('mark selector matches carrying runs and merges contiguous ones', () => {
+    const doc = schema.nodes['doc']!.create(null, [
+      card(
+        tag('T'),
+        bodyOf(
+          schema.text('plain '),
+          schema.text('cited', [citeMark()]),
+          // Contiguous cite run with an extra mark — should merge with
+          // the previous cite run into one range, not split it.
+          schema.text('part', [citeMark(), bold()]),
+          schema.text(' tail'),
+        ),
+      ),
+    ]);
+    const matches = computeStyleMatches(doc, { kind: 'mark', markTypes: ['cite_mark'] });
+    expect(textAtRanges(doc, matches)).toEqual(['citedpart']);
+  });
+
+  it('underline selector matches the named style, not structural direct underline', () => {
+    // `underline_mark` is the named "Underline" character style (body);
+    // `underline_direct` is the raw underline used inside structural
+    // blocks (tags / analytics). "Select all underline" targets only the
+    // style, so a directly-underlined tag must not match.
+    const doc = schema.nodes['doc']!.create(null, [
+      card(
+        schema.nodes['tag']!.create(
+          { id: newHeadingId() },
+          schema.text('tag underline', [schema.marks['underline_direct']!.create()]),
+        ),
+        bodyOf(schema.text('body underline', [schema.marks['underline_mark']!.create()])),
+      ),
+    ]);
+    const matches = computeStyleMatches(doc, {
+      kind: 'mark',
+      markTypes: ['underline_mark'],
+    });
+    expect(textAtRanges(doc, matches)).toEqual(['body underline']);
+  });
+
+  it('returns empty when no instance of the style exists', () => {
+    const doc = docOf(card(tag('T'), cardBody('b')));
+    expect(computeStyleMatches(doc, { kind: 'block', nodeType: 'undertag' })).toEqual([]);
+  });
+
+  it('bounds matches to a scope range when given', () => {
+    const doc = docOf(
+      card(tag('Tag1'), cardBody('a')),
+      card(tag('Tag2'), cardBody('b')),
+      card(tag('Tag3'), cardBody('c')),
+    );
+    const tag3 = findTextStart(doc, 'Tag3');
+    const scoped = computeStyleMatches(
+      doc,
+      { kind: 'block', nodeType: 'tag' },
+      { from: 0, to: tag3 - 1 }, // before Tag3's container
+    );
+    const found = textAtRanges(doc, scoped).sort();
+    expect(found).toContain('Tag1');
+    expect(found).toContain('Tag2');
+    expect(found).not.toContain('Tag3');
+  });
+});
+
+describe('selectAllOfStyle command', () => {
+  it('lights up every instance as the shadow selection', () => {
+    const doc = schema.nodes['doc']!.create(null, [
+      card(tag('Alpha'), cardBody('a')),
+      card(tag('Beta'), cardBody('b')),
+    ]);
+    let state = EditorState.create({
+      doc,
+      schema,
+      plugins: [buildSimilarSelectionPlugin(effectivePt)],
+    });
+    let dispatched = false;
+    const ok = selectAllOfStyle({ kind: 'block', nodeType: 'tag' })(state, (tr) => {
+      state = state.apply(tr);
+      dispatched = true;
+    });
+    expect(ok).toBe(true);
+    expect(dispatched).toBe(true);
+    expect(textAtRanges(state.doc, getSimilarSelectionState(state).matches).sort()).toEqual([
+      'Alpha',
+      'Beta',
+    ]);
+  });
+
+  it('returns false without dispatching when nothing matches', () => {
+    const doc = docOf(card(tag('T'), cardBody('b')));
+    const state = EditorState.create({
+      doc,
+      schema,
+      plugins: [buildSimilarSelectionPlugin(effectivePt)],
+    });
+    let dispatched = false;
+    const ok = selectAllOfStyle({ kind: 'block', nodeType: 'undertag' })(state, () => {
+      dispatched = true;
+    });
+    expect(ok).toBe(false);
+    expect(dispatched).toBe(false);
+  });
+
+  it('bounds to the PM selection and sets the scope tint', () => {
+    const doc = docOf(
+      card(tag('Alpha'), cardBody('a')),
+      card(tag('Beta'), cardBody('b')),
+      card(tag('Gamma'), cardBody('c')),
+    );
+    const gamma = findTextStart(doc, 'Gamma');
+    let state = EditorState.create({
+      doc,
+      schema,
+      plugins: [buildSimilarSelectionPlugin(effectivePt)],
+    });
+    // Select a region covering Alpha + Beta but not Gamma.
+    state = state.apply(
+      state.tr.setSelection(
+        TextSelection.create(state.doc, 1, gamma - 1),
+      ),
+    );
+    const ok = selectAllOfStyle({ kind: 'block', nodeType: 'tag' })(state, (tr) => {
+      state = state.apply(tr);
+    });
+    expect(ok).toBe(true);
+    const ps = getSimilarSelectionState(state);
+    expect(ps.scope).not.toBeNull();
+    const found = textAtRanges(state.doc, ps.matches).sort();
+    expect(found).toContain('Alpha');
+    expect(found).toContain('Beta');
+    expect(found).not.toContain('Gamma');
+    // PM selection collapsed so the shadow drives bulk ops.
+    expect(state.selection.empty).toBe(true);
+  });
+
+  it('reuses a sticky scope on a later call with no fresh selection', () => {
+    const doc = schema.nodes['doc']!.create(null, [
+      card(tag('Alpha'), cardBody('cited a', [schema.marks['cite_mark']!.create()])),
+      card(tag('Beta'), cardBody('cited b', [schema.marks['cite_mark']!.create()])),
+      card(tag('Gamma'), cardBody('cited c', [schema.marks['cite_mark']!.create()])),
+    ]);
+    const gamma = findTextStart(doc, 'Gamma');
+    let state = EditorState.create({
+      doc,
+      schema,
+      plugins: [buildSimilarSelectionPlugin(effectivePt)],
+    });
+    // First call WITH a selection covering Alpha + Beta sets the scope.
+    state = state.apply(
+      state.tr.setSelection(TextSelection.create(state.doc, 1, gamma - 1)),
+    );
+    selectAllOfStyle({ kind: 'block', nodeType: 'tag' })(state, (tr) => {
+      state = state.apply(tr);
+    });
+    const scope1 = getSimilarSelectionState(state).scope;
+    expect(scope1).not.toBeNull();
+
+    // Second call with NO fresh selection (collapsed) reuses that scope —
+    // a different style, still bounded to Alpha + Beta, never Gamma.
+    expect(state.selection.empty).toBe(true);
+    selectAllOfStyle({ kind: 'mark', markTypes: ['cite_mark'] })(state, (tr) => {
+      state = state.apply(tr);
+    });
+    const ps = getSimilarSelectionState(state);
+    expect(ps.scope).toEqual(scope1);
+    const found = textAtRanges(state.doc, ps.matches);
+    expect(found.join(' ')).toContain('cited a');
+    expect(found.join(' ')).toContain('cited b');
+    expect(found.join(' ')).not.toContain('cited c');
   });
 });

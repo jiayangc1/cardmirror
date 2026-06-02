@@ -21,6 +21,25 @@ see `DETAILED_CHANGELOG.md`.
   fixed folder isn't set, or the name would overwrite the source, it
   falls back to the normal Save As dialog so nothing is lost.
 
+- **Right-click a style button to select every instance of that style.**
+  Right-clicking any structural style button (Pocket / Hat / Block / Tag
+  / Analytic / Undertag) or character style button (Cite / Underline /
+  Emphasis) lights up every instance of that style across the document,
+  shown the same way as Select Similar Formatting — so you can then apply
+  a format (highlight, font color, etc.) to all of them at once. If you
+  have a selection, the search is bounded to it and the region is tinted;
+  that scope stays put across further right-clicks and format operations
+  until you make a new selection or press Escape. Underline matches only
+  the named underline style, not the direct underline that tags and
+  analytics use.
+
+### Changed
+
+- **Select Similar / select-all highlighting is easier to read.** The
+  "selection" region and the matched instances now use the find bar's
+  colors — a faint blue region band with orange match outlines — instead
+  of two near-identical oranges that were hard to tell apart.
+
 ## 0.1.0-alpha.8 — 2026-06-01
 
 ### Added

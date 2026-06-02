@@ -38,6 +38,46 @@ in each release, see `CHANGELOG.md`.
   never-saved doc in same-folder mode, an unset fixed folder, or a
   non-Electron host — so the command always does *something* sensible.
 
+- **Select all instances of a style (right-click a ribbon style button).**
+  A `contextmenu` handler on each structural / character style button
+  (`index.ts`, `FORMATTING_PANEL_SELECT_ALL`) lights up every instance of
+  that style as a shadow selection, reusing the Select Similar Formatting
+  machinery so the result is `getOperatingRanges`-visible and the
+  existing format commands act across all instances at once. New plugin
+  exports in `similar-selection-plugin.ts`:
+  - `StyleSelector` — `{ kind: 'block'; nodeType }` (matches a textblock
+    type's content runs) or `{ kind: 'mark'; markTypes }` (matches text
+    runs carrying any of the marks, contiguous runs merged).
+  - `computeStyleMatches(doc, selector, scope?)` — pure matcher, scope-
+    clamped.
+  - `selectAllOfStyle(selector)` — the command. Scope is **sticky**: a
+    fresh non-empty PM selection sets/replaces the scope (bounded match +
+    scope tint, via a new `setMatchesScoped` plugin meta that sets
+    matches + scope in one idle-mode step); with no fresh selection an
+    existing scope is reused, so repeated right-clicks and the format
+    operations chained between them stay bounded to the same region
+    (format ops already preserve the shadow via `META_OPERATING_ON_SHADOW`
+    and the scope rides along in the same plugin state). It collapses a
+    live selection so the shadow, not the browser selection, drives bulk
+    ops, and returns false (no dispatch) when nothing matches so the
+    caller can toast without disturbing the existing shadow.
+
+  The Underline selector deliberately matches only `underline_mark` (the
+  named body style), not `underline_direct` — by the schema's body-vs-
+  structural invariant the latter is the raw underline used inside tags /
+  analytics / other structural blocks, which aren't instances of the
+  underline *style*.
+
+- **Select Similar / select-all decorations reuse the Find palette.** The
+  scope band (`.pmd-similar-scope`) now uses the same faint-blue
+  within-selection tint as `.pmd-find-scope` (`--pmd-c-drop-*`), and each
+  match (`.pmd-similar-match`) uses Find's current-match orange band +
+  outline (`--pmd-c-find-match-current*`, kept dashed to read as a shadow
+  selection). Previously both were near-identical ambers that blurred
+  together. The now-dead `--pmd-c-similar-{scope,match}-*` variables were
+  removed from both themes (`--pmd-c-similar-deep-text` stays — still used
+  by the manage-cards list).
+
 ## 0.1.0-alpha.8 — 2026-06-01
 
 - **"Show in context" from a flashcard review.** A third action in the

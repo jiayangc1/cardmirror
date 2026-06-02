@@ -63,6 +63,7 @@ export const META_OPERATING_ON_SHADOW = 'pmd-shadow-op';
 
 type Meta =
   | { type: 'setMatches'; matches: RangePair[] }
+  | { type: 'setMatchesScoped'; matches: RangePair[]; scope: RangePair }
   | { type: 'setScope'; scope: RangePair }
   | { type: 'clear' };
 
@@ -96,6 +97,12 @@ export function buildSimilarSelectionPlugin(
         }
         if (meta?.type === 'setMatches') {
           return { matches: meta.matches, scope: null, mode: 'idle' };
+        }
+        if (meta?.type === 'setMatchesScoped') {
+          // Matches AND a scope tint, but already resolved (idle) — used
+          // by "select all of style" when there's a selection: show the
+          // bounded region plus the in-region matches in one shot.
+          return { matches: meta.matches, scope: meta.scope, mode: 'idle' };
         }
 
         // Any doc edit dissipates the shadow selection — UNLESS the
@@ -322,6 +329,124 @@ export function computeSimilarMatches(
     return true;
   });
   return out;
+}
+
+/**
+ * A named-style selector for "select all instances of this style" — the
+ * right-click action on a ribbon style button. Either a structural block
+ * type (`pocket` / `hat` / `block` / `tag` / `analytic` / `undertag`),
+ * whose content runs get selected, or a set of character marks
+ * (`cite_mark`, the two underline marks, `emphasis_mark`), whose carrying
+ * text runs get selected.
+ */
+export type StyleSelector =
+  | { kind: 'block'; nodeType: string }
+  | { kind: 'mark'; markTypes: readonly string[] };
+
+/** Merge ranges that touch or overlap (after sorting by `from`). Keeps
+ *  the mark-kind selector from emitting one decoration per text node when
+ *  a styled run is split across nodes (e.g. a cite run that's partly
+ *  bold) — the contiguous span shows as one dashed outline. */
+function mergeRanges(ranges: RangePair[]): RangePair[] {
+  if (ranges.length < 2) return ranges;
+  const sorted = [...ranges].sort((a, b) => a.from - b.from);
+  const out: RangePair[] = [{ ...sorted[0]! }];
+  for (let i = 1; i < sorted.length; i++) {
+    const r = sorted[i]!;
+    const last = out[out.length - 1]!;
+    if (r.from <= last.to) {
+      if (r.to > last.to) last.to = r.to;
+    } else {
+      out.push({ ...r });
+    }
+  }
+  return out;
+}
+
+/** Every range in `doc` carrying the given named style, optionally
+ *  bounded to `scope` (matches are clamped to the scope range — a block
+ *  or run that only partly overlaps contributes just its overlap). Block
+ *  selectors yield each matching textblock's content range; mark
+ *  selectors yield the (merged) text runs carrying any of the marks. */
+export function computeStyleMatches(
+  doc: PMNode,
+  sel: StyleSelector,
+  scope: RangePair | null = null,
+): RangePair[] {
+  const from = scope?.from ?? 0;
+  const to = scope?.to ?? doc.content.size;
+  const out: RangePair[] = [];
+  if (sel.kind === 'block') {
+    doc.nodesBetween(from, to, (node, pos) => {
+      if (node.type.name === sel.nodeType && node.isTextblock) {
+        const start = Math.max(from, pos + 1);
+        const end = Math.min(to, pos + node.nodeSize - 1);
+        if (start < end) out.push({ from: start, to: end });
+      }
+      return true;
+    });
+    return out;
+  }
+  const wanted = new Set(sel.markTypes);
+  doc.nodesBetween(from, to, (node, pos) => {
+    if (!node.isText) return true;
+    if (node.marks.some((m) => wanted.has(m.type.name))) {
+      const start = Math.max(from, pos);
+      const end = Math.min(to, pos + node.nodeSize);
+      if (start < end) out.push({ from: start, to: end });
+    }
+    return true;
+  });
+  return mergeRanges(out);
+}
+
+/**
+ * Light up every instance of a named style as a shadow selection — the
+ * right-click action on a ribbon style button. Reuses the same match
+ * decoration + bulk-operation machinery as Select Similar Formatting:
+ * the result is `getOperatingRanges`-visible, so the existing format
+ * commands act across all instances in one transaction.
+ *
+ * Scope is **sticky**. A fresh non-empty PM selection sets (or replaces)
+ * the scope; the operation is then bounded to it and the region shows
+ * the scope tint (mirroring Select Similar's scoped flow). With no fresh
+ * selection, an existing scope from a prior call is reused — so repeated
+ * right-clicks on different style buttons, and the format operations
+ * chained between them, all stay bounded to the same region until the
+ * user draws a new selection or dismisses (Escape / a plain edit). With
+ * neither a selection nor a prior scope it matches doc-wide. A live
+ * selection is collapsed so the shadow ranges — not the browser
+ * selection — drive `getOperatingRanges`.
+ *
+ * Returns false — with no dispatch — when there's no instance of the
+ * style (in scope, when scoped), so the caller can surface "nothing
+ * found" without disturbing the existing shadow.
+ */
+export function selectAllOfStyle(selector: StyleSelector): Command {
+  return (state, dispatch) => {
+    const sel = state.selection;
+    const prev = similarSelectionKey.getState(state);
+    const scope: RangePair | null = !sel.empty
+      ? { from: sel.from, to: sel.to }
+      : prev?.scope ?? null;
+    const matches = computeStyleMatches(state.doc, selector, scope);
+    if (matches.length === 0) return false;
+    if (!dispatch) return true;
+    const tr = state.tr;
+    if (scope) {
+      tr.setMeta(META_KEY, { type: 'setMatchesScoped', matches, scope } as Meta);
+      // Collapse a live selection into the scope so the shadow drives
+      // bulk ops. When reusing a prior scope the selection is already
+      // collapsed, so there's nothing to collapse.
+      if (!sel.empty) {
+        tr.setSelection(TextSelection.create(state.doc, scope.from));
+      }
+    } else {
+      tr.setMeta(META_KEY, { type: 'setMatches', matches } as Meta);
+    }
+    dispatch(tr);
+    return true;
+  };
 }
 
 /**
