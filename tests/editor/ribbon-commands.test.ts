@@ -24,6 +24,7 @@ import {
   copyPreviousCite,
   removeHyperlinks,
   convertAnalyticsToTags,
+  convertCitedAnalyticsToTags,
   fixFormattingGaps,
   buildRibbonKeymap,
   DEFAULT_RIBBON_KEYS,
@@ -3519,6 +3520,62 @@ describe('convertAnalyticsToTags', () => {
     expect(card.child(1).type.name).toBe('card_body');
     expect(card.child(2).type.name).toBe('cite_paragraph');
     expect(card.child(3).type.name).toBe('undertag');
+  });
+});
+
+// ---- convertCitedAnalyticsToTags ----
+
+describe('convertCitedAnalyticsToTags', () => {
+  function citelessUnit(headingText: string, id = newHeadingId()) {
+    const analytic = schema.nodes['analytic']!.create({ id }, schema.text(headingText));
+    const body = schema.nodes['card_body']!.create(null, schema.text('body'));
+    return schema.nodes['analytic_unit']!.create(null, [analytic, body]);
+  }
+  function citedUnit(headingText: string, id = newHeadingId()) {
+    const analytic = schema.nodes['analytic']!.create({ id }, schema.text(headingText));
+    const cite = schema.nodes['cite_paragraph']!.create(
+      null,
+      schema.text('the cite', [schema.marks['cite_mark']!.create()]),
+    );
+    return schema.nodes['analytic_unit']!.create(null, [analytic, cite]);
+  }
+
+  it('converts only analytic_units that contain a cite_paragraph', () => {
+    const doc = schema.nodes['doc']!.createChecked(null, [
+      citelessUnit('Bare'),
+      citedUnit('Cited'),
+    ]);
+    const state = EditorState.create({ doc, schema });
+    let next: EditorState | null = null;
+    convertCitedAnalyticsToTags()(state, (tr) => { next = state.apply(tr); });
+    expect(next).not.toBeNull();
+    // The bare analytic stays an analytic_unit; the cited one becomes a card.
+    expect(next!.doc.child(0).type.name).toBe('analytic_unit');
+    expect(next!.doc.child(1).type.name).toBe('card');
+    expect(next!.doc.child(1).firstChild!.type.name).toBe('tag');
+    expect(next!.doc.child(1).firstChild!.textContent).toBe('Cited');
+  });
+
+  it('is a no-op when no analytic_unit in scope has a cite', () => {
+    const doc = schema.nodes['doc']!.createChecked(null, [citelessUnit('Bare')]);
+    const state = EditorState.create({ doc, schema });
+    expect(convertCitedAnalyticsToTags()(state, undefined)).toBe(false);
+  });
+
+  it('with a selection, only converts cited analytics the selection touches', () => {
+    const a1 = citedUnit('One');
+    const a2 = citedUnit('Two');
+    const doc = schema.nodes['doc']!.createChecked(null, [a1, a2]);
+    const state0 = EditorState.create({ doc, schema });
+    // Select inside a1 only.
+    const sel = state0.apply(
+      state0.tr.setSelection(TextSelection.create(state0.doc, 3, 4)),
+    );
+    let next: EditorState | null = null;
+    convertCitedAnalyticsToTags()(sel, (tr) => { next = sel.apply(tr); });
+    expect(next).not.toBeNull();
+    expect(next!.doc.child(0).type.name).toBe('card');
+    expect(next!.doc.child(1).type.name).toBe('analytic_unit');
   });
 });
 

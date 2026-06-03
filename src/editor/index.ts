@@ -1364,6 +1364,11 @@ if (docMenuBtn) {
             run: () => runRibbon('convertAnalyticsToTags'),
           },
           {
+            label: 'Convert Cited Analytics to Tags',
+            commandId: 'convertCitedAnalyticsToTags',
+            run: () => runRibbon('convertCitedAnalyticsToTags'),
+          },
+          {
             label: 'Fix Formatting Gaps',
             commandId: 'fixFormattingGaps',
             run: () => runRibbon('fixFormattingGaps'),

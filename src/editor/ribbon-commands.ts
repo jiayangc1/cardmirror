@@ -2930,7 +2930,13 @@ export function fixFormattingGaps(
  *
  * No-op (returns false) when no `analytic_unit` exists in scope.
  */
-export function convertAnalyticsToTags(): Command {
+/** Shared core for the analytics→tags conversions. Converts every
+ *  `analytic_unit` in scope (the selection, or the whole doc when the
+ *  selection is empty) that satisfies `shouldConvert` into a `card`
+ *  (analytic→tag, body slots pass through). No-op when none qualify. */
+function analyticsToTagsCommand(
+  shouldConvert: (unit: PMNode) => boolean,
+): Command {
   return (state, dispatch) => {
     const sel = state.selection;
     const from = sel.empty ? 0 : sel.from;
@@ -2939,7 +2945,7 @@ export function convertAnalyticsToTags(): Command {
     const units: { node: PMNode; pos: number }[] = [];
     state.doc.nodesBetween(from, to, (node, pos) => {
       if (node.type.name === 'analytic_unit') {
-        units.push({ node, pos });
+        if (shouldConvert(node)) units.push({ node, pos });
         // Analytic_units don't nest, so no need to recurse.
         return false;
       }
@@ -2974,6 +2980,23 @@ export function convertAnalyticsToTags(): Command {
     dispatch(tr);
     return true;
   };
+}
+
+export function convertAnalyticsToTags(): Command {
+  return analyticsToTagsCommand(() => true);
+}
+
+/** Like `convertAnalyticsToTags`, but only converts analytic_units that
+ *  actually carry a `cite_paragraph` — i.e. analytics with a real cite
+ *  attached, leaving bare (citeless) analytics as analytics. */
+export function convertCitedAnalyticsToTags(): Command {
+  return analyticsToTagsCommand((unit) => {
+    let hasCite = false;
+    unit.forEach((child) => {
+      if (child.type.name === 'cite_paragraph') hasCite = true;
+    });
+    return hasCite;
+  });
 }
 
 export function removeHyperlinks(): Command {
@@ -3377,6 +3400,7 @@ export type RibbonCommandId =
   | 'selectSimilar'
   | 'removeHyperlinks'
   | 'convertAnalyticsToTags'
+  | 'convertCitedAnalyticsToTags'
   | 'fixFormattingGaps'
   | 'insertTable'
   | 'addRowAfter'
@@ -3514,6 +3538,7 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'selectSimilar',
   'removeHyperlinks',
   'convertAnalyticsToTags',
+  'convertCitedAnalyticsToTags',
   'fixFormattingGaps',
   'insertTable',
   'addRowAfter',
@@ -3627,6 +3652,7 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   selectSimilar: 'Select Similar Formatting',
   removeHyperlinks: 'Remove Hyperlinks',
   convertAnalyticsToTags: 'Convert Analytics to Tags',
+  convertCitedAnalyticsToTags: 'Convert Cited Analytics to Tags',
   fixFormattingGaps: 'Fix Formatting Gaps',
   insertTable: 'Insert Table',
   addRowAfter: 'Insert Row Below',
@@ -3782,6 +3808,7 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   selectSimilar: '',
   removeHyperlinks: '',
   convertAnalyticsToTags: '',
+  convertCitedAnalyticsToTags: '',
   fixFormattingGaps: '',
   // Table commands — no default keys; bind via the keybinding editor.
   insertTable: '',
@@ -4269,6 +4296,8 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
       return removeHyperlinks();
     case 'convertAnalyticsToTags':
       return convertAnalyticsToTags();
+    case 'convertCitedAnalyticsToTags':
+      return convertCitedAnalyticsToTags();
     case 'fixFormattingGaps':
       return fixFormattingGaps(ctx.effectivePtForNode);
     case 'insertTable':

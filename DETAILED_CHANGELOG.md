@@ -43,6 +43,17 @@ in each release, see `CHANGELOG.md`.
     frame (`requestAnimationFrame`) rather than blocking the dialog open
     (it's not the default tab, and its panel starts hidden).
 
+- **Convert Cited Analytics to Tags command.** New bindable command
+  `convertCitedAnalyticsToTags` (`ribbon-commands.ts`, label "Convert
+  Cited Analytics to Tags", no default key, Cleanup group, doc-dropdown
+  Cleanup section). The existing `convertAnalyticsToTags` body was
+  extracted into a shared `analyticsToTagsCommand(shouldConvert)` helper:
+  the original passes `() => true`, the new one passes a predicate that
+  checks the `analytic_unit` has a `cite_paragraph` child. Same
+  selection-scoping as the original (selection range, or whole doc when
+  empty) and same per-unit transform (analytic_unit→card, analytic→tag,
+  heading id + body slots preserved).
+
 - **Word-style paragraph navigation: cleaner collapse / cross-block
   targets** (`word-selection-keymap.ts`).
   - `verticalCommandPair`'s Down (`to-end`) move with a non-empty

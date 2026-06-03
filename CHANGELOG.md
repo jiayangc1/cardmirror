@@ -65,6 +65,13 @@ see `DETAILED_CHANGELOG.md`.
   pressing Enter jumps straight to the About this install section of
   Settings.
 
+- **Convert Cited Analytics to Tags.** A new command in the document
+  dropdown's Cleanup section (also bindable to a shortcut, unbound by
+  default) that works like Convert Analytics to Tags but only converts
+  analytics that actually carry a cite paragraph — bare, citeless
+  analytics stay analytics. Bounded to your selection when you have one,
+  whole-document otherwise.
+
 ### Changed
 
 - **Paragraph navigation lands on cleaner spots.** With a selection,

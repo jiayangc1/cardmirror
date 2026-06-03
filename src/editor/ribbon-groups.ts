@@ -190,6 +190,7 @@ export const RIBBON_GROUPS: RibbonGroup[] = [
     title: 'Cleanup',
     commands: [
       'convertAnalyticsToTags',
+      'convertCitedAnalyticsToTags',
       'fixFormattingGaps',
       'removeHyperlinks',
     ],
