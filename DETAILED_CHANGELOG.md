@@ -7,6 +7,42 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Cross-window diagnostic instrumentation (TEMPORARY, macOS bug
+  hunt)** (`apps/desktop/src/main.ts`, `preload.ts`,
+  `src/editor/host/electron-host.ts`, `src/editor/index.ts`). Logging
+  only — no behavior change, and deliberately NOT disabling native
+  window occlusion so the bugs still reproduce. Targets two Mac-only,
+  Windows/Linux-fine symptoms suspected of a shared cause: the
+  duplicate-open guard missing, and the three-pane toggle's
+  close/reopen being flaky (send-to-speech, which only pushes to one
+  live window, works). All three use the same main-process IPC, so the
+  differentiator is what each needs a *non-foreground* window to do.
+  Writes one JSON line per event to `{userData}/cross-window-debug.log`
+  (and console) via an `xlog` helper; a renderer→main `host:debug-log`
+  bridge (`ElectronHost.debugLog`) folds renderer events into the same
+  clock. Captured:
+  - **Dedup canonicalization** — `canonicalOpenPath` is just
+    `path.resolve` (no case-fold, no Unicode NFC/NFD normalization, no
+    `/private`/`/Volumes` symlink resolution). Each
+    check/register/release logs `pathForensics` (resolved key, isNFC/
+    isNFD, `realpathSync.native`, realDiffers) and, on a missed check,
+    `dedupeNearMisses` — registered keys that point at the SAME file
+    under a DIFFERENT string (sameNFC / sameLower / sameReal). A hit
+    there is direct proof of the canonicalization hole.
+  - **Mode-switch close** — `host:journal-and-close-other-windows` logs
+    each other window's visible/minimized/focused state, then per
+    window `closed-clean` vs `destroyed-timeout` + elapsed ms (the
+    10s `destroy()` skips the renderer's journal → lost doc =
+    "flaky"). `host:close-self` logs `modeSwitchWakeMs` (please-close
+    send → close-self arrival = the background renderer's wake+journal
+    latency). Renderer logs `please-close-received` with
+    `document.visibilityState` (`hidden` ⇒ occluded) and
+    `please-close-journaled` with journal ms.
+  - **Renderer freeze / occlusion** — per-window `wc-unresponsive`/
+    `wc-responsive` and `win-blur`/`focus`/`hide`/`show`; `setdochandle`
+    logs the owning window's visibility at path (re)register; a `boot`
+    header records platform / Electron / Chromium versions + log path.
+
 - **Word Count Selection button per pane in multi-pane mode**
   (`multi-pane-shell.ts`). The single-pane status bar's Σ button
   (`#word-count-btn`, hidden in multi-doc mode) had no equivalent in the

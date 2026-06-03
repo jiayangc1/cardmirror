@@ -27,11 +27,96 @@ import {
   shell,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
-import { promises as fs } from 'node:fs';
+import { promises as fs, realpathSync } from 'node:fs';
 import * as path from 'node:path';
 import { startFastPasteBridge, stopFastPasteBridge } from './fast-paste-bridge.js';
 
 const DEV_SERVER_URL = 'http://localhost:5173';
+
+// ─── Cross-window debug instrumentation (TEMPORARY PROBE) ──────────
+// Logging-only diagnostics for the macOS-specific cross-window bugs:
+// the duplicate-open guard missing, and the three-pane toggle's
+// close/reopen being flaky. Captures (a) the dedup path-canonical key
+// and any equivalent-but-different keys already registered, (b) the
+// mode-switch per-window close timing — clean close vs the 10s
+// destroy() that drops a doc's journal, (c) renderer responsiveness
+// and window focus/occlusion transitions. Writes one JSON line per
+// event to `{userData}/cross-window-debug.log` AND console. NO
+// behavior change. Deliberately does NOT disable native window
+// occlusion, so the bug still reproduces. Remove once the cause is
+// confirmed and fixed.
+let xlogSeq = 0;
+let xlogPath: string | null = null;
+function xlog(event: string, data?: Record<string, unknown>): void {
+  const line = JSON.stringify({ seq: xlogSeq++, t: Date.now(), proc: 'main', event, ...data });
+  console.log('[xwin]', line);
+  try {
+    if (!xlogPath) xlogPath = path.join(app.getPath('userData'), 'cross-window-debug.log');
+    void fs.appendFile(xlogPath, line + '\n').catch(() => {});
+  } catch {
+    // userData not available pre-ready — the console line still lands.
+  }
+}
+
+/** Forensic breakdown of a path so we can see, on macOS, whether two
+ *  windows hold the SAME file under DIFFERENT canonical keys — the
+ *  prime suspect for the duplicate-open guard missing. `path.resolve`
+ *  (what `canonicalOpenPath` uses) doesn't fold case, normalize
+ *  Unicode (APFS hands back NFD; dialogs/recents can be NFC), or
+ *  resolve `/private`/`/Volumes` symlinks. `realpathSync.native`
+ *  resolves symlinks and returns the on-disk casing. */
+function pathForensics(p: string): Record<string, unknown> {
+  const resolved = path.resolve(p);
+  let real: string | null = null;
+  try {
+    real = realpathSync.native(resolved);
+  } catch {
+    real = null;
+  }
+  return {
+    resolved,
+    isNFC: resolved === resolved.normalize('NFC'),
+    isNFD: resolved === resolved.normalize('NFD'),
+    real,
+    realDiffers: real !== null && real !== resolved,
+  };
+}
+
+/** Scan the live registry for keys that point at the SAME file as
+ *  `norm` but under a different string (Unicode/case/symlink). A hit
+ *  here when `openPathOwners.get(norm)` missed is direct proof of the
+ *  canonicalization bug. */
+function dedupeNearMisses(
+  norm: string,
+  owners: Map<string, number>,
+): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  const nfc = norm.normalize('NFC');
+  const lower = norm.toLowerCase();
+  let real: string | null = null;
+  try {
+    real = realpathSync.native(norm);
+  } catch {
+    real = null;
+  }
+  for (const key of owners.keys()) {
+    if (key === norm) continue;
+    const sameNFC = key.normalize('NFC') === nfc;
+    const sameLower = key.toLowerCase() === lower;
+    let sameReal = false;
+    if (real) {
+      try {
+        sameReal = realpathSync.native(key) === real;
+      } catch {
+        sameReal = false;
+      }
+    }
+    if (sameNFC || sameLower || sameReal) {
+      out.push({ key, owner: owners.get(key), sameNFC, sameLower, sameReal });
+    }
+  }
+  return out;
+}
 
 // macOS scroll-perf tuning. Belt-and-suspenders settings retained
 // from the alpha.2 → alpha.3 perf investigation; the root cause
@@ -897,31 +982,78 @@ ipcMain.handle('host:is-first-window', async (event) => {
 
 const MODE_SWITCH_CLOSE_TIMEOUT_MS = 10000;
 
+// windowId → Date.now() when we sent it `mode-switch:please-close`.
+// Lets `host:close-self` report how long the (possibly occluded)
+// renderer took to wake, journal, and ask to close. TEMPORARY probe.
+const modeSwitchAskedAt = new Map<number, number>();
+
 ipcMain.handle('host:journal-and-close-other-windows', async (event) => {
   const sender = BrowserWindow.fromWebContents(event.sender);
   const others = BrowserWindow.getAllWindows().filter(
     (w) => w !== sender && !w.isDestroyed(),
   );
+  xlog('modeswitch-begin', {
+    sender: sender?.id ?? -1,
+    others: others.map((w) => ({
+      win: w.id,
+      visible: w.isVisible(),
+      minimized: w.isMinimized(),
+      focused: w.isFocused(),
+    })),
+    timeoutMs: MODE_SWITCH_CLOSE_TIMEOUT_MS,
+  });
   await Promise.all(
     others.map(
       (w) =>
         new Promise<void>((resolve) => {
+          const id = w.id;
+          // Record when we ASK the (possibly occluded) renderer to
+          // close; close-self arrival vs this is the renderer's
+          // wake+journal latency — the occlusion signal.
+          modeSwitchAskedAt.set(id, Date.now());
+          const t0 = Date.now();
           const timer = setTimeout(() => {
+            // The renderer never closed itself in time: destroy()
+            // skips its journal, so its doc is lost on reopen. This
+            // is the "flaky" outcome.
+            xlog('modeswitch-window-done', {
+              win: id,
+              outcome: 'destroyed-timeout',
+              ms: Date.now() - t0,
+            });
+            modeSwitchAskedAt.delete(id);
             if (!w.isDestroyed()) w.destroy();
             resolve();
           }, MODE_SWITCH_CLOSE_TIMEOUT_MS);
           w.once('closed', () => {
             clearTimeout(timer);
+            xlog('modeswitch-window-done', {
+              win: id,
+              outcome: 'closed-clean',
+              ms: Date.now() - t0,
+            });
+            modeSwitchAskedAt.delete(id);
             resolve();
           });
           w.webContents.send('mode-switch:please-close');
         }),
     ),
   );
+  xlog('modeswitch-end', { sender: sender?.id ?? -1 });
 });
 
 ipcMain.handle('host:close-self', async (event) => {
   const sender = BrowserWindow.fromWebContents(event.sender);
+  if (sender) {
+    const askedAt = modeSwitchAskedAt.get(sender.id);
+    xlog('close-self', {
+      win: sender.id,
+      // If this close-self is the response to a mode-switch
+      // please-close, this is the renderer's total wake+journal time.
+      modeSwitchWakeMs: askedAt !== undefined ? Date.now() - askedAt : null,
+      destroyed: sender.isDestroyed(),
+    });
+  }
   if (sender && !sender.isDestroyed()) {
     // Mark this window as "already confirmed" so the close event
     // about to fire passes through the interception without
@@ -1235,9 +1367,24 @@ ipcMain.handle('host:quick-cards-clear', async () => {
 // `setCurrentDocHandle` helper in the renderer wires that up).
 ipcMain.handle('host:open-path-check', async (event, p: string) => {
   const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win || typeof p !== 'string' || !p) return { takenByOther: false };
+  if (!win || typeof p !== 'string' || !p) {
+    xlog('dedup-check', { win: win?.id ?? -1, result: 'bad-input', hasWin: !!win });
+    return { takenByOther: false };
+  }
   const norm = canonicalOpenPath(p);
   const ownerId = openPathOwners.get(norm);
+  // The critical case: no exact-key owner found. If a near-miss exists
+  // (same file, different canonical key), the guard is about to wrongly
+  // allow a duplicate — that's the macOS canonicalization bug.
+  const nearMisses = ownerId === undefined ? dedupeNearMisses(norm, openPathOwners) : [];
+  xlog('dedup-check', {
+    win: win.id,
+    ownerId: ownerId ?? null,
+    takenByOther: ownerId !== undefined && ownerId !== win.id,
+    registeredKeys: openPathOwners.size,
+    nearMisses,
+    ...pathForensics(p),
+  });
   if (ownerId === undefined || ownerId === win.id) return { takenByOther: false };
   const ownerWin = BrowserWindow.fromId(ownerId);
   if (!ownerWin || ownerWin.isDestroyed()) {
@@ -1283,9 +1430,18 @@ ipcMain.handle(
 // Save-As / recovery where no check happened).
 ipcMain.handle('host:open-path-register', async (event, p: string) => {
   const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win || typeof p !== 'string' || !p) return;
+  if (!win || typeof p !== 'string' || !p) {
+    xlog('dedup-register', { win: win?.id ?? -1, result: 'bad-input', hasWin: !!win });
+    return;
+  }
   const norm = canonicalOpenPath(p);
   const prevOwner = openPathOwners.get(norm);
+  xlog('dedup-register', {
+    win: win.id,
+    prevOwner: prevOwner ?? null,
+    registeredKeys: openPathOwners.size,
+    ...pathForensics(p),
+  });
   if (prevOwner === win.id) return;
   if (prevOwner !== undefined) {
     windowOpenPaths.get(prevOwner)?.delete(norm);
@@ -1305,7 +1461,14 @@ ipcMain.handle('host:open-path-release', async (event, p: string) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win || typeof p !== 'string' || !p) return;
   const norm = canonicalOpenPath(p);
-  if (openPathOwners.get(norm) !== win.id) return;
+  const owner = openPathOwners.get(norm);
+  xlog('dedup-release', {
+    win: win.id,
+    owner: owner ?? null,
+    owned: owner === win.id,
+    ...pathForensics(p),
+  });
+  if (owner !== win.id) return;
   openPathOwners.delete(norm);
   windowOpenPaths.get(win.id)?.delete(norm);
 });
@@ -1370,6 +1533,18 @@ ipcMain.handle(
 // Clean up registrations when windows die without unregistering
 // (force-close, crash, etc.).
 app.on('browser-window-created', (_event, win) => {
+  // ── TEMPORARY cross-window probe: renderer freeze + occlusion ──
+  // A frozen background renderer (macOS native window occlusion, which
+  // `backgroundThrottling:false` does NOT prevent) is the lead theory
+  // for the flaky mode-switch close. `unresponsive` is the direct
+  // signal; blur/focus/hide/show approximate occlusion transitions so
+  // we can correlate them with mode-switch / dedup timing.
+  win.webContents.on('unresponsive', () => xlog('wc-unresponsive', { win: win.id }));
+  win.webContents.on('responsive', () => xlog('wc-responsive', { win: win.id }));
+  win.on('blur', () => xlog('win-blur', { win: win.id }));
+  win.on('focus', () => xlog('win-focus', { win: win.id }));
+  win.on('hide', () => xlog('win-hide', { win: win.id }));
+  win.on('show', () => xlog('win-show', { win: win.id }));
   win.on('closed', () => {
     const docs = windowDocs.get(win.id);
     if (docs) {
@@ -1385,10 +1560,22 @@ app.on('browser-window-created', (_event, win) => {
     // we'd otherwise leave stale entries blocking future opens.
     const paths = windowOpenPaths.get(win.id);
     if (paths) {
+      xlog('window-closed-cleanup', { win: win.id, releasedPaths: [...paths] });
       for (const p of paths) openPathOwners.delete(p);
       windowOpenPaths.delete(win.id);
+    } else {
+      xlog('window-closed-cleanup', { win: win.id, releasedPaths: [] });
     }
   });
+});
+
+// ── TEMPORARY cross-window probe: renderer→main log bridge ──
+// Lets the renderer fold its own events (please-close receipt with
+// `document.visibilityState`, dedup check/register results) into the
+// same single timeline + clock as the main-process events above.
+ipcMain.on('host:debug-log', (event, payload: { event?: string; data?: Record<string, unknown> }) => {
+  const w = BrowserWindow.fromWebContents(event.sender);
+  xlog(payload?.event ?? 'renderer', { win: w?.id ?? -1, src: 'renderer', ...(payload?.data ?? {}) });
 });
 
 // ─── Native menu bar ───────────────────────────────────────────────
@@ -1894,6 +2081,16 @@ app.on('open-file', (event, filePath) => {
 });
 
 void app.whenReady().then(() => {
+  // TEMPORARY cross-window probe: session header. Records the log
+  // location + environment so a pasted log is self-describing.
+  xlog('boot', {
+    platform: process.platform,
+    arch: process.arch,
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    occlusionSwitchDisabled: false,
+    logPath: path.join(app.getPath('userData'), 'cross-window-debug.log'),
+  });
   Menu.setApplicationMenu(buildMenu());
   // Decide what to mount on first launch:
   //   - macOS `open-file` already arrived → that file

@@ -92,6 +92,9 @@ interface ElectronAPI {
    *  single-pane) so the OS "Open with…" path can reuse a multi-pane
    *  window's slot picker instead of spawning a blank window. */
   registerMultipane(isMultiPane: boolean): Promise<void>;
+  /** TEMPORARY cross-window probe: fold a renderer event into main's
+   *  cross-window debug log. Optional so an older preload tolerates it. */
+  debugLog?(event: string, data?: unknown): void;
   /** Main forwards an OS-opened file (absolute path) to this window
    *  when it's an existing multi-pane workspace. Returns unsubscribe. */
   onExternalOpen(handler: (payload: { path: string }) => void): () => void;
@@ -397,6 +400,16 @@ export class ElectronHost implements Host {
     // Tolerate an older preload (no channel) — main just won't reuse
     // this window for OS opens, falling back to spawn-a-window.
     await api().registerMultipane?.(isMultiPane);
+  }
+
+  /** TEMPORARY cross-window probe — see main.ts `xlog`. Fire-and-forget;
+   *  never throws (logging must not perturb the flow it measures). */
+  debugLog(event: string, data?: unknown): void {
+    try {
+      api().debugLog?.(event, data);
+    } catch {
+      /* ignore */
+    }
   }
 
   onExternalOpen(handler: (payload: { path: string }) => void): () => void {

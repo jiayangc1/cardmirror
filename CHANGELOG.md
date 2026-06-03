@@ -101,6 +101,15 @@ see `DETAILED_CHANGELOG.md`.
   colors — a faint blue region band with orange match outlines — instead
   of two near-identical oranges that were hard to tell apart.
 
+### Internal
+
+- **Diagnostic logging for a macOS multi-window issue.** This build
+  writes a `cross-window-debug.log` to the app's data folder to help
+  track down a Mac-only problem where the duplicate-open guard and the
+  three-pane toggle don't always coordinate between windows. It records
+  window open/close coordination only — no document content — and will
+  be removed once the cause is found.
+
 ### Fixed
 
 - **Live selection word count works in multi-pane mode.** With the
