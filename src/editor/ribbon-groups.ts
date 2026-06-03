@@ -95,6 +95,7 @@ export const RIBBON_GROUPS: RibbonGroup[] = [
       'shrink',
       'copyPreviousCite',
       'createReference',
+      'extractUndertag',
       'insertImage',
       'selectCurrentHeading',
       'deleteCurrentHeading',

@@ -782,6 +782,7 @@ const ribbonContext: RibbonContext = {
   shadingColor: () => settings.get('lastShadingColor'),
   paragraphIntegrity: () => settings.get('paragraphIntegrity'),
   usePilcrows: () => settings.get('usePilcrows'),
+  extractUndertagInQuotes: () => settings.get('extractUndertagInQuotes'),
   headingMode: () => settings.get('headingMode'),
   condenseOnPaste: () => settings.get('condenseOnPaste'),
   clearFormattingOnNamedStyleToggleOff: () =>
@@ -1495,6 +1496,11 @@ if (cardMenuBtn) {
             label: 'Create Reference',
             commandId: 'createReference',
             run: () => runRibbon('createReference'),
+          },
+          {
+            label: 'Extract Undertag',
+            commandId: 'extractUndertag',
+            run: () => runRibbon('extractUndertag'),
           },
         ],
       },

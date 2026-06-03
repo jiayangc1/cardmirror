@@ -54,6 +54,19 @@ in each release, see `CHANGELOG.md`.
   empty) and same per-unit transform (analytic_unit→card, analytic→tag,
   heading id + body slots preserved).
 
+- **Extract Undertag command.** New bindable command `extractUndertag`
+  (`ribbon-commands.ts`, label "Extract Undertag", no default key, card
+  dropdown → Excerpt section, Editing-utilities group). Walks up from the
+  selection to the enclosing `card` (requires a non-empty selection and a
+  card whose first child is a `tag`), reads the selection text
+  (`textBetween` with block→space collapse), and inserts a new `undertag`
+  node after the card's last existing undertag (or right after the tag).
+  It's a copy — the original text is untouched — and the cursor lands at
+  the end of the new undertag. A new `extractUndertagInQuotes` boolean
+  setting (Editing category, off by default) wraps the excerpt in double
+  quotes; it reaches the command via a new `RibbonContext` getter
+  `extractUndertagInQuotes` → `settings.get('extractUndertagInQuotes')`.
+
 - **Word-style paragraph navigation: cleaner collapse / cross-block
   targets** (`word-selection-keymap.ts`).
   - `verticalCommandPair`'s Down (`to-end`) move with a non-empty

@@ -2999,6 +2999,57 @@ export function convertCitedAnalyticsToTags(): Command {
   });
 }
 
+/**
+ * Extract the current selection into a new `undertag` paragraph beneath
+ * the enclosing card's tag, below any existing undertags. The original
+ * text stays put — this copies the excerpt out as an undertag (e.g. a
+ * short summary label under the tag). When `inQuotes` is on, the excerpt
+ * is wrapped in double quotes.
+ *
+ * Requires a non-empty selection inside a card whose first child is a
+ * tag; otherwise a no-op (returns false). A multi-block selection is
+ * collapsed to a single line (undertag is one inline paragraph).
+ */
+export function extractUndertag(inQuotes: () => boolean): Command {
+  return (state, dispatch) => {
+    const sel = state.selection;
+    if (sel.empty) return false;
+    const $from = sel.$from;
+    // Enclosing card (cards never nest, but walk up to be safe).
+    let cardDepth = -1;
+    for (let d = $from.depth; d >= 0; d--) {
+      if ($from.node(d).type.name === 'card') {
+        cardDepth = d;
+        break;
+      }
+    }
+    if (cardDepth < 0) return false;
+    const card = $from.node(cardDepth);
+    if (!card.firstChild || card.firstChild.type.name !== 'tag') return false;
+    // The selection's text, collapsed across blocks to one line.
+    const raw = state.doc.textBetween(sel.from, sel.to, ' ', ' ').trim();
+    if (!raw) return false;
+    if (!dispatch) return true;
+
+    const text = inQuotes() ? `"${raw}"` : raw;
+    const undertag = schema.nodes['undertag']!.create(null, schema.text(text));
+    // Insert just after the card's last undertag, or right after the tag
+    // when the card has none yet.
+    const cardStart = $from.before(cardDepth);
+    let insertPos = cardStart + 1 + card.firstChild.nodeSize; // after the tag
+    card.forEach((child, offset) => {
+      if (child.type.name === 'undertag') {
+        insertPos = cardStart + 1 + offset + child.nodeSize;
+      }
+    });
+    const tr = state.tr.insert(insertPos, undertag);
+    // Drop the cursor at the end of the new undertag so it's ready to edit.
+    tr.setSelection(TextSelection.create(tr.doc, insertPos + 1 + undertag.content.size));
+    dispatch(tr.scrollIntoView());
+    return true;
+  };
+}
+
 export function removeHyperlinks(): Command {
   return (state, dispatch) => {
     const linkType = schema.marks['link']!;
@@ -3383,6 +3434,7 @@ export type RibbonCommandId =
   | 'clearToNormal'
   | 'shrink'
   | 'createReference'
+  | 'extractUndertag'
   | 'highlightToShading'
   | 'shadingToHighlight'
   | 'standardizeHighlight'
@@ -3521,6 +3573,7 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'clearToNormal',
   'shrink',
   'createReference',
+  'extractUndertag',
   'highlightToShading',
   'shadingToHighlight',
   'standardizeHighlight',
@@ -3635,6 +3688,7 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   clearToNormal: 'Clear',
   shrink: 'Shrink Card Text',
   createReference: 'Create Reference',
+  extractUndertag: 'Extract Undertag',
   highlightToShading: 'Highlight to Background',
   shadingToHighlight: 'Background to Highlight',
   standardizeHighlight: 'Standardize Highlighting',
@@ -3791,6 +3845,7 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   // Menu / button commands — exposed for user-defined bindings via
   // the keybinding editor; no default key.
   createReference: '',
+  extractUndertag: '',
   highlightToShading: '',
   shadingToHighlight: '',
   standardizeHighlight: '',
@@ -3930,6 +3985,8 @@ export interface RibbonContext {
   /** Whether F3 inserts 6-pt ¶ markers when merging (consulted only when
    *  paragraphIntegrity is false). */
   usePilcrows: () => boolean;
+  /** Whether Extract Undertag wraps the excerpt in double quotes. */
+  extractUndertagInQuotes: () => boolean;
   /** How selection-based condense treats structural elements. See
    *  `condense.ts` and `settings.ts` for the rule table. */
   headingMode: () => 'strict' | 'respect' | 'demolish';
@@ -4076,6 +4133,7 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   shadingColor: () => 'D2D2D2',
   paragraphIntegrity: () => true,
   usePilcrows: () => false,
+  extractUndertagInQuotes: () => false,
   headingMode: () => 'respect',
   condenseOnPaste: () => false,
   clearFormattingOnNamedStyleToggleOff: () => true,
@@ -4205,6 +4263,8 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
         ctx.runCreateReference();
         return true;
       };
+    case 'extractUndertag':
+      return extractUndertag(ctx.extractUndertagInQuotes);
     case 'highlightToShading':
       return highlightToShading();
     case 'shadingToHighlight':

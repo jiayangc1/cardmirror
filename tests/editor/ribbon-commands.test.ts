@@ -25,6 +25,7 @@ import {
   removeHyperlinks,
   convertAnalyticsToTags,
   convertCitedAnalyticsToTags,
+  extractUndertag,
   fixFormattingGaps,
   buildRibbonKeymap,
   DEFAULT_RIBBON_KEYS,
@@ -3576,6 +3577,86 @@ describe('convertCitedAnalyticsToTags', () => {
     expect(next).not.toBeNull();
     expect(next!.doc.child(0).type.name).toBe('card');
     expect(next!.doc.child(1).type.name).toBe('analytic_unit');
+  });
+});
+
+// ---- extractUndertag ----
+
+describe('extractUndertag', () => {
+  function cardDoc(bodyText: string, undertags: string[] = []) {
+    const children = [
+      schema.nodes['tag']!.create({ id: newHeadingId() }, schema.text('TAG')),
+      ...undertags.map((u) => schema.nodes['undertag']!.create(null, schema.text(u))),
+      schema.nodes['card_body']!.create(null, schema.text(bodyText)),
+    ];
+    return schema.nodes['doc']!.createChecked(null, [
+      schema.nodes['card']!.create(null, children),
+    ]);
+  }
+  function findText(doc: ReturnType<typeof cardDoc>, text: string): number {
+    let pos = -1;
+    doc.descendants((n, p) => {
+      if (pos !== -1) return false;
+      if (n.isText && n.text && n.text.includes(text)) {
+        pos = p + n.text.indexOf(text);
+        return false;
+      }
+      return true;
+    });
+    if (pos < 0) throw new Error(`text "${text}" not found`);
+    return pos;
+  }
+  function run(doc: ReturnType<typeof cardDoc>, needle: string, inQuotes: boolean): EditorState {
+    const start = findText(doc, needle);
+    const base = EditorState.create({ doc, schema });
+    const state = base.apply(
+      base.tr.setSelection(TextSelection.create(doc, start, start + needle.length)),
+    );
+    let next: EditorState | null = null;
+    extractUndertag(() => inQuotes)(state, (tr) => { next = state.apply(tr); });
+    if (!next) throw new Error('extractUndertag did not dispatch');
+    return next;
+  }
+
+  it('inserts the selection as an undertag right after the tag', () => {
+    const card = run(cardDoc('hello world body'), 'world', false).doc.firstChild!;
+    const types: string[] = [];
+    card.forEach((c) => types.push(c.type.name));
+    expect(types).toEqual(['tag', 'undertag', 'card_body']);
+    expect(card.child(1).textContent).toBe('world');
+    // The original body text is untouched (extract = copy).
+    expect(card.child(2).textContent).toBe('hello world body');
+  });
+
+  it('inserts below existing undertags', () => {
+    const card = run(cardDoc('hello world', ['first', 'second']), 'world', false).doc.firstChild!;
+    const undertags: string[] = [];
+    card.forEach((c) => { if (c.type.name === 'undertag') undertags.push(c.textContent); });
+    expect(undertags).toEqual(['first', 'second', 'world']);
+  });
+
+  it('wraps the excerpt in quotes when the setting is on', () => {
+    const card = run(cardDoc('hello world body'), 'world', true).doc.firstChild!;
+    expect(card.child(1).textContent).toBe('"world"');
+  });
+
+  it('is a no-op with an empty selection', () => {
+    const doc = cardDoc('body');
+    const state = EditorState.create({ doc, schema });
+    expect(extractUndertag(() => false)(state, undefined)).toBe(false);
+  });
+
+  it('is a no-op when the selection is not inside a card', () => {
+    const doc = schema.nodes['doc']!.createChecked(null, [
+      schema.nodes['paragraph']!.create(null, schema.text('loose text')),
+    ]);
+    const start = 1;
+    const state = EditorState.create({ doc, schema }).apply(
+      EditorState.create({ doc, schema }).tr.setSelection(
+        TextSelection.create(doc, start, start + 4),
+      ),
+    );
+    expect(extractUndertag(() => false)(state, undefined)).toBe(false);
   });
 });
 

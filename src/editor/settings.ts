@@ -604,6 +604,9 @@ export interface Settings {
    */
   paragraphIntegrity: boolean;
   usePilcrows: boolean;
+  /** When on, the Extract Undertag command wraps the excerpt it pulls
+   *  into a new undertag in double quotes. Off by default. */
+  extractUndertagInQuotes: boolean;
   headingMode: HeadingMode;
   /**
    * When true, F2 (Paste Text) runs the default condense pass on the
@@ -892,6 +895,7 @@ const DEFAULTS: Settings = {
   lastFontColor: null,
   paragraphIntegrity: true,
   usePilcrows: true,
+  extractUndertagInQuotes: false,
   headingMode: 'respect',
   condenseOnPaste: false,
   clearFormattingOnNamedStyleToggleOff: true,
@@ -1448,6 +1452,15 @@ export const SETTING_METADATA: SettingMeta[] = [
     category: 'editing',
   },
   {
+    key: 'extractUndertagInQuotes',
+    label: 'Extract Undertag: wrap in quotes',
+    description:
+      'When on, the Extract Undertag command (Card menu → Excerpt) wraps the excerpt it pulls into the new undertag in double quotes. Off by default — the text is inserted as-is.',
+    kind: 'toggle',
+    category: 'editing',
+    aliases: ['extract undertag'],
+  },
+  {
     key: 'condenseOnPaste',
     label: 'Condense after Paste Text (F2)',
     description:
@@ -1866,6 +1879,7 @@ function sanitize(s: Settings): Settings {
       s.usePilcrows === undefined
         ? DEFAULTS.usePilcrows
         : !!s.usePilcrows,
+    extractUndertagInQuotes: !!s.extractUndertagInQuotes,
     headingMode: HEADING_MODES.includes(s.headingMode as HeadingMode)
       ? (s.headingMode as HeadingMode)
       : DEFAULTS.headingMode,

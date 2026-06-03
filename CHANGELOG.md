@@ -72,6 +72,13 @@ see `DETAILED_CHANGELOG.md`.
   analytics stay analytics. Bounded to your selection when you have one,
   whole-document otherwise.
 
+- **Extract Undertag.** A new command in the card dropdown's Excerpt
+  section (also bindable, unbound by default) that takes your selection
+  inside a card and drops it as a new undertag beneath the tag, below any
+  existing undertags. The original text stays put. A new Settings →
+  Editing toggle, "Extract Undertag: wrap in quotes" (off by default),
+  controls whether the excerpt is wrapped in quotes.
+
 ### Changed
 
 - **Paragraph navigation lands on cleaner spots.** With a selection,
