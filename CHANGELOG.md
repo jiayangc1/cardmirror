@@ -7,6 +7,8 @@ see `DETAILED_CHANGELOG.md`.
 
 ## Unreleased
 
+## 0.1.0-alpha.9 — 2026-06-03
+
 ### Added
 
 - **A user manual.** A complete guide to the editor — installing, cutting

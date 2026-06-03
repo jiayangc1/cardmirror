@@ -7,6 +7,8 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+## 0.1.0-alpha.9 — 2026-06-03
+
 - **Autosave toggle persists per document across close + reopen**
   (`autosave-prefs-store.ts` new, `index.ts`, `multi-pane-shell.ts`,
   `settings.ts`). `autosaveEnabled` stays a transient per-window setting
