@@ -361,6 +361,28 @@ in each release, see `CHANGELOG.md`.
   removed from both themes (`--pmd-c-similar-deep-text` stays — still used
   by the manage-cards list).
 
+- **Documentation streamlined** (`README.md`, `ARCHITECTURE.md`,
+  `PROJECT.md`, `src/editor/index.ts`). The prior docs were
+  agent-generated — long, repetitive, padded with implementation
+  narration, and in places inaccurate about what shipped. Rewritten
+  against the voice of Verbatim's own published manual (plain, direct,
+  task-first): ARCHITECTURE 1651 → ~640 lines (kept the schema,
+  round-trip contract, rendering model, and editing-boundary rules; cut
+  the changelog-style ribbon catalog and play-by-play; corrected
+  overstated status — transclusion, corpus-search indexing, the cleanup
+  ribbon family, and collaboration moved to a clearly-marked roadmap, and
+  Electron noted as settled). PROJECT reduced to a one-screen orientation
+  + accurate shipped/planned/out-of-scope snapshot. README intro and
+  updates sections tightened (verbose install steps and acknowledgements
+  kept). The in-editor welcome doc (`makeStarterDoc`) trimmed to the same
+  voice with every interactive structure demo preserved, plus a new
+  "Study your evidence" section for flashcards. ARCHITECTURE §17 gained a
+  "Why this design (the evidence)" subsection grounding the
+  spaced-repetition choices in the mnemonic-medium research (Quantum
+  Country, Orbit, Augmenting Long-term Memory, Matuschak's notes), cited
+  by public URL; the dead pointer to the gitignored learn-system spec was
+  dropped. CHANGELOG/DETAILED_CHANGELOG untouched except for this note.
+
 ## 0.1.0-alpha.8 — 2026-06-01
 
 - **"Show in context" from a flashcard review.** A third action in the
