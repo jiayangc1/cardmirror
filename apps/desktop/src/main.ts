@@ -24,6 +24,7 @@ import {
   crashReporter,
   dialog,
   ipcMain,
+  session,
   shell,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
@@ -307,6 +308,11 @@ function createWindow(initialDoc?: InitialDocPayload): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Wire up the renderer's spellcheck provider so the editable
+      // actually requests checks. Defaults to true, but set explicitly
+      // — without the renderer side on, the session-level checker never
+      // sees any text and no squiggles appear.
+      spellcheck: true,
       // Chromium throttles JS / rAF in renderers whose windows are
       // partially occluded or out of focus — defensible on a 50-tab
       // browser, but here the user has typically one window with the
@@ -2048,6 +2054,31 @@ function runManualUpdateCheck(): void {
   runUpdateCheck({ alertOnLatest: true, alertOnError: true });
 }
 
+/** Turn on the built-in spellchecker engine. The renderer decides
+ *  WHETHER each editor spell-checks via the `spellcheck` attribute
+ *  (gated on the `editorSpellcheck` setting) — but that attribute does
+ *  nothing unless the engine is enabled here first. On macOS Electron
+ *  uses the OS spellchecker and manages languages itself, so we just
+ *  enable it; on Windows/Linux Chromium's Hunspell checks NOTHING until
+ *  at least one language is set (it then fetches the dictionary on
+ *  demand). The app never configured this, which is why spellcheck did
+ *  nothing even with the setting on. */
+function setupSpellChecker(): void {
+  const ses = session.defaultSession;
+  try {
+    ses.setSpellCheckerEnabled(true);
+    if (process.platform !== 'darwin' && ses.getSpellCheckerLanguages().length === 0) {
+      const avail = ses.availableSpellCheckerLanguages;
+      const pick =
+        ['en-US', 'en-GB', 'en-CA', 'en-AU', 'en'].find((l) => avail.includes(l)) ??
+        avail[0];
+      if (pick) ses.setSpellCheckerLanguages([pick]);
+    }
+  } catch (err) {
+    console.warn('Spellchecker setup failed:', err);
+  }
+}
+
 function startAutoUpdate(): void {
   if (!app.isPackaged) return;
   // macOS: detection works, but unsigned builds can't self-install via
@@ -2144,6 +2175,7 @@ void app.whenReady().then(() => {
     logPath: path.join(app.getPath('userData'), 'cross-window-debug.log'),
   });
   Menu.setApplicationMenu(buildMenu());
+  setupSpellChecker();
   // Decide what to mount on first launch:
   //   - macOS `open-file` already arrived → that file
   //   - Win / Linux: scan argv for a file path → that file

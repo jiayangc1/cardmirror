@@ -20,11 +20,13 @@ see `DETAILED_CHANGELOG.md`.
   intact, instead of occasionally closing every window and reopening
   none.
 
-- **Editor spellcheck actually turns on now.** Switching on Editor
-  spellcheck took effect for real — the browser only starts checking an
-  editor once it's refocused, so flipping the setting (from the Settings
-  dialog, with the editor unfocused) appeared to do nothing. It now
-  engages as soon as you return to the document.
+- **Editor spellcheck actually works now.** The desktop app never
+  turned the spellchecker engine on, so misspellings were never
+  underlined even with the setting enabled. The engine is now enabled at
+  launch, and toggling the setting takes effect immediately (the browser
+  otherwise only re-checks an editor when it regains focus). Note: the
+  built-in checker flags text as you type it — words already in an opened
+  document aren't underlined until you edit near them.
 
 ### Changed
 

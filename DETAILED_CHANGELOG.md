@@ -7,23 +7,31 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
-- **Editor spellcheck toggle takes effect without a reload** (new
+- **Editor spellcheck now works** (`apps/desktop/src/main.ts`, new
   `src/editor/editor-spellcheck.ts`, `src/editor/index.ts`,
-  `src/editor/multi-pane-shell.ts`). The toggle already set
-  `spellcheck="true"` on the editable (and PM doesn't revert it — its
-  MutationObserver ignores attribute mutations on `view.dom`, and the
-  decoration diff only writes on change), but Chromium only
-  (re)evaluates an editing host's spellcheck state when the host gains
-  focus. Since the toggle lives in the Settings dialog, the editor is
-  blurred when the value flips, so a bare `setAttribute` looked like a
-  no-op. The new `applySpellcheckToView` helper sets the attribute and,
-  when enabling, forces a re-scan by bouncing focus — immediately if the
-  view is focused, else once on its next focus (a one-shot listener,
-  de-duped via a flag on the editable). PM restores its selection on
-  `focus()`, so the cursor is preserved. Engine-level behavior, so this
-  was broken on every platform, not just macOS; wired into both the
-  single-pane subscriber and the multi-pane shell (focused pane updates
-  now, others on their next focus).
+  `src/editor/multi-pane-shell.ts`). Two layers were missing:
+  - *Engine never enabled.* The desktop app never called
+    `session.setSpellCheckerEnabled(true)` / `setSpellCheckerLanguages`,
+    so the renderer's `spellcheck="true"` attribute had no engine behind
+    it — on Windows/Linux nothing was ever checked. New `setupSpellChecker()`
+    enables the engine at launch and, off macOS (which uses the OS
+    checker), sets a language (prefers `en-US`, falling back through the
+    available list) so Hunspell fetches its dictionary. Also set
+    `webPreferences.spellcheck: true` explicitly.
+  - *Toggle needed a reload.* The toggle set `spellcheck="true"` on the
+    editable (PM doesn't revert it — its MutationObserver ignores
+    attribute mutations on `view.dom`, and the decoration diff only
+    writes on change), but Chromium only (re)evaluates an editing host on
+    focus, and the toggle lives in the Settings dialog (editor blurred).
+    `applySpellcheckToView` sets the attribute and, when enabling, bounces
+    focus to force a re-scan — now if focused, else once on next focus (a
+    de-duped one-shot listener); PM restores its selection on `focus()`.
+    Wired into the single-pane subscriber and the multi-pane shell.
+  - *Known limitations.* The built-in checker only flags text as it's
+    typed/edited; pre-existing (opened/imported) text isn't scanned until
+    edited near. And on Linux under native Wayland, Chromium doesn't paint
+    spellcheck squiggles at all (works under X11/XWayland) — an upstream
+    Electron/Chromium issue, not app logic.
 
 - **Suppress the auto-update-in-progress messaging on macOS**
   (`apps/desktop/src/main.ts`, `src/editor/settings-ui.ts`). Unsigned
