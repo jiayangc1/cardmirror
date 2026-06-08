@@ -822,44 +822,183 @@ Linux users who installed via the AUR update with `yay -Syu`.
 
 Open settings with the **gear** icon. Settings are grouped into tabs.
 
+Some rows are desktop-only (they need real file paths); they're marked
+*(desktop)* below and don't appear in the web edition.
+
 ### General
 
-Workflow and document behavior: the **multi-doc workspace** toggle and
-layout; **readers** for read-time estimates; **live selection word
-count**; the **onboarding doc for new documents** toggle; **file search
-root** and which object types it lists; default **new-document format**;
-**Send Doc** destination and folder; **dropzone** visibility; **check for
-updates on launch**; **condense on paste**.
+Workflow and document behavior.
+
+- **Readers for read-time estimates** — each reader is a name and a
+  words-per-minute rate. The first two show live in the status bar; all
+  appear in the Word Count dialog (see [Read-time estimates](#read-time-estimates)).
+- **Live word count for the current selection** — off by default. When
+  on, the status bar's count and read time follow your selection as you
+  change it; leave it off on very large docs if you notice drag lag.
+- **Three-pane workspace** — switch between one document per window and a
+  single window with three panes (see [The multi-doc workspace](#7-the-multi-doc-workspace)).
+- **Multi-doc layout** — with three docs open, show all three at once
+  (compact) or two-and-a-bit with click-to-snap (wide). No effect with
+  one or two docs.
+- **Onboarding doc for new documents** — when on, New Document opens the
+  welcome doc; off opens a single blank paragraph.
+- **Default folder for new speech documents** *(desktop)* — where New
+  Speech Document saves by default. Empty leaves the doc unsaved until
+  you Save.
+- **File search folder** *(desktop)* — the root scanned for the palette's
+  file search (the `f` prefix). Empty disables file search (see
+  [The Search Everything palette](#the-search-everything-palette-mod-shift-space)).
+- **File search: objects to find within a file** *(desktop)* — which
+  structural objects (blocks, tags, cites, …) the palette lists when you
+  dive into a file.
+- **File search: default outline depth** *(desktop)* — how far a file's
+  outline is expanded the moment you dive in.
+- **File search: auto-pin recent & frequent files** *(desktop)* — keeps
+  recent and frequent files warm for instant dives; turn off to warm only
+  files you pin by hand.
+- **Default format for new speech documents** — `.docx`
+  (Verbatim-compatible) or `.cmir` (native, and the only format that
+  supports autosave).
+- **Default file format for new documents** — the format the Save As
+  dialog defaults to for a doc you haven't saved yet. Existing files
+  always re-save in their own format.
+- **Prefix preset saves with SEND_ / READ_** — when on, the Save As Send
+  Doc / Read Doc presets prepend `SEND_` / `READ_` to the filename.
+- **Send Doc destination** *(desktop)* — whether Save Send Doc writes
+  beside the source file or into a fixed folder (see [Saving a send doc](#saving-a-send-doc)).
+- **Send Doc folder** *(desktop)* — the fixed folder used when the
+  destination above is "Fixed folder."
+- **Seed new speech docs with a Pocket heading** — when on, New Speech
+  Document opens with a Pocket carrying the speech's name; off starts
+  blank.
+- **Cite preview on hover** — show a card's cite-formatted text beside its
+  navigation-pane entry when you hover.
+- **Editor spellcheck** — underline misspellings in the visible document,
+  including text in files you've opened (not just what you're typing).
+  Right-click a flagged word for suggestions, Add to Dictionary, or
+  Ignore. Off by default — debate evidence (author names, jargon) trips a
+  lot of false positives.
+- **Text drag-and-drop** — allow dragging selected text to move it (on by
+  default). Turn off if you keep dragging selections by accident; it
+  doesn't affect the card / heading pickup-drag (see [Drag-and-drop](#drag-and-drop)).
+- **Jump to doc top when read mode toggles** — when on, toggling read
+  mode scrolls to the top and puts the cursor at the start.
+- **Find: remember the last search query** — when on, the find bar
+  reopens pre-filled with your last search.
+- **Find: category priority order** — the order Ctrl-F steps through
+  result groups (heading / tag / cite / other); Alt-F ignores it and goes
+  purely by proximity (see [Find and Find/Replace](#find-and-findreplace)).
 
 ### Appearance
 
-How things look: **theme** (light / dark / system); **icon set** (modern
-line icons or classic glyphs); per-style **display colors**; fonts and
-sizes; line heights; the formatting-panel display mode (labels /
-shortcuts / both) and style previews; tooltip behavior; timer display.
+How things look. None of these change the file — only your view (see
+[Appearance and accessibility](#14-appearance-and-accessibility)).
+
+- **Theme** — light, dark, or follow the system.
+- **Apply theme to the document area** — off by default, so dark mode
+  darkens only the chrome and the document stays paper-like; on darkens
+  the document too.
+- **Icon style** — modern line icons (default) or classic glyphs;
+  chrome only.
+- **Show doc name in ribbon** — show the active filename as a pill in the
+  ribbon's center, handy when the title bar is hidden. Off by default;
+  hidden in multi-pane (each pane shows its own chip).
+- **Format nav pane entries by type** — style navigation entries by
+  heading level and type (on), or as a uniform list where only
+  indentation shows hierarchy (off).
+- **Style font sizes (pt)** — render size for each named style.
+- **Style typography** — bold / italic / underline / box per named style.
+- **Style colors** — the color of Analytic and Undertag text (the same
+  control as Accessibility → Color overrides → Document text).
+- **Timer profile** — which duration set the timer runs: High school,
+  College, or Pomodoro. Each remembers its own edits.
+- **Timer durations** — the active profile's three speech presets (the
+  9 / 6 / 3 buttons) and per-side prep total.
+- **Prep button label style** — how the Aff / Neg prep buttons are
+  marked: text (A: / N:), color, or both.
+- **Compact timer layout** — drop the 9 / 6 / 3 presets and tuck Reset
+  under Start / Pause.
+- **Flash timer when countdown is low** — flash the speech timer red at
+  the configured thresholds.
+- **Body font** — the editor's content font, including dyslexia-friendly
+  options.
+- **Line spacing** — the line-height multiplier, per paragraph type.
+- **Ribbon tooltips** — what a hovered ribbon button shows: both, label
+  only, shortcut only, or none.
+- **Formatting panel** — how the Pocket / Hat / Block / Tag / Analytic
+  buttons read: labels, shortcuts, both, or hidden.
+- **Show dropzone shelf** — show or hide the dropzone pill; the shelf
+  still works when hidden (see [Send-to-speech and the dropzone](#send-to-speech-and-the-dropzone)).
+- **Preview styles in formatting panel** — make the formatting buttons
+  preview the look of the style they apply.
+- **Show character styles** — show the cite / underline / emphasis
+  buttons in the ribbon.
 
 ### Editing
 
-Editing behavior: **paragraph integrity** and **pilcrows** for condense;
-**heading mode** for selection condense; **shrink** omission protection;
-undertag extraction; paste behavior; Quick Card options.
+Behavior of the cutting and condense commands (see [Cutting and formatting cards](#3-cutting-and-formatting-cards)).
+
+- **F3 condense: preserve paragraph integrity** — keep paragraphs
+  separate (on) or merge collapsible runs (off).
+- **F3 condense: use pilcrow markers** — when merging, mark each old
+  paragraph break with a 6-pt ¶ so Uncondense can restore it.
+- **Extract Undertag: wrap in quotes** — wrap the excerpt that Extract
+  Undertag pulls in double quotes.
+- **Condense after Paste Text (F2)** — run your default condense
+  automatically on pasted text.
+- **Skip mid-text confirm when inserting quick cards** — insert a quick
+  card immediately even mid-sentence, skipping the confirm step (see
+  [Quick Cards](#6-quick-cards)).
+- **Condense: heading handling** — how selection condense treats
+  headings, cites, and undertags: Strict (block it), Respect (keep them
+  separate, default), or Demolish (merge everything).
+- **Condense with warning: marker delimiter** — the bracket style around
+  the PARAGRAPH INTEGRITY PAUSES / RESUMES markers.
+- **Shrink keeps protected text at Normal size** — keep Omitted spans,
+  warning markers, and your custom protections full-size when Shrinking.
+- **Custom shrink protections** — extra strings (or regexes) Shrink
+  should leave at Normal size.
+- **F9 toggle-off also clears direct formatting** — toggling underline
+  off also strips direct formatting in the range.
+- **Create Reference uses Gray-50% text** — render a Reference's body
+  text in gray; the heading line stays black.
 
 ### Keyboard shortcuts
 
-Rebind any command. Search the command, click its binding, and press the
-new keys. A few window-level shortcuts (like Mod-W) are handled by the OS
-and can't be overridden.
+Rebind any command: search for it, click **+** to add a binding, **×** to
+remove one, **↺** to restore its default. A few window-level shortcuts
+(like Mod-W) are handled by the OS and can't be overridden (see
+[Keyboard shortcuts](#15-keyboard-shortcuts)).
 
 ### Comments & AI
 
-**AI features** master toggle; **Anthropic API key**; the **comment
-author** name; the AI cite-formatting prompt; AI behavior options.
+- **Comment author name** — the name attached to comments you write.
+- **Comment author initials** — the badge on your comments;
+  auto-derived from the name if left blank.
+- **Enable AI features** — master switch for the AI comment features;
+  needs an API key (see [AI features](#11-ai-features)).
+- **Anthropic API key** — stored locally; sent only to api.anthropic.com.
+- **Enable Clod mode** — the playful in-flight placeholder ("Clod is
+  making toast…") while the AI composes a reply.
+- **AI cite-creator prompt** — the system prompt the cite creator uses;
+  leave blank for the built-in default.
 
 ### Accessibility
 
-Reduce motion; **color overrides** for highlight, shading, and document
-text; UI and body **font** choices (including dyslexia-friendly fonts);
-and the other accessibility presets described next.
+- **Reduce motion** — turn off UI animations: follow the system, always
+  on, or always off.
+- **Override highlight color in display** — render highlights in your
+  chosen colors regardless of what's stored on the mark (display-only).
+- **Highlight override colors** — up to three ordered colors; the
+  most-common highlight in the doc maps to the first, the next to the
+  second, the rest to the last.
+- **Override shading color in display** — the same, for shading marks.
+- **Shading override colors** — the colors used for the above.
+- **Color overrides** — override any interface color (and document text);
+  your picks win over the built-in themes and presets.
+- **Interface font** — the font for the app's chrome (ribbon, dialogs,
+  navigation, comments), separate from the body font; includes
+  dyslexia-friendly options.
 
 ---
 
