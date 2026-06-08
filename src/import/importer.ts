@@ -604,8 +604,20 @@ function parseRun(rNode: XmlNode, ctx: ImportContext, out: PMNode[]): void {
     // round-trip the image bytes, so the drawing is silently dropped
     // as before.
     else if ('w:drawing' in c) {
-      const imgNode = parseDrawing(c, ctx);
-      if (imgNode) out.push(imgNode);
+      let imgNode = parseDrawing(c, ctx);
+      if (imgNode) {
+        // Apply any open comment ranges to the image so a comment
+        // anchored on a picture survives the docx round-trip — the text
+        // path does the same from `commentRangeStack` above.
+        if (ctx.commentRangeStack.length > 0) {
+          imgNode = imgNode.mark(
+            ctx.commentRangeStack.map((threadId) =>
+              schema.marks['comment_range']!.create({ threadId }),
+            ),
+          );
+        }
+        out.push(imgNode);
+      }
     }
   }
 }

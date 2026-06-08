@@ -67,6 +67,7 @@ import {
   type ShowInContextRequest,
 } from './learn-store-host.js';
 import { buildDescriptor, resolveDescriptor, type AnchorDescriptor } from './learn-anchor.js';
+import { countSelectionImages } from './ai/explain-context.js';
 import { preciseScrollIntoView } from './precise-scroll.js';
 import { openCardEditor } from './learn-create-ui.js';
 import { openLearnManage } from './learn-manage-ui.js';
@@ -876,9 +877,13 @@ const ribbonContext: RibbonContext = {
     }
     const sel = view.state.selection;
     if (sel.empty) {
-      showToast('Select text to ask about.');
+      showToast('Select text or an image to ask about.');
       return;
     }
+    // Vision cost is bounded: only the first few images in the selection
+    // are sent. Tell the user when some are left out.
+    const imgCount = countSelectionImages(view.state, sel.from, sel.to);
+    if (imgCount > 5) showToast(`The AI will see the first 5 of ${imgCount} images.`);
     // AI threads live in the local annotation layer (per-user, never
     // serialized into the shared doc) — anchored by descriptor + a
     // purple highlight decoration, exactly like flashcards. No
@@ -916,7 +921,7 @@ const ribbonContext: RibbonContext = {
     if (!view || !commentsColumn) return;
     const sel = view.state.selection;
     if (sel.empty) {
-      showToast('Select text to add a note.');
+      showToast('Select text or an image to add a note.');
       return;
     }
     // Notes live in the local annotation layer (per-user, never

@@ -14,6 +14,7 @@ const ctx: ExplainContext = {
   analytic: null,
   undertags: [],
   cites: ['Waltz 1981'],
+  images: [],
 };
 
 describe('parseFlashcardReply', () => {

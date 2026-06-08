@@ -28,6 +28,15 @@ export type AnthropicContentBlock =
       };
     };
 
+/** Raster formats the vision API accepts. SVG / EMF / TIFF aren't
+ *  supported; callers should filter and fall back gracefully. */
+export const VISION_MEDIA_TYPES: ReadonlySet<string> = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+]);
+
 export interface AnthropicMessage {
   role: 'user' | 'assistant';
   content: string | AnthropicContentBlock[];

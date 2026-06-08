@@ -182,7 +182,9 @@ export function gcOrphanThreads(view: { state: EditorState; dispatch: (tr: Trans
 function collectLiveThreadIds(doc: PMNode): Set<string> {
   const ids = new Set<string>();
   doc.descendants((node) => {
-    if (!node.isText) return;
+    // Text carries comment marks on its chars; images (inline atoms)
+    // carry them on the node itself.
+    if (!node.isText && node.type.name !== 'image') return;
     for (const mark of node.marks) {
       if (mark.type.name === 'comment_range') {
         const id = String(mark.attrs['threadId'] ?? '');

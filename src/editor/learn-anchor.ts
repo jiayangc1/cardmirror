@@ -58,6 +58,29 @@ export function flattenDoc(doc: PMNode): Flat {
   return flatten(doc);
 }
 
+/** Object Replacement Character — the standard stand-in for an embedded
+ *  object in a text stream. We emit one (plus a short content fingerprint)
+ *  for each image so annotations anchor to images exactly like text:
+ *  the image becomes one token in the flattened stream, found by content
+ *  and disambiguated by surrounding context (identical images fall back to
+ *  context, just like a repeated phrase). */
+const OBJ = '￼';
+
+/** Stable, cheap fingerprint of an image's content so two *different*
+ *  images get different sentinels. Samples bounded slices of the (possibly
+ *  huge) base64 payload so flatten stays O(doc), not O(image bytes).
+ *  Collisions just fall back to context disambiguation. FNV-1a → base36. */
+function imageFingerprint(node: PMNode): string {
+  const data = typeof node.attrs['data'] === 'string' ? (node.attrs['data'] as string) : '';
+  const sample = `${data.length}|${data.slice(0, 200)}|${data.slice(-200)}|${String(node.attrs['contentType'] ?? '')}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < sample.length; i++) {
+    h ^= sample.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
 function flatten(doc: PMNode): Flat {
   let text = '';
   const pos: number[] = [];
@@ -67,6 +90,15 @@ function flatten(doc: PMNode): Flat {
       for (let i = 0; i < t.length; i++) {
         text += t[i];
         pos.push(p + i);
+      }
+    } else if (node.type.name === 'image') {
+      // Emit a sentinel token for the image; every char maps to the
+      // image's own position, so a quote of just the sentinel resolves to
+      // the image's [p, p+1) range.
+      const s = OBJ + imageFingerprint(node);
+      for (let i = 0; i < s.length; i++) {
+        text += s[i];
+        pos.push(p);
       }
     }
     return true;

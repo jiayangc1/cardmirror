@@ -20,10 +20,10 @@ import type { EditorView } from 'prosemirror-view';
 import type { Node as PMNode } from 'prosemirror-model';
 import { schema } from '../schema/index.js';
 import { settings } from './settings.js';
-import { callAnthropic, AnthropicError } from './ai/anthropic.js';
+import { callAnthropic, AnthropicError, type AnthropicMessage } from './ai/anthropic.js';
 import {
   buildExplainContext,
-  formatExplainPrompt,
+  formatExplainFirstTurn,
   EXPLAIN_SYSTEM_PROMPT,
   hasAiMention,
 } from './ai/explain-context.js';
@@ -1409,11 +1409,11 @@ export class CommentsColumn {
     const promptCtx = ctx;
     this.aiContextByThread.set(threadId, promptCtx);
 
-    const messages = thread.comments.flatMap((c, i): { role: 'user' | 'assistant'; content: string }[] => {
+    const messages = thread.comments.flatMap((c, i): AnthropicMessage[] => {
       if (!c.text.trim()) return [];
       if (c.ai) return [{ role: 'assistant', content: c.text }];
       const isFirstUserTurn = !thread.comments.slice(0, i).some((p) => !p.ai && p.text.trim());
-      const content = isFirstUserTurn ? formatExplainPrompt(c.text, promptCtx) : c.text;
+      const content = isFirstUserTurn ? formatExplainFirstTurn(c.text, promptCtx) : c.text;
       return [{ role: 'user', content }];
     });
     if (messages.length === 0) return;
@@ -2234,13 +2234,13 @@ export class CommentsColumn {
     // the formatted prompt with the surrounding context; later
     // turns are plain. Skip empty bodies defensively (e.g. an
     // empty-root thread that was opened then closed).
-    const messages = thread.comments.flatMap((c, i): { role: 'user' | 'assistant'; content: string }[] => {
+    const messages = thread.comments.flatMap((c, i): AnthropicMessage[] => {
       if (!c.text.trim()) return [];
       if (isAiComment(c)) {
         return [{ role: 'assistant', content: c.text }];
       }
       const isFirstUserTurn = !thread.comments.slice(0, i).some((p) => !isAiComment(p) && p.text.trim());
-      const content = isFirstUserTurn ? formatExplainPrompt(c.text, promptCtx) : c.text;
+      const content = isFirstUserTurn ? formatExplainFirstTurn(c.text, promptCtx) : c.text;
       return [{ role: 'user', content }];
     });
     if (messages.length === 0) return;
@@ -2335,7 +2335,7 @@ export class CommentsColumn {
     const commentType = schema.marks['comment_range'];
     if (commentType) {
       view.state.doc.descendants((node, pos) => {
-        if (!node.isText) return;
+        if (!node.isText && node.type.name !== 'image') return;
         for (const mark of node.marks) {
           if (mark.type.name === 'comment_range' && mark.attrs['threadId'] === threadId) {
             tr.removeMark(pos, pos + node.nodeSize, commentType);
@@ -2410,7 +2410,8 @@ function collectRanges(doc: PMNode): Map<string, { from: number; to: number }> {
   // still scroll-anchors to its first segment.
   const out = new Map<string, { from: number; to: number }>();
   doc.descendants((node, pos) => {
-    if (!node.isText) return;
+    // Images (inline atoms) carry the mark on the node; text on its chars.
+    if (!node.isText && node.type.name !== 'image') return;
     for (const mark of node.marks) {
       if (mark.type.name !== 'comment_range') continue;
       const id = String(mark.attrs['threadId'] ?? '');

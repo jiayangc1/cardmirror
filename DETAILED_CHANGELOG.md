@@ -7,6 +7,34 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Annotations (comment / note / ask-AI) work on images** (`learn-anchor.ts`,
+  `comments-plugin.ts`, `comments-ui.ts`, `ai/explain-context.ts`,
+  `ai/anthropic.ts`, `ai/image-ai.ts`, `import/importer.ts`, `index.ts`).
+  Previously all three silently failed on a picture (orphaned comment /
+  empty-quote note / unanchored AI). Now:
+  - *Anchoring (notes + AI).* `flatten()` emits a sentinel per image —
+    object-replacement char + a cheap FNV-1a fingerprint of its base64
+    data — so an image is one token in the flattened text stream. The
+    existing quote/prefix/suffix matcher then handles image-only and mixed
+    selections unchanged: re-anchors by content (not position), with
+    different images distinguished by fingerprint and identical copies
+    disambiguated by surrounding context, like a repeated phrase.
+  - *Comments.* A `comment_range` mark already applies to an image (inline
+    atom, no `marks` restriction); the only gap was that the live-thread
+    scans walked text nodes only. `collectRanges`, `collectLiveThreadIds`
+    (the GC), and the delete-strip now also read marks off `image` nodes.
+    Round-trip: the docx exporter already brackets images
+    (`exporter.ts:416`); fixed the importer to re-apply open comment
+    ranges to imported images (cmir round-trips natively as PM JSON).
+  - *Ask AI sends the image.* `ExplainContext` gains `images` (vision-
+    supported formats only, document order, capped at 5);
+    `formatExplainFirstTurn` prepends `image` content blocks before the
+    text prompt (Anthropic's recommended order), and both AI paths
+    (`invokeAi`, `invokeAiLocal`) use it. `buildExplainContext` allows an
+    image-only selection (empty text + images). `aiAskAboutSelection`
+    toasts when the selection has >5 images. Vision media-type set
+    promoted to a shared `VISION_MEDIA_TYPES` in `anthropic.ts`.
+
 - **Editor spellcheck: a custom viewport-scoped checker** (new
   `src/editor/viewport-spellcheck.ts`, `src/editor/proto-dict/`, `nspell`
   dep; `src/editor/index.ts`, `src/editor/multi-pane-shell.ts`,

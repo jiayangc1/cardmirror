@@ -7,6 +7,16 @@ see `DETAILED_CHANGELOG.md`.
 
 ## Unreleased
 
+### Added
+
+- **Comment, note, and ask AI about pictures.** Select an image — or a
+  span of text that includes images — and you can now add a comment, add
+  a private note, or ask AI about it, just like you can with text. Ask AI
+  sends the actual picture(s) to the model (up to five from a selection),
+  so you can ask things like "what does this chart show?" Image
+  annotations re-anchor by content when the document changes, exactly
+  like text annotations, and comments on an image survive saving to Word.
+
 ### Fixed
 
 - **Opening an already-open file from Finder no longer makes a second

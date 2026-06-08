@@ -11,6 +11,18 @@
 
 import type { EditorState } from 'prosemirror-state';
 import type { Node as PMNode } from 'prosemirror-model';
+import { VISION_MEDIA_TYPES, type AnthropicContentBlock } from './anthropic.js';
+
+/** Max images sent to the model per request, to bound vision-token cost
+ *  on large selections. */
+const MAX_EXPLAIN_IMAGES = 5;
+
+export interface ExplainImage {
+  /** Anthropic media_type, e.g. `image/png`. */
+  mediaType: string;
+  /** Raw base64 (no `data:` prefix). */
+  data: string;
+}
 
 export interface ExplainContext {
   /** The text the user selected (may span multiple paragraphs;
@@ -32,6 +44,43 @@ export interface ExplainContext {
   /** All cite paragraphs in the containing container, in document
    *  order. Concatenated and shown to the model as a single block. */
   cites: string[];
+  /** Vision-supported images inside the selection, in document order,
+   *  capped at `MAX_EXPLAIN_IMAGES`. Sent to the model so it can answer
+   *  about pictures, not just text. */
+  images: ExplainImage[];
+}
+
+/** Collect vision-supported images inside `[from, to)`, in document
+ *  order, capped. Descends into textblocks (images are inline). */
+function gatherImages(state: EditorState, from: number, to: number): ExplainImage[] {
+  const images: ExplainImage[] = [];
+  state.doc.nodesBetween(from, to, (node) => {
+    if (images.length >= MAX_EXPLAIN_IMAGES) return false;
+    if (node.type.name === 'image') {
+      const mediaType = String(node.attrs['contentType'] ?? '');
+      const data = typeof node.attrs['data'] === 'string' ? (node.attrs['data'] as string) : '';
+      if (data && VISION_MEDIA_TYPES.has(mediaType)) images.push({ mediaType, data });
+      return false; // image is a leaf
+    }
+    return true;
+  });
+  return images;
+}
+
+/** Total count of vision-supported images in `[from, to)` — for the
+ *  caller's "sent the first N of M" notice. */
+export function countSelectionImages(state: EditorState, from: number, to: number): number {
+  let n = 0;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (node.type.name === 'image') {
+      const mediaType = String(node.attrs['contentType'] ?? '');
+      const data = typeof node.attrs['data'] === 'string' ? node.attrs['data'] : '';
+      if (data && VISION_MEDIA_TYPES.has(mediaType)) n++;
+      return false;
+    }
+    return true;
+  });
+  return n;
 }
 
 /** Compute the explainer payload for the editor's current selection.
@@ -41,8 +90,11 @@ export function buildExplainContext(state: EditorState): ExplainContext | null {
   const { from, to } = state.selection;
   if (from === to) return null;
 
+  const images = gatherImages(state, from, to);
   const selection = state.doc.textBetween(from, to, '\n', '\n').trim();
-  if (!selection) return null;
+  // Allow an image-only selection (no text) through — the model can still
+  // answer about the picture.
+  if (!selection && images.length === 0) return null;
 
   // Walk depth ancestors from innermost outward looking for
   // a card or analytic_unit. We use $from rather than $to —
@@ -79,7 +131,7 @@ export function buildExplainContext(state: EditorState): ExplainContext | null {
   });
 
   if (!container) {
-    return { selection, paragraphs, tag: null, analytic: null, undertags: [], cites: [] };
+    return { selection, paragraphs, tag: null, analytic: null, undertags: [], cites: [], images };
   }
 
   let tag: string | null = null;
@@ -99,7 +151,7 @@ export function buildExplainContext(state: EditorState): ExplainContext | null {
       if (t) cites.push(t);
     }
   });
-  return { selection, paragraphs, tag, analytic, undertags, cites };
+  return { selection, paragraphs, tag, analytic, undertags, cites, images };
 }
 
 /** Format the context into a single user-message string. The shape
@@ -113,10 +165,20 @@ export function formatExplainPrompt(
   const parts: string[] = [];
   parts.push(`Question: ${question.trim()}`);
   parts.push('');
-  parts.push('Selected text:');
-  parts.push('"""');
-  parts.push(ctx.selection);
-  parts.push('"""');
+  if (ctx.selection) {
+    parts.push('Selected text:');
+    parts.push('"""');
+    parts.push(ctx.selection);
+    parts.push('"""');
+  } else if (ctx.images.length > 0) {
+    // Image-only selection — the picture(s) are attached below as
+    // separate content blocks; tell the model that's the subject.
+    parts.push(
+      ctx.images.length === 1
+        ? 'The user selected an image (attached). Answer about it.'
+        : `The user selected ${ctx.images.length} images (attached). Answer about them.`,
+    );
+  }
   // Include the full paragraph(s) the selection sits inside so the
   // model sees its broader context, even if the user only
   // highlighted a fragment.
@@ -138,6 +200,24 @@ export function formatExplainPrompt(
     for (const cite of ctx.cites) parts.push(`Cite: ${cite}`);
   }
   return parts.join('\n');
+}
+
+/** First-turn user content for an AI request. When the selection
+ *  contained images, returns a multipart block array with the images
+ *  FIRST (Anthropic's recommended order) followed by the formatted text
+ *  prompt; otherwise the plain prompt string. */
+export function formatExplainFirstTurn(
+  question: string,
+  ctx: ExplainContext,
+): string | AnthropicContentBlock[] {
+  const text = formatExplainPrompt(question, ctx);
+  if (ctx.images.length === 0) return text;
+  const blocks: AnthropicContentBlock[] = ctx.images.map((img) => ({
+    type: 'image',
+    source: { type: 'base64', media_type: img.mediaType, data: img.data },
+  }));
+  blocks.push({ type: 'text', text });
+  return blocks;
 }
 
 /** Default system prompt for the AI explainer.

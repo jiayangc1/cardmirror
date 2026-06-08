@@ -144,6 +144,7 @@ describe('formatExplainPrompt', () => {
       analytic: null,
       undertags: [],
       cites: [],
+      images: [],
     });
     expect(out).toContain('Question: what does this mean?');
     expect(out).toContain('Selected text:');
@@ -160,6 +161,7 @@ describe('formatExplainPrompt', () => {
       analytic: 'My Analytic',
       undertags: ['Underly bit'],
       cites: ['Cite A', 'Cite B'],
+      images: [],
     });
     expect(out).toContain('Tag: My Tag');
     expect(out).toContain('Analytic: My Analytic');
@@ -176,6 +178,7 @@ describe('formatExplainPrompt', () => {
       analytic: null,
       undertags: [],
       cites: [],
+      images: [],
     });
     expect(out).toContain('Source paragraph(s):');
     expect(out).toContain('half a sentence inside a longer paragraph');

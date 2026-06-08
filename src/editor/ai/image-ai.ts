@@ -28,7 +28,12 @@ import {
 } from '../settings.js';
 import { showToast } from '../toast.js';
 import { promptForChoice } from '../text-prompt.js';
-import { AnthropicError, callAnthropic, type AnthropicContentBlock } from './anthropic.js';
+import {
+  AnthropicError,
+  callAnthropic,
+  VISION_MEDIA_TYPES,
+  type AnthropicContentBlock,
+} from './anthropic.js';
 import { ThinkingTooltip } from './thinking-tooltip.js';
 
 /** Resolve the user-configured omission-bracket pair. Matches the
@@ -64,12 +69,7 @@ function preflight(): string | null {
 /** Anthropic's vision endpoint accepts only common raster formats.
  *  SVG / EMF / TIFF / etc. round-trip through our schema but the
  *  API rejects them, so we bail early with a clear message. */
-const VISION_SUPPORTED = new Set([
-  'image/png',
-  'image/jpeg',
-  'image/gif',
-  'image/webp',
-]);
+const VISION_SUPPORTED = VISION_MEDIA_TYPES;
 
 function unsupportedToast(contentType: string): void {
   showToast(`AI vision doesn't support ${contentType}. Try PNG / JPEG / GIF / WebP.`);
