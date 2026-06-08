@@ -1190,6 +1190,25 @@ body.pmd-host-browser #autosave-btn { display: none; }
   line-height: 1;
 }
 
+/* Red "flashcards due today" dot on the Manage Flashcards button.
+   Toggled by the `pmd-ribbon-due-dot` class (see index.ts). */
+#ribbon .ribbon-doc-ops-btn.pmd-ribbon-due-dot {
+  position: relative;
+}
+#ribbon .ribbon-doc-ops-btn.pmd-ribbon-due-dot::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e5484d;
+  /* Small ring so the dot stays visible against the icon / hover bg. */
+  box-shadow: 0 0 0 1px var(--pmd-c-bg);
+  pointer-events: none;
+}
+
 /* Toggle "pressed" state for the Paragraph Integrity button — same
    visual treatment as the color-panel paintbrush-active state, so
    the chrome reads consistently. */

@@ -9,6 +9,12 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Added
 
+- **Manage Flashcards button in the ribbon, with a due-today dot.** The
+  ribbon's comments cluster now has a **Manage Flashcards** button (next
+  to Create Flashcard) that opens the flashcard manager. It shows a small
+  **red dot** when one or more cards are due for review today; turn the
+  dot off under Settings → General → **Flashcards-due dot**.
+
 - **Comment, note, and ask AI about pictures.** Select an image — or a
   span of text that includes images — and you can now add a comment, add
   a private note, or ask AI about it, just like you can with text. Ask AI
@@ -18,6 +24,13 @@ see `DETAILED_CHANGELOG.md`.
   like text annotations, and comments on an image survive saving to Word.
 
 ### Fixed
+
+- **"Show in context" during review now closes the Manage Flashcards
+  screen.** When you open Manage Flashcards, start a review, and use Show
+  in context on a card that lives in the document you already have open,
+  the manager now closes so you land on the card — it used to stay open
+  over the document. (Matches how it already behaves from the Home
+  screen.)
 
 - **Dragging a card out of the editor now auto-scrolls.** When you pick
   up a card or heading from the page and drag toward the top or bottom

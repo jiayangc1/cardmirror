@@ -186,7 +186,9 @@ export function openLearnManage(): void {
   reviewAll.type = 'button';
   reviewAll.className = 'pmd-learn-manage-review';
   reviewAll.textContent = 'Review all due';
-  reviewAll.addEventListener('click', () => openLearnSession({ kind: 'all' }, { title: 'Review — all' }));
+  reviewAll.addEventListener('click', () =>
+    openLearnSession({ kind: 'all' }, { title: 'Review — all', onShowInContext: cleanup }),
+  );
   const close = document.createElement('button');
   close.type = 'button';
   close.className = 'pmd-learn-manage-close';
@@ -304,7 +306,10 @@ export function openLearnManage(): void {
       const due = learnStore.dueCount({ kind: 'file', docId }, today);
       listEl.appendChild(
         groupHeader(entry?.lastName ?? 'Untitled', ids.length, due, () =>
-          openLearnSession({ kind: 'file', docId }, { title: `Review — ${entry?.lastName ?? 'Untitled'}` }),
+          openLearnSession(
+            { kind: 'file', docId },
+            { title: `Review — ${entry?.lastName ?? 'Untitled'}`, onShowInContext: cleanup },
+          ),
         ),
       );
       for (const id of ids) {

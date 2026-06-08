@@ -7,6 +7,26 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Show-in-context closes the launching Manage overlay**
+  (`src/editor/learn-session-ui.ts`, `src/editor/learn-manage-ui.ts`).
+  `openLearnSession` gained an `onShowInContext` callback; the Manage
+  screen passes its `cleanup`, and the session invokes it (alongside its
+  own cleanup) only when `showFlashcardInContext` opens the source in
+  THIS window — the same in-window path that already hides the home
+  screen. Cases that open the card in a separate window leave the session
+  and Manage overlay up.
+
+- **Manage Flashcards ribbon button + due-today dot** (`index.html`,
+  `src/editor/index.ts`, `src/editor/settings.ts`, `src/editor/style.css`).
+  Added a `manage-flashcards-btn` to the comments cluster (the 2×3 grid's
+  second row is now `manage-flashcards · create-flashcard · ask-ai`),
+  wired to the existing `manageFlashcards` command. A red dot
+  (`.pmd-ribbon-due-dot` ::after) shows when
+  `learnStore.dueCount({kind:'all'}, localToday()) > 0` and the new
+  `flashcardDueDot` setting (default true) is on; `refreshFlashcardDueDot`
+  recomputes on `learnStore.subscribe`, the settings subscriber (toggle),
+  and `visibilitychange` (catches a day-rollover while idle).
+
 - **Backspace on an empty first-body slot deletes the blank line**
   (`src/editor/tag-keymap.ts`). `backspaceAtFirstBodyStart` swallowed
   Backspace at the start of a card/analytic_unit's first body whenever

@@ -42,6 +42,12 @@ function sourceForCard(cardId: string): ShowInContextRequest | null {
 
 interface SessionOpts {
   title?: string;
+  /** Invoked when the user picks "Show in context" and the source opens
+   *  IN THIS window — so the UI that launched the session (e.g. the
+   *  Manage Flashcards overlay) dismisses too, leaving the focused doc
+   *  visible. Not called on a normal session close, nor when the card
+   *  opens in a separate window (the session + launcher stay up). */
+  onShowInContext?: () => void;
 }
 
 export function openLearnSession(scope: Scope, opts: SessionOpts = {}): void {
@@ -211,7 +217,13 @@ export function openLearnSession(scope: Scope, opts: SessionOpts = {}): void {
     if (!cardId) return;
     const src = sourceForCard(cardId);
     if (!src) return;
-    showFlashcardInContext(src, cleanup);
+    // The handler invokes this only when it opens the source in THIS
+    // window — close the session AND dismiss whatever launched it (the
+    // Manage overlay), mirroring the home-screen path.
+    showFlashcardInContext(src, () => {
+      cleanup();
+      opts.onShowInContext?.();
+    });
   }
 
   function grade(g: 'forgot' | 'remembered'): void {

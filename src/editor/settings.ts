@@ -392,6 +392,9 @@ export interface Settings {
   includeSpeechDocPocket: boolean;
   /** Whether to show the cite preview on hover in the nav pane. */
   showCitePreview: boolean;
+  /** Show a red dot on the ribbon's Manage Flashcards button when one or
+   *  more flashcards are due for review today. On by default. */
+  flashcardDueDot: boolean;
   /** Spellcheck the editor (custom viewport-scoped checker — see
    *  `viewport-spellcheck.ts`). Underlines misspellings in the visible
    *  document, including text in opened files (not just what you type);
@@ -852,6 +855,7 @@ const DEFAULTS: Settings = {
   findCategoryOrder: ['heading', 'tag', 'cite', 'other'],
   includeSpeechDocPocket: true,
   showCitePreview: true,
+  flashcardDueDot: true,
   editorSpellcheck: false,
   // Default OFF — autosave is meaningful only when the user has
   // saved at least once (so we have a handle) AND the doc is in
@@ -1173,6 +1177,15 @@ export const SETTING_METADATA: SettingMeta[] = [
     kind: 'toggle',
     category: 'general',
     aliases: ['hover preview'],
+  },
+  {
+    key: 'flashcardDueDot',
+    label: 'Flashcards-due dot',
+    description:
+      "Show a red dot on the ribbon's Manage Flashcards button when one or more flashcards are due for review today. On by default; turn off if you'd rather not be nudged.",
+    kind: 'toggle',
+    category: 'general',
+    aliases: ['flashcard due', 'review reminder', 'due indicator', 'red dot'],
   },
   {
     key: 'editorSpellcheck',
@@ -1830,6 +1843,7 @@ function sanitize(s: Settings): Settings {
     includeSpeechDocPocket:
       s.includeSpeechDocPocket === false ? false : true,
     showCitePreview: !!s.showCitePreview,
+    flashcardDueDot: s.flashcardDueDot === false ? false : true,
     editorSpellcheck: !!s.editorSpellcheck,
     autosaveEnabled: !!s.autosaveEnabled,
     // Default to `false` when missing — matches the persisted

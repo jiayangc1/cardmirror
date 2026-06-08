@@ -735,11 +735,16 @@ deck.
 
 ### Managing cards
 
-**Manage Flashcards** lists your cards grouped by file, where you can
-edit, suspend, or delete them. If a card's anchor text changes or its
-file moves, the card becomes **unanchored** — it keeps its schedule, and
-you can **re-ground** it by selecting text again, or link it to a
-different file.
+Open **Manage Flashcards** from its button in the ribbon's comments
+cluster (next to Create Flashcard). It lists your cards grouped by file,
+where you can edit, suspend, or delete them. If a card's anchor text
+changes or its file moves, the card becomes **unanchored** — it keeps its
+schedule, and you can **re-ground** it by selecting text again, or link
+it to a different file.
+
+The button shows a small **red dot** when one or more cards are due for
+review today — a nudge to start a session. If you'd rather not be nudged,
+turn it off under Settings → General → **Flashcards-due dot**.
 
 ### AI-assisted cards
 
@@ -891,6 +896,8 @@ Workflow and document behavior.
   blank.
 - **Cite preview on hover** — show a card's cite-formatted text beside its
   navigation-pane entry when you hover.
+- **Flashcards-due dot** — show a red dot on the ribbon's Manage
+  Flashcards button when cards are due for review today. On by default.
 - **Editor spellcheck** — underline misspellings in the visible document,
   including text in files you've opened (not just what you're typing).
   Right-click a flagged word for suggestions, Add to Dictionary, or

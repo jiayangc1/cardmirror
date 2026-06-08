@@ -533,6 +533,7 @@ const commentsToggleBtn = document.getElementById('comments-toggle-btn') as HTML
 const commentsAddBtn = document.getElementById('comments-add-btn') as HTMLButtonElement | null;
 const addNoteBtn = document.getElementById('add-note-btn') as HTMLButtonElement | null;
 const createFlashcardBtn = document.getElementById('create-flashcard-btn') as HTMLButtonElement | null;
+const manageFlashcardsBtn = document.getElementById('manage-flashcards-btn') as HTMLButtonElement | null;
 const askAiBtn = document.getElementById('ask-ai-btn') as HTMLButtonElement | null;
 const commentsColumnEl = document.getElementById('comments-column') as HTMLElement | null;
 const wordCountText = document.getElementById('word-count-text')!;
@@ -1682,6 +1683,27 @@ if (createFlashcardBtn) {
   createFlashcardBtn.addEventListener('mousedown', (e) => e.preventDefault());
   createFlashcardBtn.addEventListener('click', () => runRibbonCommandById('createFlashcard'));
 }
+if (manageFlashcardsBtn) {
+  manageFlashcardsBtn.addEventListener('mousedown', (e) => e.preventDefault());
+  manageFlashcardsBtn.addEventListener('click', () => runRibbonCommandById('manageFlashcards'));
+}
+// Red due-today dot on the Manage Flashcards button: shown when any
+// flashcard is due across the whole library AND the setting is on.
+// Recompute on store changes (cards added / reviewed), on the setting
+// toggle (handled by the settings subscriber below), and when the app
+// regains focus (catches a midnight day-rollover while it sat idle).
+function refreshFlashcardDueDot(): void {
+  if (!manageFlashcardsBtn) return;
+  const show =
+    settings.get('flashcardDueDot') &&
+    learnStore.dueCount({ kind: 'all' }, localToday()) > 0;
+  manageFlashcardsBtn.classList.toggle('pmd-ribbon-due-dot', show);
+}
+learnStore.subscribe(refreshFlashcardDueDot);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refreshFlashcardDueDot();
+});
+refreshFlashcardDueDot();
 if (askAiBtn) {
   askAiBtn.addEventListener('mousedown', (e) => e.preventDefault());
   askAiBtn.addEventListener('click', () => runRibbonCommandById('aiAskAboutSelection'));
@@ -2247,6 +2269,7 @@ settings.subscribe((s) => {
   applyBodyFont(s.bodyFont);
   applyUiFont(s.uiFont);
   applyAskAiButtonVisibility(s.aiFeaturesEnabled);
+  refreshFlashcardDueDot(); // the due-dot setting may have toggled
   reapplyAllRibbonTooltips();
   pushNativeMenuBindings();
   document.documentElement.classList.toggle(
@@ -2481,6 +2504,7 @@ if (timerToggleBtn) {
   button('comments-toggle-btn', 'toggleCommentsVisible');
   button('add-comment-btn', 'addCommentToSelection');
   button('create-flashcard-btn', 'createFlashcard', 'Create flashcard from selection');
+  button('manage-flashcards-btn', 'manageFlashcards', 'Manage flashcards');
   button('ask-ai-btn', 'aiAskAboutSelection', 'Ask AI about selection');
   button('highlight-btn', 'applyHighlight');
   button('highlight-picker-btn', 'openHighlightPicker', 'Highlight color');
