@@ -103,6 +103,13 @@ with a "restart now?" prompt when it's ready).
 Auto-check on launch is off by default. Turn it on in Settings →
 General → "About this install" → **Check for updates on launch**.
 
+> **macOS: automatic updates don't work yet.** The in-app updater can
+> tell you a new version exists, but it can't install it on Mac. To
+> update, download the latest `.dmg` from the releases page and reinstall
+> it (drag **CardMirror** to Applications, replacing the old copy) each
+> time — same steps as the [macOS install](#macos) above. Windows and
+> Linux are unaffected.
+
 Linux users who installed via the AUR can update with `yay -Syu`
 instead.
 

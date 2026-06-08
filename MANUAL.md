@@ -215,8 +215,8 @@ Two wrinkles on the no-selection case:
   document** — the bulk cleanup commands like **Standardize Highlighting**
   and **Select Similar Formatting**.
 - A few inline-mark commands fall back to the **word at the cursor**
-  (**Underline**, **Emphasis**) or simply **do nothing** (**Cite**,
-  **Highlight**), since those are text you normally select on purpose.
+  (**Underline**, **Emphasis**, **Cite**) or simply **do nothing**
+  (**Highlight**), since that's text you normally select on purpose.
 
 CardMirror extends this selection-awareness to more commands than
 Verbatim does, but the model should feel familiar. The per-command notes
@@ -226,7 +226,7 @@ below say which fallback applies where it matters.
 
 | Function | Shortcut | What it does |
 |----------|----------|--------------|
-| **Cite** | F8 | Applies the Cite style — meant for just the author last name and date, not the whole line. Skips heading text in a mixed selection. |
+| **Cite** | F8 | Applies the Cite style — meant for just the author last name and date, not the whole line. With nothing selected, it applies to the word at the cursor. Skips heading text in a mixed selection. |
 | **Underline** | F9 / Mod-U | Toggles underline. With nothing selected, it underlines the word at the cursor. Press again to remove. |
 | **Emphasis** | F10 | Applies the Emphasis style (a box, by default). Apply-only; use Clear or Underline to swap it off. |
 | **Highlight** | F11 | Toggles the active highlight color. Press again to remove. |

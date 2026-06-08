@@ -41,13 +41,6 @@ property of the schema/importer/exporter triple, not a separable layer —
 the schema must be designed against Verbatim's OOXML realities from the
 start.
 
-Legacy-file remediation (the Stylepox cleaner the project owner already
-maintains) is a genuinely separate tool and out of scope here.
-
-Build order was unusual for an editor — schema first, then exporter,
-then importer (tested by round-tripping real docs), then the editing UX
-last — because *persistence is the reason the project exists*.
-
 ## 3. The round-trip contract
 
 **A CardMirror user on a Verbatim team is a full participant in the file
