@@ -1936,6 +1936,10 @@ let updateCheckInFlight = false;
 function showUpdateAvailableDialog(info: { version: string }): void {
   const win = dialogParentWindow();
   if (!win) return;
+  // macOS can DETECT updates but can't self-install them (unsigned
+  // builds can't use Squirrel.Mac), so don't promise a background
+  // download there — point the user at the .dmg instead.
+  const macManual = process.platform === 'darwin';
   void dialog
     .showMessageBox(win, {
       type: 'info',
@@ -1944,8 +1948,9 @@ function showUpdateAvailableDialog(info: { version: string }): void {
       cancelId: 1,
       title: 'Update available',
       message: `CardMirror ${info.version} is available.`,
-      detail:
-        'Downloading in the background. When the download finishes you can restart to install, or quit normally and it will install on next launch.',
+      detail: macManual
+        ? "Open the release page to download the new .dmg and reinstall — CardMirror can't install updates automatically on macOS yet."
+        : 'Downloading in the background. When the download finishes you can restart to install, or quit normally and it will install on next launch.',
     })
     .then((result) => {
       if (result.response === 0) {
@@ -2045,30 +2050,39 @@ function runManualUpdateCheck(): void {
 
 function startAutoUpdate(): void {
   if (!app.isPackaged) return;
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // macOS: detection works, but unsigned builds can't self-install via
+  // Squirrel.Mac. Keep the check on (so "Update available" still
+  // fires), but turn off the background download + install-on-quit and
+  // skip the "downloaded — restart to install" dialog, which would
+  // otherwise advertise an auto-update that can't actually happen. Mac
+  // users update by downloading the new .dmg.
+  const isMac = process.platform === 'darwin';
+  autoUpdater.autoDownload = !isMac;
+  autoUpdater.autoInstallOnAppQuit = !isMac;
   autoUpdater.on('error', (err) => {
     console.warn('Auto-update error:', err);
   });
   autoUpdater.on('update-available', (info) => {
-    console.log(`Auto-update: ${info.version} available, downloading…`);
+    console.log(`Auto-update: ${info.version} available${isMac ? '' : ', downloading…'}`);
   });
-  autoUpdater.on('update-downloaded', (info) => {
-    console.log(`Auto-update: ${info.version} downloaded; will install on next quit.`);
-    const win = dialogParentWindow();
-    if (!win) return;
-    void dialog.showMessageBox(win, {
-      type: 'info',
-      buttons: ['Restart now', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-      title: 'Update ready',
-      message: `CardMirror ${info.version} is ready to install.`,
-      detail: 'Restart now to apply the update, or later — it will install when you quit the app.',
-    }).then((result) => {
-      if (result.response === 0) autoUpdater.quitAndInstall();
+  if (!isMac) {
+    autoUpdater.on('update-downloaded', (info) => {
+      console.log(`Auto-update: ${info.version} downloaded; will install on next quit.`);
+      const win = dialogParentWindow();
+      if (!win) return;
+      void dialog.showMessageBox(win, {
+        type: 'info',
+        buttons: ['Restart now', 'Later'],
+        defaultId: 0,
+        cancelId: 1,
+        title: 'Update ready',
+        message: `CardMirror ${info.version} is ready to install.`,
+        detail: 'Restart now to apply the update, or later — it will install when you quit the app.',
+      }).then((result) => {
+        if (result.response === 0) autoUpdater.quitAndInstall();
+      });
     });
-  });
+  }
   // The actual at-launch check now fires from the renderer's
   // boot path (gated on the `checkForUpdatesOnLaunch` setting +
   // `host.isFirstWindow()`) via the `host:trigger-auto-update-check`

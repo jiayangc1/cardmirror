@@ -20,6 +20,15 @@ see `DETAILED_CHANGELOG.md`.
   intact, instead of occasionally closing every window and reopening
   none.
 
+### Changed
+
+- **macOS no longer pretends to auto-update.** CardMirror can detect a
+  new version on macOS but can't install it automatically, so the
+  "downloading in the background" / "restart to install" prompts no
+  longer appear there. The update notice now simply points you to the
+  releases page to download the new `.dmg`. Update checking, and full
+  auto-update on Windows and Linux, are unchanged.
+
 ## 0.1.0-alpha.9 — 2026-06-03
 
 ### Added

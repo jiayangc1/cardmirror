@@ -1087,7 +1087,14 @@ function buildInstallInfoSection(): HTMLElement {
         if (result.status === 'latest') {
           showToast("You're on the latest version.");
         } else if (result.status === 'updating') {
-          showToast('Update available — downloading in the background.');
+          // macOS can detect but not self-install updates, so don't
+          // claim a background download there — send users to the .dmg.
+          const isMac = /Mac/i.test(navigator.userAgent);
+          showToast(
+            isMac
+              ? 'Update available — download the new version from the releases page.'
+              : 'Update available — downloading in the background.',
+          );
         } else if (result.status === 'dev') {
           showToast('Update checks are only active in packaged builds.');
         } else {

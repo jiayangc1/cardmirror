@@ -7,6 +7,20 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Suppress the auto-update-in-progress messaging on macOS**
+  (`apps/desktop/src/main.ts`, `src/editor/settings-ui.ts`). Unsigned
+  macOS builds can't self-install via Squirrel.Mac, so the auto-updater
+  could detect a new version but the download/install never landed —
+  while the UI still promised a background download and a restart-to-
+  install. Detection stays on; on `darwin` we now set
+  `autoUpdater.autoDownload = false` and `autoInstallOnAppQuit = false`,
+  skip registering the `update-downloaded` "restart to install" dialog,
+  and reword the "Update available" dialog detail + the Settings
+  "Check for updates" toast to send the user to the `.dmg` instead of
+  claiming a background download. Windows/Linux behavior is unchanged
+  (still full auto-download + install-on-quit). Pairs with the README
+  note that macOS updates are manual.
+
 - **macOS cross-window bugs fixed: Finder-open duplicate guard + the
   multi-window three-pane toggle storm** (`apps/desktop/src/main.ts`,
   `src/editor/settings.ts`, `src/editor/index.ts`). Both were pinned down
