@@ -758,7 +758,7 @@ describe('buildRibbonKeymap', () => {
     expect(km['F4']).toBeTypeOf('function');
   });
 
-  it('binds aliases for multi-key commands (e.g. applyUnderline → F9 + Mod-u)', () => {
+  it('binds both underline keys: F9 (applyUnderline) and Mod-u (toggleUnderlineTyping)', () => {
     const km = buildRibbonKeymap();
     expect(km['F9']).toBeTypeOf('function');
     expect(km['Mod-u']).toBeTypeOf('function');
@@ -1492,7 +1492,7 @@ describe('applyCite (F8)', () => {
 
 // ---- applyUnderline (F9 / Mod-U) ----
 
-import { applyUnderline } from '../../src/editor/ribbon-commands.js';
+import { applyUnderline, toggleUnderlineTyping } from '../../src/editor/ribbon-commands.js';
 
 function hasMark(node: import('prosemirror-model').Node, search: string, markName: string): boolean {
   let found = false;
@@ -1739,6 +1739,58 @@ describe('applyUnderline (F9 / Mod-U)', () => {
     const base = EditorState.create({ doc });
     const state = base.apply(base.tr.setSelection(TextSelection.create(base.doc, 1)));
     expect(apply(state, applyUnderline())).toBeNull();
+  });
+});
+
+describe('toggleUnderlineTyping (Mod-U)', () => {
+  function storedMarkNames(state: EditorState): string[] {
+    return (state.storedMarks ?? []).map((m) => m.type.name);
+  }
+  function collapsedIn(text: string, offset: number) {
+    const doc = makeDoc([cardWithChildren(tag('TheTag'), cardBody('hello world'))]);
+    let pos = -1;
+    doc.descendants((n, p) => {
+      if (n.isText && n.text === text) pos = p + offset;
+      return true;
+    });
+    const base = EditorState.create({ doc });
+    return base.apply(base.tr.setSelection(TextSelection.create(base.doc, pos)));
+  }
+
+  it('collapsed cursor in body: stores underline_mark for the next typed text', () => {
+    const next = apply(collapsedIn('hello world', 3), toggleUnderlineTyping());
+    expect(next).not.toBeNull();
+    expect(storedMarkNames(next!)).toContain('underline_mark');
+    // It does NOT underline the word the cursor sits in (unlike F9).
+    expect(hasMark(next!.doc, 'hello world', 'underline_mark')).toBe(false);
+  });
+
+  it('collapsed cursor in a tag: stores underline_direct (not the named style)', () => {
+    const next = apply(collapsedIn('TheTag', 2), toggleUnderlineTyping());
+    expect(next).not.toBeNull();
+    expect(storedMarkNames(next!)).toContain('underline_direct');
+    expect(storedMarkNames(next!)).not.toContain('underline_mark');
+  });
+
+  it('toggles the stored mark back off on a second press', () => {
+    const first = apply(collapsedIn('hello world', 3), toggleUnderlineTyping());
+    const second = apply(first!, toggleUnderlineTyping());
+    expect(second).not.toBeNull();
+    expect(storedMarkNames(second!)).not.toContain('underline_mark');
+  });
+
+  it('non-empty selection: behaves like F9 (body → underline_mark)', () => {
+    const doc = makeDoc([cardWithChildren(tag('T'), cardBody('hello world'))]);
+    let from = -1;
+    doc.descendants((n, p) => {
+      if (n.isText && n.text === 'hello world') from = p;
+      return true;
+    });
+    const base = EditorState.create({ doc });
+    const state = base.apply(base.tr.setSelection(TextSelection.create(base.doc, from, from + 11)));
+    const next = apply(state, toggleUnderlineTyping());
+    expect(next).not.toBeNull();
+    expect(everyHasMark(next!.doc, 'hello world', 'underline_mark')).toBe(true);
   });
 });
 

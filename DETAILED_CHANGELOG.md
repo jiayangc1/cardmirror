@@ -7,6 +7,23 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Slanted caret for pending italic** (`src/editor/italic-caret-plugin.ts`).
+  Browsers can't slant the native caret, so when a collapsed cursor's
+  effective marks (`storedMarks ?? $from.marks()`) include `italic`, the
+  plugin hides the native caret (`.pmd-italic-caret-active` →
+  `caret-color: transparent`) and draws a thin `position: fixed`, skewed,
+  blinking caret at `coordsAtPos(head)`, repositioned on selection / scroll
+  (capture) / resize / focus. Reduced motion → static slanted caret.
+
+- **Mod-U decoupled from F9 for the collapsed-cursor case**
+  (`src/editor/ribbon-commands.ts`). New `toggleUnderlineTyping` command,
+  default-bound to `Mod-u` (F9 keeps `applyUnderline`). With a selection or
+  shadow ranges it delegates to `applyUnderline`; on a collapsed cursor it
+  toggles a STORED underline mark (parity with Mod-I/Mod-B) instead of F9's
+  expand-to-word-and-underline — `underline_direct` in structural blocks,
+  the named `underline_mark` in body. `applyUnderline`'s default keys drop
+  `Mod-u` (now `['F9']`).
+
 - **Repair Text** (`src/editor/ai/repair-text.ts`,
   `src/editor/repair-highlight-plugin.ts`, ribbon wiring). Diff-based OCR /
   PDF repair: the model returns `{ fixes: [{ find, replace }] }` (verbatim

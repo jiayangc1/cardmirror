@@ -1252,6 +1252,33 @@ const STRUCTURAL_TEXTBLOCKS_FOR_UNDERLINE = new Set([
 ]);
 
 /**
+ * Mod-U — underline. For a real selection (or shadow ranges) it behaves
+ * exactly like F9 / `applyUnderline`. The difference is the COLLAPSED-cursor
+ * case: where F9 expands to the word at the cursor and underlines it, Mod-U
+ * instead toggles a STORED underline mark so the NEXT typed text is
+ * underlined — parity with Mod-I (italic) and Mod-B (bold). The stored mark
+ * follows the same body-vs-structural rule as everything else:
+ * `underline_direct` in structural blocks (tag / analytic / …), the named
+ * `underline_mark` style in body text.
+ */
+export function toggleUnderlineTyping(
+  clearFormattingOnToggleOff: () => boolean = () => true,
+): Command {
+  return (state, dispatch, view) => {
+    const op = getOperatingRangesForFormatting(state);
+    if (op.ranges.length === 0) {
+      const namedMark = schema.marks['underline_mark']!;
+      const directMark = schema.marks['underline_direct']!;
+      const structural = STRUCTURAL_TEXTBLOCKS_FOR_UNDERLINE.has(
+        state.selection.$from.parent.type.name,
+      );
+      return toggleMark(structural ? directMark : namedMark)(state, dispatch, view);
+    }
+    return applyUnderline(clearFormattingOnToggleOff)(state, dispatch, view);
+  };
+}
+
+/**
  * Shadow-aware drop-in replacement for `toggleMark` from
  * `prosemirror-commands`. Falls back to PM's `toggleMark` when the
  * PM selection is non-empty (preserves the standard Word/PM toggle
@@ -3429,6 +3456,7 @@ export type RibbonCommandId =
   | 'toggleSubscript'
   | 'applyCite'
   | 'applyUnderline'
+  | 'toggleUnderlineTyping'
   | 'applyEmphasis'
   | 'emphasizeAcronym'
   | 'applyHighlight'
@@ -3570,6 +3598,7 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'toggleSubscript',
   'applyCite',
   'applyUnderline',
+  'toggleUnderlineTyping',
   'applyEmphasis',
   'emphasizeAcronym',
   'applyHighlight',
@@ -3687,6 +3716,7 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   toggleSubscript: 'Subscript',
   applyCite: 'Apply Cite Style',
   applyUnderline: 'Toggle Underline',
+  toggleUnderlineTyping: 'Underline (toggle while typing)',
   applyEmphasis: 'Apply Emphasis Style',
   emphasizeAcronym: 'Emphasize Acronym',
   applyHighlight: 'Toggle Highlight',
@@ -3843,7 +3873,8 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   toggleSuperscript: 'Mod-Shift-=',
   toggleSubscript: 'Mod-=',
   applyCite: 'F8',
-  applyUnderline: ['F9', 'Mod-u'],
+  applyUnderline: ['F9'],
+  toggleUnderlineTyping: 'Mod-u',
   applyEmphasis: 'F10',
   emphasizeAcronym: 'Alt-F10',
   applyHighlight: 'F11',
@@ -4240,6 +4271,7 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
     case 'toggleSubscript': return shadowAwareToggleMark(schema.marks['subscript']!);
     case 'applyCite': return applyCite();
     case 'applyUnderline': return applyUnderline(ctx.clearFormattingOnNamedStyleToggleOff);
+    case 'toggleUnderlineTyping': return toggleUnderlineTyping(ctx.clearFormattingOnNamedStyleToggleOff);
     case 'applyEmphasis': return applyEmphasis();
     case 'emphasizeAcronym': return emphasizeAcronym();
     case 'applyHighlight': return applyHighlight(ctx.highlightColor);

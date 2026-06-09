@@ -4577,6 +4577,37 @@ html.pmd-nav-flat .pmd-nav-type-analytic:hover .pmd-nav-label {
   margin-top: 0.4rem;
 }
 
+/* Italic caret: while the next typed character would be italic, the native
+   caret is hidden (browsers can't slant it) and a custom slanted caret is
+   drawn at the cursor (positioned by italic-caret-plugin.ts). */
+.ProseMirror.pmd-italic-caret-active {
+  caret-color: transparent;
+}
+.pmd-italic-caret {
+  position: fixed;
+  width: 1px;
+  background: var(--pmd-c-text);
+  pointer-events: none;
+  z-index: 40;
+  transform: skewX(-13deg);
+  transform-origin: bottom center;
+  animation: pmd-italic-caret-blink 1.06s steps(1, end) infinite;
+}
+@keyframes pmd-italic-caret-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+:root[data-motion="reduce"] .pmd-italic-caret {
+  animation: none;
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="normal"]) .pmd-italic-caret {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 /* Repair Text: an orange highlight flashes over each fix at the moment it
    is applied. Replacements happen one at a time (driven by JS timing), so
    the flash is purely a background pulse on the freshly-inserted text — the

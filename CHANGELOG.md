@@ -116,6 +116,18 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Changed
 
+- **Italic typing now shows a slanted cursor.** When you turn on italics
+  with no selection (Ctrl-I) — or place the cursor inside italic text — the
+  caret tilts to match, so it's clear the next thing you type will be
+  italic. The cursor returns to upright as soon as typing wouldn't be
+  italic.
+
+- **Ctrl-U with no selection now starts underlined typing.** With nothing
+  selected, Ctrl-U toggles underline for the text you're about to type
+  (matching how Ctrl-I / Ctrl-B work), instead of doing nothing. **F9 is
+  unchanged** — it still underlines the whole word at the cursor. (Both
+  remain rebindable under Settings → Keyboard shortcuts.)
+
 - **Backspace removes a blank line directly below a tag.** An empty
   paragraph right under a tag or analytic used to swallow Backspace
   (to protect the heading from absorbing body text); now, since there's

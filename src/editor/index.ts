@@ -98,6 +98,7 @@ import { runRepairText } from './ai/repair-text.js';
 import { readModePlugin, PMD_READ_MODE_TOGGLE } from './read-mode-plugin.js';
 import { learnHighlightPlugin, flashcardRangeAt } from './learn-highlight-plugin.js';
 import { repairHighlightPlugin } from './repair-highlight-plugin.js';
+import { italicCaretPlugin } from './italic-caret-plugin.js';
 import { absorbPlugin } from './absorb-plugin.js';
 import { citeClassifierPlugin } from './cite-classifier-plugin.js';
 import { namedStyleNormalizerPlugin } from './named-style-normalizer-plugin.js';
@@ -3503,6 +3504,7 @@ export function buildEditorPlugins(): Plugin[] {
     commentsPlugin,
     learnHighlightPlugin,
     repairHighlightPlugin,
+    italicCaretPlugin,
     frozenSelectionPlugin,
     absorbPlugin,
     citeClassifierPlugin,

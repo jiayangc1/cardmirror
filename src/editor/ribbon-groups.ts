@@ -55,6 +55,7 @@ export const RIBBON_GROUPS: RibbonGroup[] = [
     commands: [
       'applyCite',
       'applyUnderline',
+      'toggleUnderlineTyping',
       'applyEmphasis',
       'emphasizeAcronym',
       'applyHighlight',
