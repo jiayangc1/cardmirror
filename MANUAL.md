@@ -104,10 +104,8 @@ estimate (click it for details) and the zoom controls.
 <a id="new-in-cardmirror"></a>
 ### New in CardMirror
 
-Much of this works the moment you open CardMirror — no setup required. In
-Verbatim you can get to a lot of it too, but only after customizing your
-template: extra Word styles, macros, and tweaks. CardMirror ships these out
-of the box. Each item is covered in full in the section linked.
+If you're coming from stock Verbatim, these are the new features. Each is
+covered in full in the section linked.
 
 - **[Built-in Analytic and Undertag styles](#cards-analytics-and-undertags)**
   — both ship as first-class structural styles with their own shortcuts and
