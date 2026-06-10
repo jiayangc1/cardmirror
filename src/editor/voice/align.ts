@@ -5,9 +5,9 @@
  * word-level fuzzy edit distance weighted by proximity to the cursor,
  * searching forward first.
  *
- * v0 scope: cursor-proximity cascade over the whole document (the
- * card-then-viewport refinement and in-document disambiguation badges
- * arrive with the tray UI).
+ * `findQuote` is the self-contained resolver (margin-based ambiguity);
+ * `quoteCandidates` exposes the ranked span list so dispatch can apply
+ * the visibility-aware picker rule (identical matches onscreen → pick).
  */
 import type { Node as PMNode } from 'prosemirror-model';
 
@@ -55,12 +55,25 @@ export function mergeSpokenNumbers(words: string[]): string[] {
  * search runs over both tracks so either spoken form matches, without
  * alternative tokens breaking window adjacency.
  */
+/** Full-document token caches, keyed on doc identity — ProseMirror
+ *  docs are immutable, so reference equality is a sound cache key.
+ *  Audit 2026-06-10 (PoC-measured): a 100k-word doc costs ~39ms to
+ *  tokenize and every voice movement command did it fresh; the cached
+ *  repeat is ~0.001ms with an identical array. Windowed calls (paint,
+ *  near-pass) are cheap and stay uncached. */
+const fullDocTokenCache = new WeakMap<PMNode, Map<string, TokenSpan[]>>();
+
 export function collectTokens(
   doc: PMNode,
   hyphens: 'joined' | 'split',
   from = 0,
   to = doc.content.size,
 ): TokenSpan[] {
+  const isFullDoc = from === 0 && to === doc.content.size;
+  if (isFullDoc) {
+    const cached = fullDocTokenCache.get(doc)?.get(hyphens);
+    if (cached) return cached;
+  }
   const tokens: TokenSpan[] = [];
   doc.nodesBetween(from, to, (node, pos) => {
     if (!node.isText || !node.text) return true;
@@ -82,6 +95,11 @@ export function collectTokens(
     }
     return true;
   });
+  if (isFullDoc) {
+    let per = fullDocTokenCache.get(doc);
+    if (!per) fullDocTokenCache.set(doc, (per = new Map()));
+    per.set(hyphens, tokens);
+  }
   return tokens;
 }
 
@@ -119,7 +137,7 @@ export type AlignResult =
   | { status: 'ambiguous'; candidates: Array<{ from: number; to: number }> }
   | { status: 'none' };
 
-const MAX_AVG_DISTANCE = 0.34; // roughly: most words right, small slips absorbed
+export const MAX_AVG_DISTANCE = 0.34; // roughly: most words right, small slips absorbed
 /** Proximity: score penalty per token of distance from cursor. */
 const PROXIMITY_PENALTY = 1 / 2000;
 /** Flat extra cost for matches behind the cursor — forward-first (§4.1:
@@ -131,11 +149,15 @@ const BACKWARD_OFFSET = 0.05;
  *  same-text matches far apart resolve silently to the nearer one. */
 const AMBIGUITY_MARGIN = 0.02;
 
-interface Candidate {
+export interface QuoteCandidate {
   from: number;
   to: number;
+  /** Proximity-weighted score (ranking). */
   score: number;
+  /** Pure text-similarity component (comparability). */
+  base: number;
 }
+type Candidate = QuoteCandidate;
 
 function scanTrack(
   tokens: TokenSpan[],
@@ -169,6 +191,7 @@ function scanTrack(
       from: (tokens[i] as TokenSpan).from,
       to: (tokens[i + qWords.length - 1] as TokenSpan).to,
       score: base + proximity,
+      base,
     });
   }
   return out;
@@ -182,14 +205,17 @@ export interface FindQuoteOptions {
   maxAvgDistance?: number;
 }
 
-export function findQuote(
+/** All distinct candidate spans for a quote, best-first (score =
+ *  text similarity + proximity weighting; `base` carries similarity
+ *  alone for comparability decisions). */
+export function quoteCandidates(
   doc: PMNode,
   quote: string,
   cursorPos: number,
   opts: FindQuoteOptions = {},
-): AlignResult {
+): QuoteCandidate[] {
   const qWords = mergeSpokenNumbers(quote.split(/\s+/).map(normalizeWord).filter(Boolean));
-  if (!qWords.length) return { status: 'none' };
+  if (!qWords.length) return [];
   const from = opts.from ?? 0;
   const to = opts.to ?? doc.content.size;
   const maxAvg = opts.maxAvgDistance ?? MAX_AVG_DISTANCE;
@@ -199,7 +225,6 @@ export function findQuote(
     ...scanTrack(collectTokens(doc, 'joined', from, to), qWords, cursorPos, maxAvg),
     ...scanTrack(collectTokens(doc, 'split', from, to), qWords, cursorPos, maxAvg),
   ];
-  if (!candidates.length) return { status: 'none' };
   candidates.sort((a, b) => a.score - b.score);
 
   // Greedy non-overlap selection: the two hyphen tracks (and shifted
@@ -210,15 +235,26 @@ export function findQuote(
     if (distinct.every((k) => c.to <= k.from || c.from >= k.to)) distinct.push(c);
     if (distinct.length >= 8) break;
   }
+  return distinct;
+}
+
+export function findQuote(
+  doc: PMNode,
+  quote: string,
+  cursorPos: number,
+  opts: FindQuoteOptions = {},
+): AlignResult {
+  const distinct = quoteCandidates(doc, quote, cursorPos, opts);
+  if (!distinct.length) return { status: 'none' };
   const best = distinct[0] as Candidate;
   const runnerUp = distinct[1];
   if (runnerUp && runnerUp.score - best.score < AMBIGUITY_MARGIN) {
     // The margin decides WHETHER to disambiguate; the badge list then
-    // shows every distinct comparable match (max 4, nearest-first by
-    // score), not just those inside the margin.
+    // shows every distinct comparable match (max 6 — the `pick` grammar
+    // ceiling — nearest-first by score), not just those inside the margin.
     return {
       status: 'ambiguous',
-      candidates: distinct.slice(0, 4).map((c) => ({ from: c.from, to: c.to })),
+      candidates: distinct.slice(0, 6).map((c) => ({ from: c.from, to: c.to })),
     };
   }
   return { status: 'match', from: best.from, to: best.to };

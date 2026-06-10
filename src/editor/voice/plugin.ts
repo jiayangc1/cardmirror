@@ -64,7 +64,8 @@ export interface VoicePluginState {
 }
 
 /** A selection move this large (or larger) counts as a jump. */
-const JUMP_MIN = 50;
+export const VOICE_JUMP_MIN = 50;
+const JUMP_MIN = VOICE_JUMP_MIN;
 const BACK_STACK_CAP = 20;
 
 const LOG_CAP = 50;
@@ -103,6 +104,11 @@ export interface VoiceStatePatch {
   lastRepeatable?: { verb: string; args: Record<string, unknown>; raw: string } | null;
   pendingDisambiguation?: VoicePluginState['pendingDisambiguation'];
   paintSession?: VoicePluginState['paintSession'];
+  /** Explicitly record a jump origin (voice commands suppress the
+   *  automatic per-transaction recording and push once per utterance —
+   *  audit 2026-06-10: multi-dispatch utterances were recording their
+   *  own intermediate positions, so `go back` landed mid-operation). */
+  pushBack?: number;
 }
 
 export function voicePlugin(): Plugin<VoicePluginState> {
@@ -178,6 +184,9 @@ export function voicePlugin(): Plugin<VoicePluginState> {
           if (patch.appendLog) next.log = [...next.log, patch.appendLog].slice(-LOG_CAP);
           if (patch.ghostText !== undefined) next.ghostText = patch.ghostText;
           if (patch.popBack) next.backStack = next.backStack.slice(0, -1);
+          if (patch.pushBack !== undefined) {
+            next.backStack = [...next.backStack, patch.pushBack].slice(-BACK_STACK_CAP);
+          }
           if (patch.lastRepeatable !== undefined) next.lastRepeatable = patch.lastRepeatable;
           if (patch.pendingDisambiguation !== undefined) {
             next.pendingDisambiguation = patch.pendingDisambiguation;
@@ -280,6 +289,13 @@ export function voiceDispatcher(view: ViewLike, utteranceId: number): (tr: Trans
     const st = voicePluginKey.getState(view.state);
     if (first && st && st.lastUtteranceId !== utteranceId) tr = closeHistory(tr);
     tr.setMeta(VOICE_UTTERANCE_META, { utteranceId });
+    // Voice transactions never auto-record jump origins — the command
+    // layer records ONE origin per utterance explicitly, so internal
+    // multi-dispatch (select → apply → advance) can't pollute `go back`.
+    const patch = (tr.getMeta(voicePluginKey) as VoiceStatePatch | undefined) ?? {};
+    if (patch.suppressJumpRecord === undefined) {
+      tr.setMeta(voicePluginKey, { ...patch, suppressJumpRecord: true });
+    }
     first = false;
     view.dispatch(tr);
   };

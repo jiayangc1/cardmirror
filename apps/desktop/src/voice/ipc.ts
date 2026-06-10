@@ -8,13 +8,17 @@
  * kill the main process (a vosk grammar-swap abort and lgraph decode
  * bursts both did exactly that when the service ran in-process).
  */
-import { app, ipcMain, utilityProcess } from 'electron';
+import { app, ipcMain } from 'electron';
+import { fork, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { VoiceStartOptions, VoiceStartResult } from './types';
 
-let worker: Electron.UtilityProcess | null = null;
+let worker: ChildProcess | null = null;
 let ownerWebContentsId: number | null = null;
+/** Owner-lifecycle listeners, removed in stopSession so repeated
+ *  starts don't stack handlers (audit 2026-06-10). */
+let ownerCleanup: (() => void) | null = null;
 
 function libFileName(): string {
   if (process.platform === 'win32') return 'libvosk.dll';
@@ -51,10 +55,45 @@ function resolveVoiceAssets(): { libPath: string; modelDir: string } | null {
   return null;
 }
 
+/**
+ * The worker needs a REAL Node runtime: Electron's binary (even with
+ * ELECTRON_RUN_AS_NODE) uses Chromium's allocator, which SIGTRAPs on
+ * the large dictation model's multi-GB allocations (reproduced
+ * 2026-06-10; system Node loads it fine). Resolution order:
+ *  1. CARDMIRROR_NODE env
+ *  2. shipped runtime (resources/voice/node, fetched at build time)
+ *  3. system node on PATH
+ * Falling back to electron-as-node still works for the STANDARD model;
+ * the large model is then disabled with an explicit flag.
+ */
+function resolveNodeBinary(): string | null {
+  const candidates = [
+    process.env.CARDMIRROR_NODE,
+    path.join(process.resourcesPath, 'voice', process.platform === 'win32' ? 'node.exe' : 'node'),
+  ].filter((c): c is string => !!c);
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  try {
+    const { execSync } = require('node:child_process') as typeof import('node:child_process');
+    const found = execSync(process.platform === 'win32' ? 'where node' : 'command -v node', {
+      encoding: 'utf8',
+    })
+      .trim()
+      .split('\n')[0];
+    if (found && fs.existsSync(found)) return found;
+  } catch {
+    /* no system node */
+  }
+  return null;
+}
+
 function stopSession(): void {
   worker?.kill();
   worker = null;
   ownerWebContentsId = null;
+  ownerCleanup?.();
+  ownerCleanup = null;
 }
 
 const LARGE_MODEL_NAME = 'vosk-model-en-us-0.22';
@@ -80,7 +119,12 @@ async function downloadLargeModel(sender: Electron.WebContents): Promise<{ ok: b
   const zipPath = path.join(root, `${LARGE_MODEL_NAME}.zip`);
   try {
     fs.mkdirSync(root, { recursive: true });
-    const res = await fetch(LARGE_MODEL_URL, { redirect: 'follow' });
+    // 30-minute overall ceiling — a stalled download must not pin
+    // downloadInFlight forever (audit 2026-06-10).
+    const res = await fetch(LARGE_MODEL_URL, {
+      redirect: 'follow',
+      signal: AbortSignal.timeout(30 * 60 * 1000),
+    });
     if (!res.ok || !res.body) return { ok: false, error: `HTTP ${res.status}` };
     const total = Number(res.headers.get('content-length')) || 0;
     const out = fs.createWriteStream(zipPath);
@@ -102,11 +146,17 @@ async function downloadLargeModel(sender: Electron.WebContents): Promise<{ ok: b
     }
     await new Promise<void>((resolve) => out.end(() => resolve()));
     if (!sender.isDestroyed()) sender.send('voice:download-progress', { pct: 100, extracting: true });
-    const { execFileSync } = await import('node:child_process');
+    // Async extraction — execFileSync of a 1.8 GB zip froze the whole
+    // main process (audit 2026-06-10).
+    const { execFile } = await import('node:child_process');
+    const run = (cmd: string, args: string[]) =>
+      new Promise<void>((resolve, reject) =>
+        execFile(cmd, args, (err) => (err ? reject(err) : resolve())),
+      );
     try {
-      execFileSync('unzip', ['-oq', zipPath, '-d', root]);
+      await run('unzip', ['-oq', zipPath, '-d', root]);
     } catch {
-      execFileSync('tar', ['-xf', zipPath, '-C', root]);
+      await run('tar', ['-xf', zipPath, '-C', root]);
     }
     fs.rmSync(zipPath, { force: true });
     return largeModelPresent() ? { ok: true } : { ok: false, error: 'extract-failed' };
@@ -134,16 +184,25 @@ export function registerVoiceIpc(): void {
         return { ok: false, error: 'voice-assets-missing' };
       }
 
-      const child = utilityProcess.fork(path.join(__dirname, 'worker.js'), [], {
-        serviceName: 'cardmirror-voice',
-        stdio: 'inherit', // recognizer diagnostics land in the main log
-        env: { ...process.env },
+      // Plain Node child, NOT utilityProcess (see resolveNodeBinary).
+      // Advanced serialization structured-clones the audio chunks.
+      const nodeBin = resolveNodeBinary();
+      const wantLarge = opts.dictationModel === 'large' && largeModelPresent();
+      const largeUnsupported = wantLarge && !nodeBin;
+      const child = fork(path.join(__dirname, 'worker.js'), [], {
+        ...(nodeBin
+          ? { execPath: nodeBin, env: { ...process.env } }
+          : { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } }),
+        serialization: 'advanced',
+        stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
       });
       worker = child;
       ownerWebContentsId = sender.id;
 
       const started = await new Promise<VoiceStartResult>((resolve) => {
-        const timeout = setTimeout(() => resolve({ ok: false, error: 'voice-worker-timeout' }), 30000);
+        // 60 s: the large dictation model alone takes ~10 s to load
+        // warm, more on cold disk cache.
+        const timeout = setTimeout(() => resolve({ ok: false, error: 'voice-worker-timeout' }), 60000);
         child.once('message', (m: { type: string; modelLoadMs?: number; error?: string }) => {
           clearTimeout(timeout);
           if (m.type === 'started') resolve({ ok: true, modelLoadMs: m.modelLoadMs });
@@ -153,24 +212,28 @@ export function registerVoiceIpc(): void {
           clearTimeout(timeout);
           resolve({ ok: false, error: 'voice-worker-died' });
         });
-        child.postMessage({
+        child.send({
           type: 'start',
           libPath: assets.libPath,
           modelDir: assets.modelDir,
-          dictationModelDir:
-            opts.dictationModel === 'large' && largeModelPresent() ? largeModelDir() : undefined,
+          dictationModelDir: wantLarge && nodeBin ? largeModelDir() : undefined,
           rmsGate: opts.rmsGate,
           minWordConf: opts.minWordConf,
           autoSleepSeconds: opts.autoSleepSeconds,
         });
       });
       if (!started.ok) {
-        stopSession();
+        // Audit 2026-06-10: this used to call stopSession()
+        // unconditionally — if a NEWER session had already replaced
+        // `worker`, the stale failure path killed the new session.
+        if (worker === child) stopSession();
+        else child.kill();
         return started;
       }
       if (opts.dictationModel === 'large' && !largeModelPresent()) {
         started.largeDictationMissing = true;
       }
+      if (largeUnsupported) started.largeDictationUnsupported = true;
 
       child.on('message', (m: { type: string; event?: unknown; level?: unknown }) => {
         if (sender.isDestroyed()) return;
@@ -178,15 +241,32 @@ export function registerVoiceIpc(): void {
         else if (m.type === 'level') sender.send('voice:level', m.level);
       });
       child.on('exit', (code) => {
-        // Crash isolation: the editor survives; the session just ends.
+        // Crash isolation: the editor survives; the session just ends —
+        // and the renderer is TOLD (audit 2026-06-10: it used to keep
+        // capturing into a dead session with the pill stuck on
+        // "listening").
         if (worker === child) {
           console.error(`voice: worker exited (code ${code})`);
+          if (!sender.isDestroyed()) {
+            sender.send('voice:event', { kind: 'ended', reason: `recognizer exited (${code ?? '?'})` });
+          }
           stopSession();
         }
       });
-      sender.once('destroyed', () => {
+      const onGone = (): void => {
         if (ownerWebContentsId === sender.id) stopSession();
-      });
+      };
+      sender.once('destroyed', onGone);
+      // Reload/navigation keeps the same webContents id but loses the
+      // renderer-side session — without these the worker (and a loaded
+      // multi-GB model) ran on with no consumer (audit 2026-06-10).
+      sender.once('did-start-navigation', onGone);
+      sender.once('render-process-gone', onGone);
+      ownerCleanup = () => {
+        sender.removeListener('destroyed', onGone);
+        sender.removeListener('did-start-navigation', onGone);
+        sender.removeListener('render-process-gone', onGone);
+      };
       return started;
     },
   );
@@ -199,12 +279,34 @@ export function registerVoiceIpc(): void {
   // round-trip, and a dropped chunk costs ms of audio, not state.
   ipcMain.on('host:voice-audio', (event, chunk: ArrayBuffer) => {
     if (ownerWebContentsId !== event.sender.id || !worker) return;
-    worker.postMessage({ type: 'audio', chunk });
+    if (!(chunk instanceof ArrayBuffer)) return; // never crash the worker
+    try {
+      worker.send({ type: 'audio', chunk });
+    } catch {
+      // Worker exited between the null-check and the post — the exit
+      // handler is about to clean up; dropping one chunk is fine.
+    }
+  });
+
+  // True native key synthesis for voice "press <key>" — DOM-dispatched
+  // KeyboardEvents are untrusted and can't drive default actions in
+  // real inputs (audit 2026-06-10).
+  const SEND_KEYS: Record<string, string> = {
+    enter: 'Return', tab: 'Tab', escape: 'Escape', up: 'Up', down: 'Down',
+    left: 'Left', right: 'Right', space: 'Space', backspace: 'Backspace',
+  };
+  ipcMain.handle('host:voice-send-key', async (event, key: string) => {
+    if (ownerWebContentsId !== event.sender.id) return;
+    const keyCode = SEND_KEYS[key];
+    if (!keyCode) return;
+    event.sender.sendInputEvent({ type: 'keyDown', keyCode });
+    if (key === 'space') event.sender.sendInputEvent({ type: 'char', keyCode: ' ' });
+    event.sender.sendInputEvent({ type: 'keyUp', keyCode });
   });
 
   ipcMain.handle('host:voice-set-vocabulary', async (event, docText: string) => {
     if (ownerWebContentsId !== event.sender.id || !worker) return;
-    worker.postMessage({ type: 'vocab', text: typeof docText === 'string' ? docText : '' });
+    worker.send({ type: 'vocab', text: typeof docText === 'string' ? docText : '' });
   });
 
   ipcMain.handle('host:voice-dictation-model-info', async () => ({

@@ -45,6 +45,13 @@ export type VoiceEvent = VoiceEventBase &
     | { kind: 'mode'; from: VoiceMode; to: VoiceMode; trigger: string }
   );
 
+/** Out-of-band session-terminated notice (worker crash/exit) — arrives
+ *  on the same channel but without utterance context. */
+export interface VoiceEndedEvent {
+  kind: 'ended';
+  reason: string;
+}
+
 export interface VoiceLevel {
   rms: number;
   gate: number;

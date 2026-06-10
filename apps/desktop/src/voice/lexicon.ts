@@ -88,6 +88,30 @@ export function buildLexicon(): LexiconEntry[] {
   // prefix-freedom exception vs `again but <pen>` — resolved by
   // utterance segmentation, same as `take` vs `take from` (§10).
   e.push({ phrase: 'again', verb: 'againRepeat' });
+
+  // Composable scopes (0.7, SPEC §4.5 — Cursorless adaptation):
+  // ordinals count within each scope's ITERATION container ("take
+  // second sentence" = of this paragraph; "take third card" = of this
+  // block); `every` fans out across the container; head/tail run from
+  // the cursor to the containing scope's start/end.
+  const SCOPE_WORDS = [
+    'pocket', 'hat', 'block', 'card', 'unit', 'analytic',
+    'tag', 'cite', 'body', 'paragraph', 'sentence', 'word',
+  ];
+  const ORDINALS = [
+    'first', 'second', 'third', 'fourth', 'fifth',
+    'sixth', 'seventh', 'eighth', 'ninth', 'tenth',
+  ];
+  for (const scope of SCOPE_WORDS) {
+    ORDINALS.forEach((ord, i) => {
+      e.push({ phrase: `take ${ord} ${scope}`, verb: 'takeOrdinal', args: { target: scope, n: i + 1 } });
+      e.push({ phrase: `go to ${ord} ${scope}`, verb: 'goOrdinal', args: { target: scope, n: i + 1 } });
+    });
+    e.push({ phrase: `take every ${scope}`, verb: 'takeEvery', args: { target: scope } });
+    e.push({ phrase: `mark every ${scope}`, verb: 'markEvery', args: { target: scope } });
+    e.push({ phrase: `take head ${scope}`, verb: 'takeHead', args: { target: scope } });
+    e.push({ phrase: `take tail ${scope}`, verb: 'takeTail', args: { target: scope } });
+  }
   for (const target of ['tag', 'cite', 'body']) {
     e.push({ phrase: `go ${target}`, verb: 'goChild', args: { target } });
   }
@@ -142,7 +166,7 @@ export function buildLexicon(): LexiconEntry[] {
     e.push({ phrase: `extend ${dir}`, verb: 'extend', args: { dir, n: 1, unit: 'words' } });
     e.push({ phrase: `extend ${dir} word`, verb: 'extend', args: { dir, n: 1, unit: 'words' } });
   }
-  for (let n = 1; n <= 4; n++) {
+  for (let n = 1; n <= 6; n++) {
     e.push({ phrase: `pick ${NUMBER_WORDS[n - 1]}`, verb: 'pick', args: { n } });
   }
 
@@ -194,7 +218,7 @@ export const SLEEP_GRAMMAR = ['voice wake', '[unk]'];
 /** In-paint command grammar (§6): exits, pen switches, nothing else —
  *  everything else spoken in paint is document text being read. */
 export function paintEscapeGrammar(): string[] {
-  return [...RESERVED_PAINT, ...PENS.map((p) => `pen ${p}`), '[unk]'];
+  return [...RESERVED_PAINT, ...PENS.map((p) => `pen ${p}`), 'skip to', '[unk]'];
 }
 
 /** Vosk runtime grammar for command mode: every spoken form + [unk]. */
@@ -223,8 +247,40 @@ const MAX_VOCAB_PHRASES = 6000;
 export function docVocabGrammar(lexicon: LexiconEntry[], docText: string): string[] {
   const quoteVerbs = lexicon.filter((x) => x.quote).map((x) => x.phrase);
   const phrases = new Set<string>();
-  for (const block of docText.toLowerCase().split('\n')) {
+  // Normalize to the model's vocabulary space (audit 2026-06-10):
+  // curly apostrophes → ascii (the editor produces "don’t"; the model
+  // knows "don't"), and diacritics stripped (café → cafe) — otherwise
+  // those words silently vanish from the grammar.
+  const normalized = docText
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+  // Digit tokens get spoken-word alternates so quotes can SAY them
+  // (test-run finding 2026-06-10: "take twenty six" was undecodable —
+  // the grammar only contained "26").
+  const UNITS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+  const TEENS = ['ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+  const TENS_W = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+  const numberWords = (n: number): string | null => {
+    if (n < 10) return UNITS[n] ?? null;
+    if (n < 20) return TEENS[n - 10] ?? null;
+    if (n < 100) {
+      const tens = TENS_W[Math.floor(n / 10)];
+      const unit = n % 10;
+      return unit ? `${tens} ${UNITS[unit]}` : (tens ?? null);
+    }
+    return null;
+  };
+
+  for (const block of normalized.split('\n')) {
     const words = block.replace(/[^a-z0-9' ]+/g, ' ').split(/\s+/).filter(Boolean);
+    for (const w of words) {
+      if (/^\d{1,2}$/.test(w)) {
+        const spoken = numberWords(parseInt(w, 10));
+        if (spoken) phrases.add(spoken);
+      }
+    }
     for (let n = 1; n <= 4; n++) {
       for (let i = 0; i + n <= words.length; i++) {
         phrases.add(words.slice(i, i + n).join(' '));
@@ -250,7 +306,12 @@ export function assertLexiconInVocabulary(lexicon: LexiconEntry[], modelDir: str
   const vocab = new Set(
     fs.readFileSync(wordsFile, 'utf8').split('\n').map((line) => line.split(' ')[0]),
   );
-  const phrases = [...lexicon.map((x) => x.phrase), ...RESERVED_DICTATION, ...SLEEP_GRAMMAR];
+  const phrases = [
+    ...lexicon.map((x) => x.phrase),
+    ...RESERVED_DICTATION,
+    ...RESERVED_PAINT,
+    ...SLEEP_GRAMMAR,
+  ];
   const missing = [
     ...new Set(phrases.flatMap((p) => p.split(' ')).filter((w) => w !== '[unk]' && !vocab.has(w))),
   ];

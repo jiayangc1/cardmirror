@@ -99,9 +99,55 @@ async function ensureModel() {
   fs.rmSync(tmpDir, { recursive: true });
 }
 
+/** A real Node runtime for the voice worker: Electron's binary (any
+ *  mode) uses Chromium's allocator, which SIGTRAPs loading the large
+ *  dictation model. ~30 MB compressed, extracted to resources/voice. */
+const NODE_VERSION = 'v22.12.0';
+const NODE_PLATFORMS = {
+  linux: { pkg: `node-${NODE_VERSION}-linux-x64.tar.gz`, bin: 'bin/node', out: 'node' },
+  darwin: {
+    pkg: `node-${NODE_VERSION}-darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}.tar.gz`,
+    bin: 'bin/node',
+    out: 'node',
+  },
+  win32: { pkg: `node-${NODE_VERSION}-win-x64.zip`, bin: 'node.exe', out: 'node.exe' },
+};
+
+async function ensureNode() {
+  const nplat = NODE_PLATFORMS[process.platform];
+  if (!nplat) return;
+  const outPath = path.join(dest, nplat.out);
+  if (fs.existsSync(outPath)) return;
+  // Dev shortcut: reuse the system node binary when present (same
+  // platform by definition).
+  try {
+    const { execSync } = require('node:child_process');
+    const sys = execSync(process.platform === 'win32' ? 'where node' : 'command -v node', {
+      encoding: 'utf8',
+    }).trim().split('\n')[0];
+    if (sys && fs.existsSync(sys)) {
+      console.log('fetch-voice-assets: copying node runtime from system');
+      fs.copyFileSync(fs.realpathSync(sys), outPath);
+      fs.chmodSync(outPath, 0o755);
+      return;
+    }
+  } catch { /* fall through to download */ }
+  const url = `https://nodejs.org/dist/${NODE_VERSION}/${nplat.pkg}`;
+  const tmpPkg = path.join(dest, '_node_pkg');
+  const tmpDir = path.join(dest, '_node');
+  await download(url, tmpPkg);
+  extract(tmpPkg, tmpDir);
+  const inner = nplat.pkg.replace(/\.(tar\.gz|zip)$/, '');
+  fs.copyFileSync(path.join(tmpDir, inner, nplat.bin), outPath);
+  fs.chmodSync(outPath, 0o755);
+  fs.rmSync(tmpPkg);
+  fs.rmSync(tmpDir, { recursive: true });
+}
+
 (async () => {
   await ensureLib();
   await ensureModel();
+  await ensureNode();
   console.log(`fetch-voice-assets: ready at ${dest}`);
 })().catch((err) => {
   console.error(err);

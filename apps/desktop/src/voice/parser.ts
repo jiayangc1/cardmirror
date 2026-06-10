@@ -214,10 +214,15 @@ export function matchReserved(escapeText: string, reserved: string[]): string | 
   for (const phrase of reserved) {
     if (heard === phrase || heard.endsWith(' ' + phrase)) return phrase;
   }
-  // Tail word alone is enough when it is unique among reserved phrases
-  // ("typing" → "stop typing"): the escape grammar contains nothing else.
+  // Tail-word-alone fallback, WHITELISTED to "typing" only (audit
+  // 2026-06-10): the generic version made dictating a lone "paragraph",
+  // "line", "that", or "sleep" execute a command instead of inserting
+  // the word. "typing" keeps the lenient recall the "end/and" homophone
+  // forced, and is not a word debaters dictate alone.
   const lastWord = heard.split(' ').at(-1) ?? '';
-  const tailMatches = reserved.filter((p) => p.endsWith(' ' + lastWord));
-  if (tailMatches.length === 1) return tailMatches[0] as string;
+  if (lastWord === 'typing') {
+    const tailMatches = reserved.filter((p) => p.endsWith(' typing'));
+    if (tailMatches.length === 1) return tailMatches[0] as string;
+  }
   return null;
 }

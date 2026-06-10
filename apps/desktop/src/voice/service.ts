@@ -34,6 +34,9 @@ const RESERVED_VERBS: Record<string, string> = {
   'scratch that': 'scratchThat',
   'new line': 'newLine',
   'new paragraph': 'newParagraph',
+  // Audit 2026-06-10: was missing — paint's documented correction verb
+  // emitted `verb: undefined` and died in dispatch.
+  'clear last': 'clearLast',
 };
 
 const LEVEL_EVERY_MS = 250;
@@ -117,6 +120,7 @@ export class VoiceService {
     this.doc = new Recognizer(this.model, SAMPLE_RATE, docVocabGrammar(this.lexicon, ''));
     this.doc.setWords(true);
     this.open = new Recognizer(this.dictationModel ?? this.model, SAMPLE_RATE);
+    this.open.setWords(true); // per-word confidence for onset-filler filtering
     this.escape = new Recognizer(this.model, SAMPLE_RATE, escapeGrammar());
     this.paintEscape = new Recognizer(this.model, SAMPLE_RATE, paintEscapeGrammar());
     this.slp = new Recognizer(this.model, SAMPLE_RATE, SLEEP_GRAMMAR);
@@ -145,7 +149,21 @@ export class VoiceService {
   }
 
   private applyVocabularyIfIdle(): void {
-    if (!this.doc || this.pendingVocabText === null || this.docHot) return;
+    if (!this.doc || this.pendingVocabText === null) return;
+    if (this.docHot) {
+      // Audit 2026-06-10: docHot is set by EVERY accepted chunk —
+      // including pure silence — so updates used to defer past the very
+      // utterance that needed them (stale vocabulary on the first quote
+      // after navigation). If no SPEECH has reached the recognizer
+      // since its last reset, resetting is safe (nothing decodable is
+      // buffered) and lets the new grammar apply immediately. The
+      // hot-swap-mid-decode Kaldi abort only applies to a recognizer
+      // that is actually decoding speech.
+      if (this.segmenter.voicedActive) return;
+      this.doc.final();
+      this.doc.reset();
+      this.docHot = false;
+    }
     this.doc.setGrammar(docVocabGrammar(this.lexicon, this.pendingVocabText));
     this.pendingVocabText = null;
   }
@@ -206,6 +224,15 @@ export class VoiceService {
         `voice: calibrated — noise floor ${seg.noiseFloor === null ? 'n/a (fallback)' : seg.noiseFloor.toFixed(0)}, gate ${seg.gate}`,
       );
       this.lastActivityAt = now;
+      // On a mid-session jam recalibration the recognizers have eaten
+      // ~20s of noise — flush them so it can't poison the next decode.
+      for (const rec of this.activeRecognizers()) {
+        rec.final();
+        rec.reset();
+      }
+      this.docHot = false;
+      this.lastPartialText = '';
+      this.applyVocabularyIfIdle();
     }
     if (seg.type === 'speech') this.lastActivityAt = now;
 
@@ -216,6 +243,17 @@ export class VoiceService {
     if (autoSleepMs > 0 && this.mode !== 'asleep' && this.lastActivityAt > 0) {
       const remaining = autoSleepMs - (now - this.lastActivityAt);
       if (remaining <= 0) {
+        // Audit 2026-06-10: explicit mode exits go through
+        // finishUtterance, which finalizes+resets the active
+        // recognizers; auto-sleep didn't, so buffered audio prefixed
+        // the first post-wake decode with noise.
+        for (const rec of this.activeRecognizers()) {
+          rec.final();
+          rec.reset();
+        }
+        this.docHot = false;
+        this.lastPartialText = '';
+        this.applyVocabularyIfIdle();
         this.setMode('asleep', 'auto-sleep', {
           utteranceId: this.utteranceId,
           tEndOfSpeech: now,
@@ -300,7 +338,20 @@ export class VoiceService {
       this.opts.onEvent({ ...base, kind: 'dictation-partial', text: '', raw: '' });
       const openResult = finals[0];
       const escapeResult = finals[1];
-      const openText = openResult?.text ?? '';
+      let openText = openResult?.text ?? '';
+      // Onset-filler suppression (test-run finding 2026-06-10): the
+      // open model routinely resolves breath/onset noise as a leading
+      // low-confidence "the"/"a"/"and". Strip it only when the model
+      // itself isn't sure.
+      const w0 = openResult?.words?.[0];
+      if (
+        w0 &&
+        ['the', 'a', 'and'].includes(w0.word) &&
+        (w0.conf ?? 1) < 0.55 &&
+        openText.startsWith(w0.word + ' ')
+      ) {
+        openText = openText.slice(w0.word.length + 1);
+      }
       // `literal <words>` (§7): verbatim insertion, bypassing every
       // reserved phrase — the escape hatch for dictating "stop typing"
       // or any command word. Checked first; one leading noise word
@@ -356,6 +407,18 @@ export class VoiceService {
         return;
       }
       const escClean = escText.replaceAll('[unk]', ' ').replace(/\s+/g, ' ').trim();
+      // `skip to <quote>` (§6): the escape grammar spots the verb, the
+      // doc decode carries the destination.
+      if (escClean === 'skip to' || escClean.startsWith('skip to ')) {
+        const docClean = (docResult?.text ?? '').replaceAll('[unk]', ' ').replace(/\s+/g, ' ').trim();
+        const tail = docClean.startsWith('skip to ')
+          ? docClean.slice('skip to '.length)
+          : docClean.replace(/^\S+\s+skip to\s+/, '');
+        if (tail && tail !== docClean) {
+          this.opts.onEvent({ ...base, kind: 'command', verb: 'skipTo', args: { quote: tail }, raw: `skip to ${tail}` });
+          return;
+        }
+      }
       const penSwitch = PENS.find((p) => escClean === `pen ${p}` || escClean.endsWith(` pen ${p}`));
       if (penSwitch) {
         this.opts.onEvent({ ...base, kind: 'command', verb: 'pen', args: { pen: penSwitch }, raw: `pen ${penSwitch}` });

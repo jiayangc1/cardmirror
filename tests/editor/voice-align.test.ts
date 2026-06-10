@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { schema } from '../../src/schema/index.js';
-import { findQuote, normalizeWord } from '../../src/editor/voice/align.js';
+import { findQuote, quoteCandidates, normalizeWord } from '../../src/editor/voice/align.js';
 
 function doc(...texts: string[]) {
   return schema.nodes['doc']!.create(
@@ -73,5 +73,17 @@ describe('voice quote alignment', () => {
     const h = doc('the anti-war coalition gained strength');
     expect(findQuote(h, 'anti war coalition', 0).status).toBe('match');
     expect(findQuote(h, 'antiwar coalition', 0).status).toBe('match');
+  });
+
+  it('exposes every duplicate as a candidate with equal base similarity', () => {
+    // Identical text far apart resolves silently in findQuote (proximity
+    // margin), but the candidate list must still carry both spans with
+    // base 0 so the dispatcher's onscreen-picker rule can see them.
+    const twice = doc('the impact is extinction', 'filler '.repeat(500), 'the impact is extinction');
+    const cands = quoteCandidates(twice, 'impact is extinction', 0);
+    expect(cands.length).toBeGreaterThanOrEqual(2);
+    expect(cands[0]!.base).toBe(0);
+    expect(cands[1]!.base).toBe(0);
+    expect(cands[0]!.score).toBeLessThan(cands[1]!.score); // nearest first
   });
 });

@@ -27,8 +27,15 @@ see `DETAILED_CHANGELOG.md`.
   warning), and clicking the pill opens a microphone picker. Voice options
   live under Settings → Accessibility — including an optional large
   dictation model (one-time 1.8 GB download) that roughly halves
-  general-English dictation errors. Speech models ship with the app
-  (installers grow by roughly 130 MB).
+  general-English dictation errors. Targeting composes Cursorless-style:
+  ordinals count within their natural container (`take second sentence`,
+  `go to third card` — third in this block), `mark every tag` inks every
+  tag in the block with one undo step, `take head card` / `take tail
+  paragraph` select to a scope's edge, and `take from <words> to <words>`
+  spans two spoken anchors. When the words you spoke appear more than once
+  on screen, numbered badges appear over each match — say `pick two` to
+  choose. Speech models ship with the app (installers grow by roughly
+  130 MB).
 
 ## 0.1.0-alpha.10 — 2026-06-08
 

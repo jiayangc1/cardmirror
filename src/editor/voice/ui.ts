@@ -23,20 +23,36 @@ export class VoicePill {
   constructor(private onStop?: () => void) {
     this.el = document.createElement('div');
     this.el.className = 'pmd-voice-pill';
+    // The accessibility flagship must itself be accessible (audit
+    // 2026-06-10): keyboard-operable button, labelled, with the echo
+    // text announced to screen readers — the same feedback contract
+    // sighted users get from the pill.
+    this.el.setAttribute('role', 'button');
+    this.el.setAttribute('tabindex', '0');
+    this.el.setAttribute('aria-label', 'Voice control session — opens microphone menu');
     const dot = document.createElement('span');
     dot.className = 'pmd-voice-dot';
+    dot.setAttribute('aria-hidden', 'true');
     this.penEl = document.createElement('span');
     this.penEl.className = 'pmd-voice-pen';
     this.echoEl = document.createElement('span');
     this.echoEl.className = 'pmd-voice-echo';
+    this.echoEl.setAttribute('aria-live', 'polite');
     const meter = document.createElement('span');
     meter.className = 'pmd-voice-meter';
+    meter.setAttribute('aria-hidden', 'true');
     this.meterFill = document.createElement('div');
     meter.appendChild(this.meterFill);
     this.el.append(dot, this.penEl, this.echoEl, meter);
-    // Click opens the session menu (mic picker + stop) — an accidental
-    // pill click must not kill the session.
+    // Click/Enter/Space opens the session menu (mic picker + stop) —
+    // an accidental activation must not kill the session.
     this.el.addEventListener('click', () => this.toggleMenu());
+    this.el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        this.toggleMenu();
+      }
+    });
     document.body.appendChild(this.el);
   }
 
@@ -49,6 +65,8 @@ export class VoicePill {
     }
     const menu = document.createElement('div');
     menu.className = 'pmd-voice-menu';
+    menu.setAttribute('role', 'group');
+    menu.setAttribute('aria-label', 'Voice session: microphone and stop');
 
     const title = document.createElement('div');
     title.className = 'pmd-voice-menu-title';

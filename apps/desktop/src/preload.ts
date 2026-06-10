@@ -336,15 +336,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** Native clipboard ops (same paths as Mod-C/X/V). */
   voiceClipboard: (op: 'copy' | 'cut' | 'paste') =>
     ipcRenderer.invoke('host:voice-clipboard', op),
+  /** Native key synthesis (sendInputEvent) for voice "press <key>" —
+   *  drives real default actions, unlike DOM-dispatched events. */
+  voiceSendKey: (key: string) => ipcRenderer.invoke('host:voice-send-key', key),
   onVoiceEvent(handler: (event: unknown) => void): () => void {
     const listener = (_evt: unknown, payload: unknown): void => handler(payload);
     ipcRenderer.on('voice:event', listener);
     return () => ipcRenderer.removeListener('voice:event', listener);
   },
-  onVoiceLevel(handler: (level: { rms: number; gate: number; calibrating: boolean }) => void): () => void {
+  onVoiceLevel(
+    handler: (level: {
+      rms: number;
+      gate: number;
+      calibrating: boolean;
+      autoSleepRemainingMs?: number;
+    }) => void,
+  ): () => void {
     const listener = (
       _evt: unknown,
-      payload: { rms: number; gate: number; calibrating: boolean },
+      payload: { rms: number; gate: number; calibrating: boolean; autoSleepRemainingMs?: number },
     ): void => handler(payload);
     ipcRenderer.on('voice:level', listener);
     return () => ipcRenderer.removeListener('voice:level', listener);

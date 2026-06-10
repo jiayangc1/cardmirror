@@ -22,7 +22,7 @@ import {
 } from './dispatch.js';
 import { patchVoiceState, voicePluginKey } from './plugin.js';
 import { VoicePill } from './ui.js';
-import type { VoiceEvent, VoiceLevel } from './types';
+import type { VoiceEndedEvent, VoiceEvent, VoiceLevel } from './types';
 
 /** The preload voice surface (subset of window.electronAPI). */
 interface VoiceHostApi {
@@ -34,11 +34,13 @@ interface VoiceHostApi {
     error?: string;
     modelLoadMs?: number;
     largeDictationMissing?: boolean;
+    largeDictationUnsupported?: boolean;
   }>;
   voiceStop(): Promise<void>;
   voicePushAudio(chunk: ArrayBuffer): void;
   voiceSetVocabulary(docText: string): Promise<void>;
   voiceClipboard(op: 'copy' | 'cut' | 'paste'): Promise<void>;
+  voiceSendKey(key: string): Promise<void>;
   onVoiceEvent(handler: (event: unknown) => void): () => void;
   onVoiceLevel(handler: (level: VoiceLevel) => void): () => void;
 }
@@ -57,6 +59,13 @@ export class VoiceController {
   private vocabTimer: ReturnType<typeof setInterval> | null = null;
   private lastVocabText: string | null = null;
   private active = false;
+  /** Re-entrancy guard (audit 2026-06-10): toggle() awaits several
+   *  times before `active` flips, so a double Ctrl-Shift-V used to race
+   *  two starts — duplicate capture streams (hot mic leak), stacked
+   *  vocab timers, zombie state. The generation counter also cancels an
+   *  in-flight start when stop() lands mid-way. */
+  private starting = false;
+  private generation = 0;
   /** Input value before live dictation partials started revising it. */
   private uiInputBaseline: string | null = null;
 
@@ -72,10 +81,22 @@ export class VoiceController {
   }
 
   async toggle(): Promise<void> {
+    if (this.starting) return; // ignore double-press during startup
     if (this.active) {
       this.stop();
       return;
     }
+    this.starting = true;
+    try {
+      await this.startSession();
+    } finally {
+      this.starting = false;
+    }
+  }
+
+  private async startSession(): Promise<void> {
+    const gen = ++this.generation;
+    const cancelled = () => gen !== this.generation;
     const host = voiceHost();
     if (!host) {
       showToast('Voice control needs the desktop app', { durationMs: 1600 });
@@ -94,8 +115,18 @@ export class VoiceController {
       autoSleepSeconds: settings.get('voiceAutoSleepSeconds'),
       dictationModel: settings.get('voiceDictationModel'),
     });
+    if (cancelled()) {
+      void host.voiceStop();
+      this.pill?.setListening(false);
+      return;
+    }
     if (res.ok && res.largeDictationMissing) {
       showToast('Large dictation model not downloaded — using standard (see Settings)', {
+        durationMs: 2600,
+      });
+    }
+    if (res.ok && res.largeDictationUnsupported) {
+      showToast('Large dictation model needs a Node runtime on this install — using standard', {
         durationMs: 2600,
       });
     }
@@ -124,15 +155,20 @@ export class VoiceController {
       ribbonCtx: this.deps.ribbonCtx,
       ui,
       native: {
-        copy: () => void host.voiceClipboard('copy'),
-        cut: () => void host.voiceClipboard('cut'),
-        paste: () => void host.voiceClipboard('paste'),
+        copy: () => host.voiceClipboard('copy'),
+        cut: () => host.voiceClipboard('cut'),
+        paste: () => host.voiceClipboard('paste'),
+        sendKey: (key) => host.voiceSendKey(key),
+      },
+      visibleRange: () => {
+        const v = this.deps.getView();
+        return v ? editorVisibleRange(v) : null;
       },
     };
 
     let announcedReady = false;
     this.unsubscribers.push(
-      host.onVoiceEvent((raw) => this.handleEvent(raw as VoiceEvent, dispatchDeps)),
+      host.onVoiceEvent((raw) => this.handleEvent(raw as VoiceEvent | VoiceEndedEvent, dispatchDeps)),
       host.onVoiceLevel((level) => {
         this.pill?.setLevel(level);
         this.pill?.setAutoSleepCountdown(level.autoSleepRemainingMs ?? null);
@@ -147,6 +183,12 @@ export class VoiceController {
     const deviceId = settings.get('voiceInputDeviceId') || undefined;
     try {
       await this.capture.start((chunk) => host.voicePushAudio(chunk), deviceId);
+      if (cancelled()) {
+        this.capture.stop();
+        void host.voiceStop();
+        this.pill?.setListening(false);
+        return;
+      }
     } catch (err) {
       // A saved device that's gone (unplugged headset at a tournament)
       // must not brick voice — fall back to the system default.
@@ -204,6 +246,7 @@ export class VoiceController {
   }
 
   stop(): void {
+    this.generation++; // cancels any in-flight start
     this.active = false;
     this.capture.stop();
     for (const u of this.unsubscribers.splice(0)) u();
@@ -218,19 +261,37 @@ export class VoiceController {
     if (view) patchVoiceState(view, { listening: false, pendingDisambiguation: null, ghostText: null });
   }
 
-  private handleEvent(event: VoiceEvent, deps: DispatchDeps): void {
+  private handleEvent(event: VoiceEvent | VoiceEndedEvent, deps: DispatchDeps): void {
+    // Out-of-band session termination (worker crash): stop everything
+    // and SAY so — a dead session must never look like a listening one
+    // (audit 2026-06-10).
+    if (event.kind === 'ended') {
+      this.stop();
+      showToast(`Voice stopped: ${event.reason}`, { durationMs: 2600 });
+      return;
+    }
     const view = this.deps.getView();
     if (!view) return;
-    this.routeEvent(view, event, deps);
-    // Pen badge tracks sticky pen state after every event (§3.1).
-    const st = voicePluginKey.getState(view.state);
-    if (st) this.pill?.setPen(st.pen.name, st.pen.color);
+    void this.routeEvent(view, event, deps)
+      .catch((err) => {
+        // A throw must not leave the loop looking dead — echo + earcon
+        // and keep the session alive (audit 2026-06-10).
+        console.error('voice: command failed', err);
+        this.pill?.setEcho(`(error) ${event.raw ?? ''}`, false);
+        this.pill?.earconReject();
+      })
+      .finally(() => {
+        // Pen badge tracks sticky pen state after every event (§3.1).
+        const v = this.deps.getView();
+        const st = v ? voicePluginKey.getState(v.state) : null;
+        if (st) this.pill?.setPen(st.pen.name, st.pen.color);
+      });
   }
 
-  private routeEvent(view: EditorView, event: VoiceEvent, deps: DispatchDeps): void {
+  private async routeEvent(view: EditorView, event: VoiceEvent, deps: DispatchDeps): Promise<void> {
     switch (event.kind) {
       case 'command':
-        applyVoiceCommand(view, event, deps);
+        await applyVoiceCommand(view, event, deps);
         break;
       case 'dictation': {
         // Focused UI inputs (palette search fields, dialogs) receive
@@ -350,4 +411,19 @@ function vocabularyText(view: EditorView): string {
   });
   // Registry names ride along so `please <command name>` can decode.
   return `${near}\n${tags.join('\n')}\n${commandNameVocabulary()}`;
+}
+
+/** Doc range currently on screen, via viewport hit-testing (same
+ *  technique as viewport-spellcheck) — feeds the quote picker's
+ *  "identical matches onscreen" rule. */
+function editorVisibleRange(view: EditorView): { from: number; to: number } {
+  const rect = (view.dom as HTMLElement).getBoundingClientRect();
+  const left = rect.left + Math.min(40, Math.max(2, rect.width / 2));
+  const size = view.state.doc.content.size;
+  const topHit = view.posAtCoords({ left, top: 2 });
+  const botHit = view.posAtCoords({ left, top: window.innerHeight - 2 });
+  let from = topHit ? topHit.pos : 0;
+  let to = botHit ? botHit.pos : size;
+  if (from > to) [from, to] = [to, from];
+  return { from, to };
 }

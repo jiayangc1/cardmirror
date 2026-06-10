@@ -54,6 +54,15 @@ export class Segmenter {
   private firstVoicedAudioMs = 0;
   private lastVoicedAudioMs = 0;
   private pauseMs: number;
+  /** Rolling recent RMS values for jam recalibration. */
+  private recentRms: number[] = [];
+
+  /** True while an utterance is open (speech seen, pause not reached).
+   *  Exposed so the service can tell "recognizer consumed only silence"
+   *  from "recognizer is mid-utterance" (vocabulary hot-swap safety). */
+  get voicedActive(): boolean {
+    return this.voicedSeen;
+  }
 
   constructor(opts: { rmsGate?: number; pauseMs?: number } = {}) {
     this.gate = opts.rmsGate ?? 0; // 0 = auto-calibrate
@@ -90,12 +99,28 @@ export class Segmenter {
       return { type: 'calibrating' };
     }
 
+    this.recentRms.push(rms);
+    if (this.recentRms.length > 100) this.recentRms.shift();
+
     if (rms > this.gate) {
       if (!this.voicedSeen) this.firstVoicedAudioMs = this.audioMs;
       this.voicedSeen = true;
       this.silentMs = 0;
       this.tLastVoiced = now;
       this.lastVoicedAudioMs = this.audioMs;
+      // Jam detection (audit 2026-06-10): a mid-session noise-floor
+      // rise (AC, fans) keeps every chunk above the gate — no pause is
+      // ever seen, so no utterance can complete and the session is
+      // stuck until restart. Twenty seconds of unbroken "speech" is not
+      // speech; recalibrate the gate from recent levels.
+      if (this.audioMs - this.firstVoicedAudioMs > 20_000) {
+        const sorted = [...this.recentRms].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)] as number;
+        this.gate = Math.max(MIN_GATE, Math.round(median * GATE_FLOOR_MULTIPLIER));
+        this.voicedSeen = false;
+        this.silentMs = 0;
+        return { type: 'calibrated', gate: this.gate, noiseFloor: median };
+      }
       return { type: 'speech', rms };
     }
     if (this.voicedSeen) {

@@ -19,14 +19,29 @@ import {
   type RibbonContext,
   type RibbonCommandId,
 } from '../ribbon-commands.js';
-import { findQuote, collectTokens, VOICE_NEAR_RADIUS } from './align.js';
+import {
+  findQuote,
+  quoteCandidates,
+  collectTokens,
+  VOICE_NEAR_RADIUS,
+  MAX_AVG_DISTANCE,
+  type AlignResult,
+  type QuoteCandidate,
+} from './align.js';
 import { alignReading } from './paint-align.js';
 import { matchCommandName } from './please-match.js';
+import {
+  containingScope,
+  everyInIteration,
+  nthInIteration,
+  type ScopeName,
+} from './scopes.js';
 import {
   voicePluginKey,
   voiceDispatcher,
   sealUtterance,
   patchVoiceState,
+  VOICE_JUMP_MIN,
   type ViewLike,
 } from './plugin.js';
 import type { CommandArgs, PenName, VoiceEvent } from './types';
@@ -41,10 +56,26 @@ export interface VoiceUi {
 export interface DispatchDeps {
   ribbonCtx: RibbonContext;
   ui: VoiceUi;
-  /** Native clipboard paths (Electron webContents.copy/cut/paste) —
-   *  full-fidelity PM slices, same as Mod-C/X/V. */
-  native?: { copy(): void; cut(): void; paste(): void };
+  /** Native paths (Electron): clipboard ops are the same code paths as
+   *  Mod-C/X/V; sendKey synthesizes a REAL input event (DOM-dispatched
+   *  KeyboardEvents are untrusted and can't drive default actions). */
+  native?: {
+    copy(): Promise<void>;
+    cut(): Promise<void>;
+    paste(): Promise<void>;
+    sendKey(key: string): Promise<void>;
+  };
+  /** Doc range currently on screen — drives the quote picker's
+   *  "identical matches onscreen" rule. Absent (tests), the
+   *  ±VOICE_NEAR_RADIUS window stands in. */
+  visibleRange?: () => { from: number; to: number } | null;
 }
+
+/** Quote candidates whose pure text-similarity (`base`) is within this
+ *  of the best are "the same match" for picker purposes — absorbs
+ *  hyphen-track and normalization wobble. Proximity is deliberately
+ *  excluded: an identical string is identical wherever it sits. */
+const COMPARABLE_BASE_MARGIN = 0.05;
 
 /** Verbs bare `again` may re-issue — navigation/step only, never
  *  destructive editing (a stale repeat must not eat content). */
@@ -52,6 +83,15 @@ const REPEATABLE = new Set([
   'next', 'last', 'move', 'extend', 'goBack', 'scratchThat', 'redoThat',
   'top', 'bottom', 'goChild',
 ]);
+
+/** Mark names each pen can have produced (both underline variants —
+ *  context resolution by enumeration). */
+const PEN_MARK_NAMES: Record<PenName, string[]> = {
+  underline: ['underline_mark', 'underline_direct'],
+  highlight: ['highlight'],
+  emphasis: ['emphasis_mark'],
+  cite: ['cite_mark'],
+};
 
 const PEN_COMMAND: Record<PenName, RibbonCommandId> = {
   underline: 'applyUnderline',
@@ -95,9 +135,13 @@ function entryPos(target: { pos: number; node: PMNode }): number {
 
 function setCursor(view: ViewLike, dispatch: (tr: Transaction) => void, pos: number): void {
   const clamped = Math.max(0, Math.min(pos, view.state.doc.content.size));
+  // TextSelection.near tolerates block-gap positions (e.g. a container
+  // boundary from top/bottom math) instead of throwing — audit
+  // 2026-06-10: a RangeError here escaped the IPC callback and left the
+  // utterance unsealed.
   dispatch(
     view.state.tr
-      .setSelection(TextSelection.create(view.state.doc, clamped))
+      .setSelection(TextSelection.near(view.state.doc.resolve(clamped)))
       .scrollIntoView(),
   );
 }
@@ -170,16 +214,17 @@ function applyPen(
  * utterance dispatcher (§8 atomicity) and the utterance is sealed
  * before returning.
  */
-export function applyVoiceCommand(
+export async function applyVoiceCommand(
   view: ViewLike,
   event: Extract<VoiceEvent, { kind: 'command' }>,
   deps: DispatchDeps,
-): void {
+): Promise<void> {
   const dispatch = voiceDispatcher(view, event.utteranceId);
   const st = voicePluginKey.getState(view.state);
   const pen = st?.pen ?? { name: 'underline' as PenName };
   const { verb, args } = event;
   const sel = view.state.selection;
+  const originHead = sel.head; // one jump-origin record per utterance
   let ok = true;
   let echoText = event.raw;
 
@@ -195,25 +240,35 @@ export function applyVoiceCommand(
     if (!s.empty) patchVoiceState(view, { lastOpRange: { from: s.from, to: s.to } });
   };
 
-  const alignQuote = (quote: string) => {
-    // Near-first cascade (§4.1): the region around the cursor gets a
-    // much looser fuzz ceiling — the decode vocabulary is built from
-    // this same region, so a near match is the overwhelmingly likely
-    // intent. Doc-wide fallback stays strict.
+  const alignQuote = (quote: string): AlignResult => {
+    // One doc-wide candidate scan at the loose fuzz ceiling, then a
+    // distance guard: loose matches are only trusted near the cursor
+    // (the decode vocabulary comes from that region, so a sloppy far
+    // match is a force-fit, not intent — far hits must clear the
+    // strict ceiling).
     const docSize = view.state.doc.content.size;
-    const near = findQuote(view.state.doc, quote, sel.from, {
-      from: Math.max(0, sel.from - VOICE_NEAR_RADIUS),
-      to: Math.min(docSize, sel.from + VOICE_NEAR_RADIUS),
-      maxAvgDistance: 0.45,
-    });
-    if (near.status === 'match') return near;
-    // Near pass ambiguous → re-scan doc-wide at the same looseness so
-    // the badge list includes every comparable match the user can see,
-    // not just those inside the near window. Near pass empty → strict
-    // doc-wide (loose far matches are usually garbage).
-    return findQuote(view.state.doc, quote, sel.from, {
-      maxAvgDistance: near.status === 'ambiguous' ? 0.45 : undefined,
-    });
+    const nearFrom = Math.max(0, sel.from - VOICE_NEAR_RADIUS);
+    const nearTo = Math.min(docSize, sel.from + VOICE_NEAR_RADIUS);
+    const kept = quoteCandidates(view.state.doc, quote, sel.from, { maxAvgDistance: 0.45 })
+      .filter((c) => c.base <= MAX_AVG_DISTANCE || (c.to > nearFrom && c.from < nearTo));
+    if (!kept.length) return { status: 'none' };
+    const best = kept[0] as QuoteCandidate;
+    // Picker rule (test-run finding 2026-06-10: "duplicates sometimes
+    // fire the picker, sometimes don't"): two or more equally good
+    // matches ONSCREEN → offer the pick, every time. Offscreen
+    // duplicates still resolve silently to the nearest — no doc sweep,
+    // and badges on offscreen spans would be invisible anyway.
+    const vis = deps.visibleRange?.() ?? { from: nearFrom, to: nearTo };
+    const comparable = kept.filter(
+      (c) => c.base <= best.base + COMPARABLE_BASE_MARGIN && c.to > vis.from && c.from < vis.to,
+    );
+    if (comparable.length >= 2) {
+      return {
+        status: 'ambiguous',
+        candidates: comparable.slice(0, 6).map((c) => ({ from: c.from, to: c.to })),
+      };
+    }
+    return { status: 'match', from: best.from, to: best.to };
   };
 
   /** Execute a quote-taking operation against a RESOLVED range — shared
@@ -275,18 +330,47 @@ export function applyVoiceCommand(
         rememberRange();
       }
       break;
-    case 'strip':
-      // Toggle-off path: same command as apply — the toggles remove
-      // the mark when present (spec §3.1 context resolution included).
-      if ((ok = requireSelection(view, deps))) ok = applyPen(view, deps, pen, dispatch);
+    case 'strip': {
+      // Removal-only (test-run finding 2026-06-10: routing through the
+      // toggle ADDED the pen's mark to unmarked selections). Presence-
+      // gated, then explicit removeMark of the pen's mark names —
+      // context resolution covered by removing both underline variants.
+      if (!(ok = requireSelection(view, deps))) break;
+      const names = PEN_MARK_NAMES[pen.name];
+      const present = names.some((nm) => {
+        const mt = view.state.schema.marks[nm];
+        return mt ? view.state.doc.rangeHasMark(sel.from, sel.to, mt) : false;
+      });
+      if (!present) {
+        deps.ui.hint(`no ${pen.name} here to strip`);
+        ok = false;
+        break;
+      }
+      const tr = view.state.tr;
+      for (const nm of names) {
+        const mt = view.state.schema.marks[nm];
+        if (mt) tr.removeMark(sel.from, sel.to, mt);
+      }
+      dispatch(tr.scrollIntoView());
       break;
-    case 'stripAll':
-      // F12 parity, no selection guard: clearToNormal owns the cursor /
-      // shadow-selection / structural-demote behavior, and selection →
-      // F12 deliberately no-ops on structural formatting (owner call,
-      // 2026-06-09).
+    }
+    case 'stripAll': {
+      // Spec §5: "remove ALL formatting marks". F12/clearToNormal
+      // deliberately preserves highlight/shading (F12_STRIP lists);
+      // voice strip-all removes those too on a selection (test-run
+      // finding 2026-06-10) — voice is a superset, not a mirror.
       ok = runRibbon(view, deps, 'clearToNormal', dispatch);
+      if (ok && !view.state.selection.empty) {
+        const s2 = view.state.selection;
+        const tr = view.state.tr;
+        for (const nm of ['highlight', 'shading']) {
+          const mt = view.state.schema.marks[nm];
+          if (mt) tr.removeMark(s2.from, s2.to, mt);
+        }
+        if (tr.steps.length) dispatch(tr);
+      }
       break;
+    }
     case 'againBut': {
       const range = st?.lastOpRange;
       if (!range) {
@@ -368,11 +452,71 @@ export function applyVoiceCommand(
             raw: event.raw,
           },
         });
-        echoText = `«${args.quote}» ×${r.candidates.length} — say pick one–${['one', 'two', 'three', 'four'][r.candidates.length - 1]} or cancel`;
+        echoText = `«${args.quote}» ×${r.candidates.length} — say pick one–${['one', 'two', 'three', 'four', 'five', 'six'][r.candidates.length - 1]} or cancel`;
       } else {
         deps.ui.hint(`couldn't find "${args.quote}"`);
         ok = false;
       }
+      break;
+    }
+    case 'takeFrom': {
+      // Two-quote range (§4.1 "take from X to Y"): the decode hands us
+      // one tail "X to Y" — try every ' to ' split, anchor X near the
+      // cursor and Y forward of X. Falls back to a single-quote take.
+      const tail = args.quote ?? '';
+      const words = tail.split(' ');
+      let done = false;
+      for (let i = 1; i < words.length - 1 && !done; i++) {
+        if (words[i] !== 'to') continue;
+        const a = words.slice(0, i).join(' ');
+        const b = words.slice(i + 1).join(' ');
+        const ra = alignQuote(a);
+        if (ra.status !== 'match') continue;
+        const rb = findQuote(view.state.doc, b, ra.to, {
+          from: ra.to,
+          to: Math.min(view.state.doc.content.size, ra.to + VOICE_NEAR_RADIUS * 2),
+          maxAvgDistance: 0.45,
+        });
+        if (rb.status !== 'match') continue;
+        setRange(view, dispatch, ra.from, rb.to);
+        rememberRange();
+        echoText = `take from «${a}» to «${b}»`;
+        done = true;
+      }
+      if (!done) {
+        const r = alignQuote(tail);
+        if (r.status === 'match') {
+          setRange(view, dispatch, r.from, r.to);
+          rememberRange();
+        } else {
+          deps.ui.hint(`couldn't resolve "take from ${tail}"`);
+          ok = false;
+        }
+      }
+      break;
+    }
+    case 'skipTo': {
+      // Paint head jump (§6): move the reading head without marking
+      // anything between. Outside paint it's a forward go-to.
+      const session = st?.paintSession;
+      const anchorPos = session?.anchor ?? sel.head;
+      const r = findQuote(view.state.doc, args.quote ?? '', anchorPos, {
+        from: anchorPos,
+        to: Math.min(view.state.doc.content.size, anchorPos + 12000),
+        maxAvgDistance: 0.45,
+      });
+      if (r.status !== 'match') {
+        deps.ui.hint(`couldn't find "${args.quote}" ahead`);
+        ok = false;
+        break;
+      }
+      setCursor(view, dispatch, r.from);
+      if (session) {
+        patchVoiceState(view, {
+          paintSession: { anchor: r.from, provisional: [], headPos: r.from },
+        });
+      }
+      echoText = `skip to «${args.quote}»`;
       break;
     }
     case 'pick': {
@@ -447,7 +591,7 @@ export function applyVoiceCommand(
       }
       // Re-issue under THIS utterance's id — the repeat is its own
       // undo step and its own tray line.
-      applyVoiceCommand(
+      await applyVoiceCommand(
         view,
         { ...event, verb: lastCmd.verb, args: lastCmd.args as CommandArgs, raw: lastCmd.raw },
         deps,
@@ -512,6 +656,64 @@ export function applyVoiceCommand(
       if (st?.pendingDisambiguation) patchVoiceState(view, { pendingDisambiguation: null });
       setCursor(view, dispatch, sel.from);
       break;
+
+    // Composable scopes (§4.5)
+    case 'takeOrdinal':
+    case 'goOrdinal': {
+      const r = nthInIteration(view.state.doc, args.target as ScopeName, sel.head, args.n ?? 1);
+      if (!r) {
+        const count = everyInIteration(view.state.doc, args.target as ScopeName, sel.head).length;
+        deps.ui.hint(count ? `only ${count} ${args.target}${count === 1 ? '' : 's'} here` : `no ${args.target} here`);
+        ok = false;
+        break;
+      }
+      if (verb === 'goOrdinal') setCursor(view, dispatch, r.from);
+      else {
+        setRange(view, dispatch, r.from, r.to);
+        rememberRange();
+      }
+      break;
+    }
+    case 'takeEvery':
+    case 'markEvery': {
+      const ranges = everyInIteration(view.state.doc, args.target as ScopeName, sel.head);
+      if (!ranges.length) {
+        deps.ui.hint(`no ${args.target}s here`);
+        ok = false;
+        break;
+      }
+      if (verb === 'takeEvery') {
+        // PM has a single selection — select the covering span and say
+        // what it covers.
+        setRange(view, dispatch, ranges[0]!.from, ranges[ranges.length - 1]!.to);
+        rememberRange();
+        echoText = `take every ${args.target} (${ranges.length})`;
+      } else {
+        // The Cursorless fan-out: ink each range with the active pen,
+        // one utterance = one undo step. Reverse order so earlier
+        // positions stay valid as marks are added.
+        for (let i = ranges.length - 1; i >= 0; i--) {
+          setRange(view, dispatch, ranges[i]!.from, ranges[i]!.to);
+          if (!applyPen(view, deps, pen, dispatch)) ok = false;
+        }
+        setCursor(view, dispatch, originHead);
+        echoText = `mark every ${args.target} (${ranges.length})`;
+      }
+      break;
+    }
+    case 'takeHead':
+    case 'takeTail': {
+      const c = containingScope(view.state.doc, args.target as ScopeName, sel.head);
+      if (!c) {
+        deps.ui.hint(`not inside a ${args.target}`);
+        ok = false;
+        break;
+      }
+      if (verb === 'takeHead') setRange(view, dispatch, c.from, sel.head);
+      else setRange(view, dispatch, sel.head, c.to);
+      rememberRange();
+      break;
+    }
 
     // Cursor-relative (§4.3)
     case 'move':
@@ -656,7 +858,14 @@ export function applyVoiceCommand(
     case 'stopPaint':
       break;
     case 'pressKey':
-      ok = synthesizeKey(args.target as string);
+      // Prefer real native key synthesis (drives default actions in
+      // inputs); fall back to DOM events on the web edition.
+      if (deps.native) {
+        await deps.native.sendKey(args.target as string);
+        ok = true;
+      } else {
+        ok = synthesizeKey(args.target as string);
+      }
       echoText = `press ${args.target}`;
       break;
     case 'typeText': {
@@ -686,6 +895,10 @@ export function applyVoiceCommand(
     case 'tray':
     case 'more':
     case 'voiceHelp':
+      // Honest rejection until these exist — playing the success earcon
+      // for a no-op erodes trust (audit 2026-06-10).
+      deps.ui.hint(`"${verb === 'voiceHelp' ? 'voice help' : verb}" isn't available yet`);
+      ok = false;
       break;
 
     default:
@@ -705,13 +918,22 @@ export function applyVoiceCommand(
       lastRepeatable: { verb, args: args as Record<string, unknown>, raw: echoText },
     });
   }
+  // One jump-origin record per utterance: voice transactions suppress
+  // the automatic recording (see voiceDispatcher), so `go back` returns
+  // to where you were BEFORE the command, never mid-operation.
+  if (ok && verb !== 'goBack' && Math.abs(view.state.selection.head - originHead) >= VOICE_JUMP_MIN) {
+    patchVoiceState(view, { pushBack: originHead });
+  }
 
   function nativeClip(d: DispatchDeps, op: 'copy' | 'cut' | 'paste'): boolean {
     if (!d.native) {
       d.ui.hint(`${op} needs the desktop app`);
       return false;
     }
-    d.native[op]();
+    // Fire the native op; clipboard completion is observable only as
+    // OS state, so failures surface via the OS. The selection it reads
+    // was set synchronously by the preceding dispatch.
+    void d.native[op]();
     return true;
   }
 }

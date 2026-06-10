@@ -55,6 +55,13 @@ export type VoiceEvent = VoiceEventBase &
     | { kind: 'mode'; from: VoiceMode; to: VoiceMode; trigger: string }
   );
 
+/** Out-of-band session-terminated notice (worker crash/exit) — sent by
+ *  the host layer, not the service; carries no utterance context. */
+export interface VoiceEndedEvent {
+  kind: 'ended';
+  reason: string;
+}
+
 /** Throttled input-level report for the tray meter (§10 audio-input affordance). */
 export interface VoiceLevelEvent {
   rms: number;
@@ -86,4 +93,8 @@ export interface VoiceStartResult {
   /** Large dictation was requested but isn't downloaded — session runs
    *  on the standard model. */
   largeDictationMissing?: boolean;
+  /** Large dictation is downloaded but no real Node runtime is
+   *  available to host it (Electron's allocator can't) — session runs
+   *  on the standard model. */
+  largeDictationUnsupported?: boolean;
 }
