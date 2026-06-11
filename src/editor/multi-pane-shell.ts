@@ -851,6 +851,9 @@ class Slot {
    *  for the first two configured readers. */
   refreshWordCount(): void {
     const rec = this.visible;
+    console.warn(
+      `[cardmirror] wc: refresh slot=${this.id} visible="${rec?.filename ?? 'none'}"`,
+    );
     if (!rec) {
       this.wcEl.textContent = '—';
       return;
@@ -2256,6 +2259,9 @@ function buildDocRecord(
         if (record.heavyUpdateTimer !== null) {
           cancelIdle(record.heavyUpdateTimer);
         }
+        console.warn(
+          `[cardmirror] wc: docChanged "${record.filename}" → scheduling flush (owner=${record.owner.id})`,
+        );
         record.heavyUpdateTimer = scheduleIdle(() => {
           record.heavyUpdateTimer = null;
           record.navPanel.update(view.state.doc);
@@ -2263,6 +2269,10 @@ function buildDocRecord(
           // have moved panes since (sendDocToSlotN), and refreshing
           // the old slot left this pane's count stale (live finding:
           // send-to-speech never updated a moved speech doc's count).
+          console.warn(
+            `[cardmirror] wc: flush "${record.filename}" owner=${record.owner.id} ` +
+              `ownerVisible="${record.owner.visible?.filename}" isVisible=${record.owner.visible === record}`,
+          );
           record.owner.refreshWordCount();
         }, 200);
       }
