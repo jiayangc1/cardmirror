@@ -55,7 +55,7 @@ import {
 import { resolveMobileLayout } from './mobile-layout.js';
 import { mobilePlugin, setMobileShellActive } from './mobile-plugin.js';
 import { installCardCutterGate, cardCutterActive } from './card-cutter-gate.js';
-import { cutFocusedCard } from './card-cutter-port.js';
+import { openCutLaunchSheet } from './card-cutter-ui.js';
 import {
   quickCardsStore,
   buildQuickCard,
@@ -3567,10 +3567,7 @@ export function buildEditorPlugins(): Plugin[] {
     keymap({
       'Mod-Alt-c': (_state, _dispatch, view) => {
         if (!cardCutterActive() || !view) return false;
-        void cutFocusedCard(view, {
-          role: 'block',
-          readTimeSec: settings.get('cardCutterReadTimeSec'),
-        });
+        void openCutLaunchSheet(view);
         return true;
       },
     }),

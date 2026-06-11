@@ -158,7 +158,7 @@ function scrollTabIntoView(tab: HTMLElement, container: HTMLElement): void {
 }
 
 /** Tab labels shown in the settings dialog, in display order. */
-const ALL_CATEGORY_TABS: { id: SettingsCategory; label: string }[] = [
+export const CATEGORY_TABS: { id: SettingsCategory; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'editing', label: 'Editing' },
@@ -168,18 +168,7 @@ const ALL_CATEGORY_TABS: { id: SettingsCategory; label: string }[] = [
   // override-anything panel is a "last-resort" customization
   // surface, separated from the everyday tabs.
   { id: 'accessibility', label: 'Accessibility' },
-  // Card Cutter only appears once the console command has enabled it.
-  { id: 'card-cutter', label: 'Card Cutter' },
 ];
-
-/** Visible tabs — the experimental Card Cutter tab is hidden until
- *  its console-gated setting is on. Evaluated at dialog-open time. */
-export const CATEGORY_TABS: { id: SettingsCategory; label: string }[] = ALL_CATEGORY_TABS;
-
-function visibleCategoryTabs(): { id: SettingsCategory; label: string }[] {
-  const cutterOn = !!settings.get('cardCutterEnabled');
-  return ALL_CATEGORY_TABS.filter((t) => t.id !== 'card-cutter' || cutterOn);
-}
 
 /** A deep-link into the settings dialog: open a tab and optionally
  *  scroll to / flash a specific setting, or a named non-setting section
@@ -340,7 +329,7 @@ class SettingsModal {
     tabStrip.className = 'pmd-settings-tabs';
     tabStrip.setAttribute('role', 'tablist');
     const tabButtons: Partial<Record<SettingsCategory, HTMLButtonElement>> = {};
-    for (const { id, label } of visibleCategoryTabs()) {
+    for (const { id, label } of CATEGORY_TABS) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'pmd-settings-tab';
@@ -395,7 +384,7 @@ class SettingsModal {
     // refreshDependents pass can find rows under inactive tabs too.
     this.dependentRows.clear();
     const panels: Partial<Record<SettingsCategory, HTMLDivElement>> = {};
-    for (const { id } of visibleCategoryTabs()) {
+    for (const { id } of CATEGORY_TABS) {
       const panel = document.createElement('div');
       panel.className = 'pmd-settings-list pmd-settings-panel';
       panel.setAttribute('role', 'tabpanel');
@@ -404,7 +393,8 @@ class SettingsModal {
         (m) =>
           m.category === id &&
           (!m.electronOnly || hostKind === 'electron') &&
-          (!m.webOnly || hostKind === 'browser'),
+          (!m.webOnly || hostKind === 'browser') &&
+          (!m.revealWhen || !!settings.get(m.revealWhen)),
       );
       for (const meta of entries) {
         const row = this.renderEntry(meta);
@@ -435,7 +425,7 @@ class SettingsModal {
 
     // Wire tab selection logic.
     const applyActive = (): void => {
-      for (const { id } of visibleCategoryTabs()) {
+      for (const { id } of CATEGORY_TABS) {
         const isActive = id === this.activeCategory;
         const btn = tabButtons[id];
         const panel = panels[id];
@@ -650,8 +640,8 @@ class SettingsModal {
       row.appendChild(text);
       row.appendChild(
         buildCardCutterRadio('cardCutterEmphasisStyle', [
-          ['voice', 'Voice — emphasis inside the spoken read (policy)'],
-          ['independent', 'Independent — emphasis marks power phrases (kritik)'],
+          ['voice', 'Voice — emphasis inside the spoken read'],
+          ['independent', 'Independent — emphasis marks power phrases'],
           ['minimal', 'Minimal — sparse emphasis'],
         ]),
       );

@@ -58,9 +58,28 @@ interface CutResult {
   raw: unknown;
 }
 type LlmCaller = (system: string, user: string, model: string) => Promise<string>;
+export interface CutProposal {
+  label: string;
+  detail: string;
+  readTimeSec: number;
+  role: CutOptions['role'];
+}
 interface CardCutterApi {
   readonly version: string;
   cutCard(card: PlainCard, opts: CutOptions, llm: LlmCaller): Promise<CutResult>;
+  highlightCard(
+    card: PlainCard,
+    seed: MarkSpan[],
+    opts: CutOptions,
+    llm: LlmCaller,
+  ): Promise<CutResult>;
+  proposeCuts(
+    card: PlainCard,
+    baseReadTimeSec: number,
+    mode: 'when-ambiguous' | 'always',
+    llm: LlmCaller,
+    model?: string,
+  ): Promise<CutProposal[] | null>;
   detectTerminalImpact(tag: string): boolean;
 }
 
@@ -129,6 +148,22 @@ interface FocusedCard {
   /** Doc positions of each body paragraph's content start (= text
    *  offset 0), parallel to card.paras, for span → doc-pos mapping. */
   paraStarts: number[];
+  /** The card body's EXISTING marks as engine-shaped spans (char
+   *  ranges per body paragraph). Lets the port tell a plain card
+   *  (full cut) from an underlined one (highlight only). */
+  existing: MarkSpan[];
+}
+
+/** Whether the card already has any underline/emphasis, and any
+ *  highlight — drives cut vs highlight vs done routing. */
+function cardState(f: FocusedCard): { hasUnderline: boolean; hasHighlight: boolean } {
+  let hasUnderline = false;
+  let hasHighlight = false;
+  for (const s of f.existing) {
+    if (s.layer === 'hl') hasHighlight = true;
+    else hasUnderline = true;
+  }
+  return { hasUnderline, hasHighlight };
 }
 
 /** Find the card containing the cursor and pull its tag / cite / plain
@@ -152,6 +187,7 @@ export function focusedPlainCard(view: EditorView): FocusedCard | null {
   let cite = '';
   const paras: string[] = [];
   const paraStarts: number[] = [];
+  const existing: MarkSpan[] = [];
   cardNode.forEach((child, offset) => {
     const t = child.type.name;
     const childPos = cardPos + 1 + offset; // position of child node
@@ -160,6 +196,23 @@ export function focusedPlainCard(view: EditorView): FocusedCard | null {
     } else if (t === 'cite_paragraph') {
       cite += (cite ? '\n' : '') + child.textContent;
     } else if (child.isTextblock) {
+      const p = paras.length;
+      // Read existing body marks into char-range spans, tracking the
+      // text offset as we walk the inline runs.
+      let textOff = 0;
+      child.forEach((inline) => {
+        if (!inline.isText || !inline.text) return;
+        const start = textOff;
+        const end = textOff + inline.text.length;
+        for (const m of inline.marks) {
+          const name = m.type.name;
+          if (name === 'underline_mark' || name === 'underline_direct')
+            existing.push({ layer: 'u', p, start, end });
+          else if (name === 'emphasis_mark') existing.push({ layer: 'em', p, start, end });
+          else if (name === 'highlight') existing.push({ layer: 'hl', p, start, end });
+        }
+        textOff = end;
+      });
       paras.push(child.textContent);
       paraStarts.push(childPos + 1); // +1 into the textblock's content
     }
@@ -177,6 +230,7 @@ export function focusedPlainCard(view: EditorView): FocusedCard | null {
     },
     cardFrom: cardPos,
     paraStarts,
+    existing,
   };
 }
 
@@ -206,10 +260,16 @@ const LAYER_MARK: Record<Layer, string> = {
   hl: 'highlight',
 };
 
-export function applyCutToCard(view: EditorView, focused: FocusedCard, spans: MarkSpan[]): void {
+export function applyCutToCard(
+  view: EditorView,
+  focused: FocusedCard,
+  spans: MarkSpan[],
+  layers?: Layer[],
+): void {
   const tr = view.state.tr;
   const color = resolveHighlightColor(view);
   for (const s of spans) {
+    if (layers && !layers.includes(s.layer)) continue;
     const base = focused.paraStarts[s.p];
     if (base === undefined) continue;
     const from = base + s.start;
@@ -252,24 +312,37 @@ export async function cutFocusedCard(view: EditorView, inv: CutInvocation): Prom
     showToast('Put the cursor in a card with body text first.');
     return;
   }
-  const wpm = readerWpm();
-  const targetWords = Math.max(15, Math.round((inv.readTimeSec * wpm) / 60));
-  showToast('Cutting card…');
+  const { hasUnderline, hasHighlight } = cardState(focused);
+  // Already highlighted → done; don't clobber a finished cut. (A
+  // future Highlight Down command shrinks it.)
+  if (hasHighlight) {
+    showToast('This card is already highlighted.');
+    return;
+  }
+  const opts: CutOptions = {
+    targetWords: Math.max(15, Math.round((inv.readTimeSec * readerWpm()) / 60)),
+    emphasisStyle: settings.get('cardCutterEmphasisStyle'),
+    role: inv.role,
+    model: resolveAiModel(),
+    terminalImpact: api.detectTerminalImpact(focused.card.tag),
+  };
+  const llm = makeLlm();
   try {
-    const result = await api.cutCard(
-      focused.card,
-      {
-        targetWords,
-        emphasisStyle: settings.get('cardCutterEmphasisStyle'),
-        role: inv.role,
-        model: resolveAiModel(),
-        terminalImpact: api.detectTerminalImpact(focused.card.tag),
-      },
-      makeLlm(),
-    );
-    applyCutToCard(view, focused, result.spans);
-    for (const w of result.warnings) console.log(`[cardcutter] ${w}`);
-    showToast('Card cut — ↶ to undo');
+    // Underlined-but-not-highlighted → Highlight Card (trust the
+    // existing underlines, add only highlights). Plain → full Cut.
+    if (hasUnderline) {
+      showToast('Highlighting card…');
+      const result = await api.highlightCard(focused.card, focused.existing, opts, llm);
+      applyCutToCard(view, focused, result.spans, ['hl']);
+      for (const w of result.warnings) console.log(`[cardcutter] ${w}`);
+      showToast('Card highlighted — ↶ to undo');
+    } else {
+      showToast('Cutting card…');
+      const result = await api.cutCard(focused.card, opts, llm);
+      applyCutToCard(view, focused, result.spans);
+      for (const w of result.warnings) console.log(`[cardcutter] ${w}`);
+      showToast('Card cut — ↶ to undo');
+    }
   } catch (err) {
     console.error('[cardcutter] cut failed:', err);
     showToast(`Card cut failed: ${(err as Error).message}`);
@@ -280,4 +353,38 @@ export async function cutFocusedCard(view: EditorView, inv: CutInvocation): Prom
 function readerWpm(): number {
   const readers = settings.get('readers');
   return readers[0]?.wpm && readers[0].wpm > 0 ? readers[0].wpm : 350;
+}
+
+/** Whether the cursor is in a cuttable card, and its mark state — for
+ *  the launch sheet to label cut vs highlight vs already-done. */
+export function focusedCardStatus(
+  view: EditorView,
+): { cuttable: boolean; hasUnderline: boolean; hasHighlight: boolean } {
+  const f = focusedPlainCard(view);
+  if (!f) return { cuttable: false, hasUnderline: false, hasHighlight: false };
+  return { cuttable: true, ...cardState(f) };
+}
+
+/** Pass 0 (describe-then-generate): ask the engine whether the focused
+ *  card cuts multiple ways, returning the option descriptions or null.
+ *  Returns null on any failure (caller proceeds without a question). */
+export async function proposeFocusedCuts(
+  view: EditorView,
+  baseReadTimeSec: number,
+  mode: 'when-ambiguous' | 'always',
+): Promise<CutProposal[] | null> {
+  if (!engine) return null;
+  const f = focusedPlainCard(view);
+  if (!f) return null;
+  try {
+    return await engine.proposeCuts(f.card, baseReadTimeSec, mode, makeLlm(), resolveAiModel());
+  } catch (err) {
+    console.warn('[cardcutter] proposeCuts failed:', (err as Error).message);
+    return null;
+  }
+}
+
+export async function ensureEngine(): Promise<boolean> {
+  if (engine) return true;
+  return tryLoadCardCutterEngine();
 }

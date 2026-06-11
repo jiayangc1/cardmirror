@@ -1052,8 +1052,7 @@ export type SettingsCategory =
   | 'accessibility'
   | 'editing'
   | 'shortcuts'
-  | 'comments-ai'
-  | 'card-cutter';
+  | 'comments-ai';
 
 /**
  * Human-readable metadata for each setting, used by the settings UI.
@@ -1141,6 +1140,9 @@ export interface SettingMeta {
    *  layout choice) that would be noise next to real commands. The
    *  settings dialog still shows it. */
   searchHidden?: boolean;
+  /** When set, the row only renders while this boolean setting is on.
+   *  Used to hide the console-gated card-cutter rows until enabled. */
+  revealWhen?: keyof Settings;
   /** Extra search terms for the command palette. The label often
    *  uses one name for a thing the user might search by another
    *  ("Theme" vs "dark mode", "Line spacing" vs "line height"); these
@@ -1659,64 +1661,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     kind: 'toggle',
     category: 'editing',
   },
-  // ─── Card Cutter (experimental, console-gated) ──────────────────
-  // The whole category is hidden unless `cardCutterEnabled` (flipped
-  // by the console command). `searchHidden` keeps these out of the
-  // command palette's settings search.
-  {
-    key: 'cardCutterReadTimeSec',
-    label: 'Default read length (seconds)',
-    description:
-      'How long the highlighted read should take by default, at your reader words-per-minute. Roughly 12 seconds is a typical card. Individual cuts can override this.',
-    kind: 'number',
-    category: 'card-cutter',
-    searchHidden: true,
-  },
-  {
-    key: 'cardCutterEmphasisStyle',
-    label: 'Emphasis style',
-    description:
-      "Voice: emphasis marks the spoken content words inside highlights (policy house style). Independent: emphasis marks rhetorically powerful phrases whether or not they're in the read (kritik style). Minimal: sparse emphasis. This is your own preference and sticks across files.",
-    kind: 'cardCutterEmphasisStyle',
-    category: 'card-cutter',
-    searchHidden: true,
-  },
-  {
-    key: 'cardCutterClarifyingQuestions',
-    label: 'Clarifying questions',
-    description:
-      'When the cutter may pause to ask how you want a card cut (e.g. establish vs. supplement). When-ambiguous lets the model decide; Always forces a prompt; Never skips them.',
-    kind: 'cardCutterClarifyingQuestions',
-    category: 'card-cutter',
-    searchHidden: true,
-  },
-  {
-    key: 'cardCutterAcronymSplitting',
-    label: 'Acronym letter-splitting',
-    description:
-      'Highlight just the initial letters of a spelled-out term so the read produces the acronym (e.g. "Department of Defense" read as "DoD"). Off by default — error-prone when machine-generated.',
-    kind: 'cardCutterAcronymSplitting',
-    category: 'card-cutter',
-    searchHidden: true,
-  },
-  {
-    key: 'cardCutterMorphologyShaving',
-    label: 'Word-shaving for spoken shorthand',
-    description:
-      'Allow highlighting part of a word to produce spoken shorthand ("regulations" read as "regs", "Democrats" as "Dems"). Off by default — load-bearing but the riskiest transform.',
-    kind: 'toggle',
-    category: 'card-cutter',
-    searchHidden: true,
-  },
-  {
-    key: 'cardCutterEnabled',
-    label: 'Disable the card cutter',
-    description:
-      'Turns the experimental card cutter back off, hides its ribbon commands and shortcuts, and removes this settings tab. Re-enable with the console command.',
-    kind: 'cardCutterDisable',
-    category: 'card-cutter',
-    searchHidden: true,
-  },
+
   {
     key: 'headingMode',
     label: 'Condense: heading handling',
@@ -1857,6 +1802,67 @@ export const SETTING_METADATA: SettingMeta[] = [
     kind: 'aiCitePrompt',
     category: 'comments-ai',
     dependsOn: 'aiFeaturesEnabled',
+  },
+  // ─── Card Cutter (experimental; console-gated, hidden until on) ──
+  {
+    key: 'cardCutterReadTimeSec',
+    label: 'Default read length (seconds)',
+    description:
+      'How long the highlighted read should take by default, at your reader words-per-minute. Roughly 12 seconds is a typical card. Individual cuts can override this.',
+    kind: 'number',
+    category: 'comments-ai',
+    searchHidden: true,
+    revealWhen: 'cardCutterEnabled',
+  },
+  {
+    key: 'cardCutterEmphasisStyle',
+    label: 'Emphasis style',
+    description:
+      "Voice: emphasis marks the spoken content words inside highlights (policy house style). Independent: emphasis marks rhetorically powerful phrases whether or not they're in the read (kritik style). Minimal: sparse emphasis. This is your own preference and sticks across files.",
+    kind: 'cardCutterEmphasisStyle',
+    category: 'comments-ai',
+    searchHidden: true,
+    revealWhen: 'cardCutterEnabled',
+  },
+  {
+    key: 'cardCutterClarifyingQuestions',
+    label: 'Clarifying questions',
+    description:
+      'When the cutter may pause to ask how you want a card cut (e.g. establish vs. supplement). When-ambiguous lets the model decide; Always forces a prompt; Never skips them.',
+    kind: 'cardCutterClarifyingQuestions',
+    category: 'comments-ai',
+    searchHidden: true,
+    revealWhen: 'cardCutterEnabled',
+  },
+  {
+    key: 'cardCutterAcronymSplitting',
+    label: 'Acronym letter-splitting',
+    description:
+      'Highlight just the initial letters of a spelled-out term so the read produces the acronym (e.g. "Department of Defense" read as "DoD"). Off by default — error-prone when machine-generated.',
+    kind: 'cardCutterAcronymSplitting',
+    category: 'comments-ai',
+    searchHidden: true,
+    revealWhen: 'cardCutterEnabled',
+  },
+  {
+    key: 'cardCutterMorphologyShaving',
+    label: 'Word-shaving for spoken shorthand',
+    description:
+      'Allow highlighting part of a word to produce spoken shorthand ("regulations" read as "regs", "Democrats" as "Dems"). Off by default — load-bearing but the riskiest transform.',
+    kind: 'toggle',
+    category: 'comments-ai',
+    searchHidden: true,
+    revealWhen: 'cardCutterEnabled',
+  },
+  {
+    key: 'cardCutterEnabled',
+    label: 'Disable the card cutter',
+    description:
+      'Turns the experimental card cutter back off, hides its ribbon commands and shortcuts, and removes this settings tab. Re-enable with the console command.',
+    kind: 'cardCutterDisable',
+    category: 'comments-ai',
+    searchHidden: true,
+    revealWhen: 'cardCutterEnabled',
   },
 ];
 
