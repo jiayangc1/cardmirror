@@ -2262,6 +2262,14 @@ function buildDocRecord(
         console.warn(
           `[cardmirror] wc: docChanged "${record.filename}" → scheduling flush (owner=${record.owner.id})`,
         );
+        // Probe: is requestIdleCallback starved? A plain timer fires
+        // regardless; if it reports the flush still pending, the idle
+        // callback's 200ms timeout is not being honored.
+        setTimeout(() => {
+          console.warn(
+            `[cardmirror] wc: probe(400ms) flushStillPending=${record.heavyUpdateTimer !== null}`,
+          );
+        }, 400);
         record.heavyUpdateTimer = scheduleIdle(() => {
           record.heavyUpdateTimer = null;
           console.warn(
