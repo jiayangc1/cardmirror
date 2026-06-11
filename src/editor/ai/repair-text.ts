@@ -559,16 +559,42 @@ export function normalizeForDiagnosis(s: string): string {
     .replace(/[\u00B6\u00AD\u200B\u200C\u200D\uFEFF]/g, '');
 }
 
+/** The document text around the longest find-token that exists in the
+ *  selection — JSON-escaped, so invisible characters (soft hyphens,
+ *  zero-widths, NBSP) become visible in the log. The decisive datum
+ *  for diagnosing a no-match: it shows what the doc ACTUALLY says
+ *  where the model thought its quote was. */
+function excerptNear(flat: FlatSelection, find: string): string | null {
+  const tokens = find
+    .split(/\s+/)
+    .filter((w) => w.length >= 4)
+    .sort((a, b) => b.length - a.length);
+  for (const tok of tokens) {
+    const i = flat.text.indexOf(tok);
+    if (i >= 0) {
+      return flat.text.slice(Math.max(0, i - 40), Math.min(flat.text.length, i + tok.length + 40));
+    }
+  }
+  return null;
+}
+
 /** Console diagnosis for unplaced fixes — classifies each miss so live
  *  failures on real documents are attributable: 'normalization' (a
  *  smart-quote/dash/pilcrow echo problem — a tolerant locator would
- *  have placed it) vs 'no-match' (the model invented or mangled text). */
+ *  have placed it) vs 'no-match' (the model invented or mangled text),
+ *  with the actual nearby doc text for the no-match case. */
 function logUnplaced(flat: FlatSelection, notFound: RepairFix[], overlapped: RepairFix[]): void {
   if (notFound.length === 0 && overlapped.length === 0) return;
   const normHay = normalizeForDiagnosis(flat.text);
   for (const f of notFound) {
     const kind = normHay.includes(normalizeForDiagnosis(f.find)) ? 'normalization' : 'no-match';
-    console.warn(`[repair] could not place (${kind}): find=${JSON.stringify(f.find)}`);
+    console.warn(
+      `[repair] could not place (${kind}): find=${JSON.stringify(f.find)} replace=${JSON.stringify(f.replace)}`,
+    );
+    if (kind === 'no-match') {
+      const near = excerptNear(flat, f.find);
+      if (near) console.warn(`[repair]   doc near miss: ${JSON.stringify(near)}`);
+    }
   }
   for (const f of overlapped) {
     console.warn(`[repair] could not place (overlapped): find=${JSON.stringify(f.find)}`);
