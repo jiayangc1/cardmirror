@@ -375,9 +375,15 @@ export function locateFixes(
   let lastTo = -1;
   let lastInsertAt = -1;
   for (const m of matched) {
-    // Overlap, or a duplicate insertion at the same point (the model
-    // sometimes lists one correction under two context windows —
-    // applying both would double the inserted text).
+    // An EXACT duplicate of the edit just placed (the model lists one
+    // correction under two context wordings) is not a loss — drop it
+    // silently so the skip count only reports real failures.
+    const prev = located[located.length - 1];
+    if (prev && prev.from === m.from && prev.to === m.to && prev.replace === m.replace) {
+      continue;
+    }
+    // Overlap, or a conflicting insertion at the same point — applying
+    // both would double or garble the inserted text.
     if (m.from < lastTo || (m.from === m.to && m.from === lastInsertAt)) {
       overlapped.push(m.fix);
       continue;

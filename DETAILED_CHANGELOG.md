@@ -35,9 +35,11 @@ in each release, see `CHANGELOG.md`.
   also reduce to their middles before overlap resolution — fixes whose
   context windows overlap now coexist when their actual edits are
   disjoint (live: a detected "self- help" fix was dropped under
-  another fix's context), with identical zero-width insertions at the
-  same point deduped (the model sometimes lists one correction under
-  two windows; applying both would double the inserted text). The fold
+  another fix's context). Exact duplicates of an already-placed edit
+  (the model lists one correction under two context wordings) drop
+  SILENTLY — they're not losses, so they no longer inflate the
+  "couldn't be placed" count in the toast; conflicting same-point
+  insertions still count. The fold
   is also case-insensitive (live: the model echoed "in much of…" for a
   doc reading "In much of…" — safe because the agreeing context is
   never edited, so the doc keeps its case), and a LAST-RESORT trimmed

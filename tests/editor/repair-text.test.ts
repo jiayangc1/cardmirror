@@ -235,17 +235,18 @@ describe('placement on formatted cards (failure repro)', () => {
     expect(bodyTexts(next.doc).join('\n')).toContain('suggests this is a problem');
   });
 
-  it('duplicate insertions at the same point dedupe (one space, not two)', () => {
+  it('duplicate insertions at the same point dedupe silently (one space, not two)', () => {
     // The model sometimes lists the SAME correction under two context
     // windows. Both reduce to an identical zero-width insertion —
-    // applying both would yield "this  is".
+    // applying both would yield "this  is". An exact duplicate is not
+    // a loss, so it doesn't count toward the skip total either.
     const doc = makeDoc(card(tag('TAG'), formattedBody()));
     const { next, applied, skipped } = repair(doc, [
       { find: 'suggests thisis', replace: 'suggests this is' },
       { find: 'thisis a problern', replace: 'this is a problern' },
     ]);
     expect(applied).toBe(1);
-    expect(skipped).toBe(1);
+    expect(skipped).toBe(0);
     expect(bodyTexts(next.doc).join('\n')).toContain('suggests this is a problern');
   });
 
