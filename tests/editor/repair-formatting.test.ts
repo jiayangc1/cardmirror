@@ -183,6 +183,19 @@ describe('parseFormatResponse', () => {
     expect(dropped.length).toBe(2);
   });
 
+  // Live drop 2026-06-10: the model mirrored the SIGNATURE notation in
+  // a target — ["u+hl"] as one compound string — and the whole mapping
+  // for b+hl+u was discarded, leaving those runs untouched.
+  it('accepts compound "u+hl" targets by splitting on +', () => {
+    const { plan, dropped } = parseFormatResponse(
+      '{"map":{"b+u":["u"],"plain":[],"u":["u+hl"]},"exceptions":[{"text":"Empire","format":["i+u"]}]}',
+      known,
+    );
+    expect(dropped).toEqual([]);
+    expect(plan.map.get('u')).toEqual(['u', 'hl']);
+    expect(plan.exceptions[0]!.format).toEqual(['i', 'u']);
+  });
+
   it('throws only when there is no JSON at all', () => {
     expect(() => parseFormatResponse('no json here', known)).toThrow();
   });

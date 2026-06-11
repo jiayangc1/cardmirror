@@ -53,7 +53,7 @@ You receive one card: its plain text, then a table of the FORMATTING SIGNATURES 
 Decide what each signature SHOULD be, using these repair patterns:
 
 1. du is underlining → map to u.
-2. b+u (bold underline): the FACTS section states whether the card has plain (non-bold) underlining — follow it. If plain underlining exists, b+u is the stand-out layer → em (and b+hl+u → em+hl). If the FACTS say ALL underlining is bold, there was no emphasis pass — bold-underline IS the underlining: b+u → u and b+hl+u → u+hl, NOT em.
+2. b+u (bold underline): the FACTS section states whether the card has plain (non-bold) underlining — follow it. If plain underlining exists, b+u is the stand-out layer → ["em"] (and b+hl+u → ["em","hl"]). If the FACTS say ALL underlining is bold, there was no emphasis pass — bold-underline IS the underlining: b+u → ["u"] and b+hl+u → ["u","hl"], NOT em.
 3. b or i alone amid underlined text usually stands in for emphasis → em. BUT keep b / i (possibly alongside em or u) when it coexists with real emphasis as an extra differentiation layer, or when the samples read as reproduced source formatting (titles, foreign words, single emphasized terms from the original author).
 4. If the card has NO underlining at all but mixes base-size and small text, the base-size text WAS the underlined text → map plain to u and small to nothing. (Sizes themselves are never changed — only the marks.)
 5. Highlighting stays hl. Highlighted text should normally also be underlined: a signature of just hl usually maps to u+hl.
@@ -67,7 +67,7 @@ Respond with ONLY a JSON object, no prose, no code fences:
 
 Rules:
 - Map keys are signatures copied EXACTLY from the table (e.g. "b+u", "du", "plain", "small").
-- Targets use only: u, em, b, i, hl, shd. An empty array [] means plain text. Do not combine em with u (em implies underline).
+- Targets use only: u, em, b, i, hl, shd. Each target is an ARRAY of separate flag strings — ["u","hl"], never "u+hl". An empty array [] means plain text. Do not combine em with u (em implies underline).
 - Include every signature from the table; mapping it to itself means "leave unchanged".
 - "exceptions" (optional): verbatim text fragments — copied character-for-character from the card text — whose formatting should DIFFER from their signature's rule (e.g. a book title that must keep italics while the blanket rule converts italics to emphasis). Applied to every occurrence of the fragment.`;
 
@@ -369,6 +369,25 @@ export function parseFormatResponse(
   }
   const dropped: string[] = [];
   const plan: FormatPlan = { map: new Map(), exceptions: [] };
+
+  // Targets tolerate the signature notation the table itself teaches:
+  // "u+hl" (compound string) reads as ["u","hl"] — a live plan was
+  // dropped because the model mirrored the key syntax in a target.
+  const normalizeTarget = (value: unknown): TargetFlag[] | null => {
+    if (!Array.isArray(value)) return null;
+    const out = new Set<TargetFlag>();
+    for (const v of value) {
+      if (typeof v !== 'string') return null;
+      for (const part of v.split('+')) {
+        const flag = part.trim().toLowerCase();
+        if (!flag) continue;
+        if (!TARGET_FLAGS.has(flag)) return null;
+        out.add(flag as TargetFlag);
+      }
+    }
+    return [...out];
+  };
+
   const rawMap = (parsed as { map?: unknown }).map;
   if (rawMap && typeof rawMap === 'object') {
     for (const [key, value] of Object.entries(rawMap as Record<string, unknown>)) {
@@ -376,25 +395,21 @@ export function parseFormatResponse(
         dropped.push(`unknown signature ${JSON.stringify(key)}`);
         continue;
       }
-      if (!Array.isArray(value) || !value.every((v) => typeof v === 'string' && TARGET_FLAGS.has(v))) {
-        dropped.push(`invalid target for ${JSON.stringify(key)}`);
+      const target = normalizeTarget(value);
+      if (target === null) {
+        dropped.push(`invalid target ${JSON.stringify(value)} for ${JSON.stringify(key)}`);
         continue;
       }
-      plan.map.set(key, [...new Set(value)] as TargetFlag[]);
+      plan.map.set(key, target);
     }
   }
   const rawExceptions = (parsed as { exceptions?: unknown }).exceptions;
   if (Array.isArray(rawExceptions)) {
     for (const e of rawExceptions) {
       const text2 = (e as { text?: unknown })?.text;
-      const format = (e as { format?: unknown })?.format;
-      if (
-        typeof text2 === 'string' &&
-        text2.trim().length >= 3 &&
-        Array.isArray(format) &&
-        format.every((v) => typeof v === 'string' && TARGET_FLAGS.has(v))
-      ) {
-        plan.exceptions.push({ text: text2, format: [...new Set(format)] as TargetFlag[] });
+      const format = normalizeTarget((e as { format?: unknown })?.format);
+      if (typeof text2 === 'string' && text2.trim().length >= 3 && format !== null) {
+        plan.exceptions.push({ text: text2, format });
       } else {
         dropped.push('invalid exception entry');
       }
