@@ -37,6 +37,7 @@ Focus exclusively on these types of errors:
    - If the word is a genuinely hyphenated compound or prefixed term, KEEP the hyphen and remove only the stray space (e.g., "neo- Gramscian" should be "neo-Gramscian"; "vis-a- vis" should be "vis-a-vis"; "self- determination" should be "self-determination").
    - If it is an ordinary word that was split across a line, remove the hyphen AND the space (e.g., "re- search" should be "research").
 5. Extra or missing spaces (e.g., "thisis" should be "this is")
+   - This includes hyphenated compounds run together with the hyphen lost ("welldesigned" should be "well-designed") and words fused across a removed break ("polisis seen" should be "polis is seen"). The find MUST quote the run-together form exactly as it appears in the input — NEVER quote a hyphenated or spaced form you infer the text used to have.
 6. Common punctuation errors (e.g., missing periods, commas appearing as periods)
 7. Other typical OCR errors that are clearly unintentional
 
@@ -58,7 +59,7 @@ Respond with ONLY a JSON object of exactly this shape — no prose, no code fenc
 {"fixes": [{"find": "<text>", "replace": "<text>"}]}
 
 Rules for the list:
-- "find" MUST be copied VERBATIM from the input I give you — character for character, including any newlines (write them as actual \\n in the JSON string).
+- "find" MUST be copied VERBATIM from the input I give you — character for character, including any newlines (write them as actual \\n in the JSON string). Copy what the text says NOW, not what it should have said: to fix "welldesigned", the find is "welldesigned" — a find quoting "well-\\ndesigned" will not locate.
 - The input contains quotation marks — escape every double quote inside "find" and "replace" as \\" so the JSON stays valid.
 - Include enough surrounding context in "find" that it occurs only once (or, if a fix repeats, list it once per occurrence in reading order).
 - "replace" is "find" with ONLY the OCR/PDF error corrected; everything else in it stays identical.
