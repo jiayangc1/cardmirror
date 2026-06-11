@@ -16,14 +16,14 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
-- **Holding the drag chord and clicking no longer selects words on
-  macOS.** The previous release's fix only suppressed clicks that
-  landed on a draggable card or heading; everywhere else the
-  Option+Shift-modified click fell through to the Mac's native
-  select-a-word behavior, which `user-select` can't block inside an
-  editable. While the chord is held, clicks in the editor now never
-  reach the text layer at all — they either start a pickup or do
-  nothing.
+- **Typing over a Ctrl+Shift+Down selection no longer eats the
+  paragraph break.** Selecting a paragraph with Ctrl+Shift+Down
+  extends the selection to the start of the next block, so typing
+  replaced across the boundary and merged the blocks — worst case,
+  selecting a tag that way and typing folded the cite into the tag.
+  Typing now replaces only the block's own text, matching
+  triple-click. Selections that visibly reach into the next block's
+  text still merge as before.
 
 - **Pane word counts update live after Send to Speech in multi-pane.**
   Two stacked causes. The send path's "show the new headings

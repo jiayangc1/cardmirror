@@ -7,24 +7,24 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
-- **macOS pickup-chord click no longer triggers word selection**
-  (`src/editor/drag-editor-surface.ts`). The alpha.10 fix (capture
-  pointerdown interceptor + `user-select: none` in pickup mode,
-  shipped unlogged pending macOS verification) didn't hold, for two
-  reasons: the interceptor swallowed the pointerdown ONLY when a
-  draggable container was hovered — every other chord-click fell
-  through — and `user-select: none` does not suppress selection
-  inside contenteditable in Blink. The fallthrough lands in Blink's
-  macOS editing behavior, where Option+Shift+click performs
-  word-granularity selection at the mouse-event layer (our own
-  word-selection plugin already defers on altKey, so nothing
-  app-side stood in the way). Fix: while the pickup chord is held,
-  EVERY left click on the editor host is swallowed in capture phase —
-  pointerdown unconditionally (it then starts the pickup when a
-  container is hovered, else does nothing), plus a mousedown
-  interceptor since the native selection behavior runs off the
-  mouse-event stream and a canceled pointerdown's compat-event
-  suppression is not something to bet the fix on.
+- **Typing over a block-tail selection preserves the boundary** (new
+  `src/editor/type-over-boundary.ts`, wired in `buildEditorPlugins`).
+  Triple-click selects a paragraph's inline content, so typing over it
+  replaces in place; Ctrl-Shift-Down extends the selection to offset 0
+  of the NEXT textblock, so the boundary sat inside the replace range
+  and typing merged the blocks — cursor at a tag's start +
+  Ctrl-Shift-Down + type folded the cite into the tag. A
+  handleTextInput plugin intercepts text input over any non-empty
+  selection whose tail sits at parentOffset 0 of a textblock with the
+  head in an earlier block, and trims the replace range back to the
+  end of the previous textblock (Selection.near walking backward
+  across however many structural tokens separate the blocks — works
+  for tag|cite inside a card as well as sibling paragraphs).
+  Selections genuinely reaching INTO the next block's text are left
+  to the standard merging behavior, as are IME composition and paste
+  (out of scope: the reported gesture is plain typing).
+
+- **Multi-pane word-count staleness after a pane move fixed**
   (`src/editor/multi-pane-shell.ts`). Full trace of the live counter,
   both modes: single-pane refreshes from (a) the heavy debounced flush
   on doc changes, (b) the selection-only branch under

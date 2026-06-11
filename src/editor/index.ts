@@ -127,6 +127,7 @@ import { buildImageNodeFromBlob, insertImageNode } from './image-insert.js';
 import { imageContextMenuPlugin } from './image-context-menu-plugin.js';
 import { linkContextMenuPlugin } from './link-context-menu-plugin.js';
 import { wordSelectionPlugin } from './word-selection-plugin.js';
+import { typeOverBoundaryPlugin } from './type-over-boundary.js';
 import { wordSelectionKeymap } from './word-selection-keymap.js';
 import { highlightFrequencyPlugin } from './highlight-frequency-plugin.js';
 import { editorDragSurface } from './drag-editor-surface.js';
@@ -3553,6 +3554,7 @@ export function buildEditorPlugins(): Plugin[] {
     // anchor + granularity so subsequent drag and shift+click
     // extend by the right unit.
     wordSelectionPlugin,
+    typeOverBoundaryPlugin,
     highlightFrequencyPlugin,
     // Swallow the browser's `dragstart` on the editor's content-
     // editable so the user can't initiate a text-move drag from a
