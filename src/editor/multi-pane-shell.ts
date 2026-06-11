@@ -2264,15 +2264,21 @@ function buildDocRecord(
         );
         record.heavyUpdateTimer = scheduleIdle(() => {
           record.heavyUpdateTimer = null;
-          record.navPanel.update(view.state.doc);
-          // record.owner, not the build-time `slot` — the record may
-          // have moved panes since (sendDocToSlotN), and refreshing
-          // the old slot left this pane's count stale (live finding:
-          // send-to-speech never updated a moved speech doc's count).
           console.warn(
             `[cardmirror] wc: flush "${record.filename}" owner=${record.owner.id} ` +
               `ownerVisible="${record.owner.visible?.filename}" isVisible=${record.owner.visible === record}`,
           );
+          try {
+            record.navPanel.update(view.state.doc);
+          } catch (e) {
+            console.warn(
+              `[cardmirror] wc: navPanel.update THREW: ${e instanceof Error ? e.stack ?? e.message : String(e)}`,
+            );
+          }
+          // record.owner, not the build-time `slot` — the record may
+          // have moved panes since (sendDocToSlotN), and refreshing
+          // the old slot left this pane's count stale (live finding:
+          // send-to-speech never updated a moved speech doc's count).
           record.owner.refreshWordCount();
         }, 200);
       }

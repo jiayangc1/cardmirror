@@ -327,10 +327,17 @@ function createWindow(initialDoc?: InitialDocPayload): BrowserWindow {
   win.webContents.on('console-message', (...args: unknown[]) => {
     // Electron emits (event, level, message, line, sourceId) in the
     // legacy signature and (event{level,message,...}) in the new one.
-    const fromEvent = (args[0] as { message?: unknown })?.message;
+    const evt = args[0] as { message?: unknown; level?: unknown };
+    const fromEvent = evt?.message;
     const msg = typeof fromEvent === 'string' ? fromEvent : args[2];
-    if (typeof msg === 'string' && /^\[(repair(-fmt)?|cardmirror)\]/.test(msg)) {
-      console.log(`[renderer] ${msg}`);
+    if (typeof msg !== 'string') return;
+    const level = typeof evt?.level === 'string' || typeof evt?.level === 'number' ? evt.level : args[1];
+    // Error-level renderer output (uncaught exceptions, console.error)
+    // is forwarded unconditionally — invisible exceptions in deferred
+    // callbacks have repeatedly been the missing diagnostic.
+    const isError = level === 3 || level === 'error';
+    if (isError || /^\[(repair(-fmt)?|cardmirror)\]/.test(msg)) {
+      console.log(`[renderer${isError ? ':error' : ''}] ${msg}`);
     }
   });
 
