@@ -7,6 +7,60 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Mobile shell, phase 1 — view-first layout for the web edition**
+  (new `src/editor/mobile-shell.ts`, `mobile-plugin.ts`,
+  `mobile-layout.ts`, `mobile-settings-ui.ts`; boot branch in
+  `index.ts`; `body.pmd-mobile` CSS section; SPEC-mobile-view.md).
+  Activation: a new `mobileLayout` setting (`auto`/`mobile`/
+  `desktop`, web-only) resolved ONCE per load by the pure
+  `resolveMobileLayout` — `auto` = browser host AND coarse pointer
+  AND viewport < 1024px; native hosts never qualify. The shell rides
+  the single-doc machinery (same mountView, open/save, recovery,
+  home screen) rather than running its own editor: it forces the
+  multi-pane branch off for the session WITHOUT writing the synced
+  `multiDocWorkspace` setting (the mode-switch subscriber is gated
+  so the disagreement never reads as a toggle), hides the desktop
+  chrome via CSS, and re-points the single-doc layout variables at
+  its own app bar / mode bar / status strip.
+
+  View-first mechanics: `mobilePlugin` (first in
+  `buildEditorPlugins`, no-op outside the shell) supplies
+  `editable: () => false` — PM treats editable as false if ANY prop
+  says so, composing with the read-mode prop — which keeps the
+  on-screen keyboard away entirely while history, decorations, and
+  programmatic selection stay live. In read mode the plugin's
+  `handleClick` turns a tap into the reading-marker toggle at the
+  tapped word (the touch equivalent of the Space/Enter binding,
+  which a non-editable view never receives). Undo/redo in the app
+  bar run `readModeAwareUndo/Redo`.
+
+  Chrome: the outline drawer ADOPTS the desktop `#nav-panel` mount
+  (same NavigationPanel instance — caret sync, level filters, and
+  click-to-jump unchanged), slides in via left-edge swipe or ☰, and
+  on tablet density (≥768px, `pmd-mobile-tablet`) pins as a
+  persistent 260px rail. Pinch on `#app` drives the SAME content
+  zoom as the desktop status bar (`zoomPct` → `--editor-zoom`, CSS
+  `zoom`): live preview writes the variable directly, the setting
+  commits once at gesture end in 5% steps; an `Aa` sheet carries the
+  slider plus theme segments. The ⋮ menu routes through `runRibbon`
+  (now exported): Open, New, Export a copy (Save As → download on
+  mobile browsers), Word count, Settings, Use desktop layout
+  (reload), Home.
+
+  Mobile settings: a second renderer over the SAME
+  `SETTING_METADATA` — entries opt in via a new `mobile: true` flag
+  (default false, so editing/desktop settings can't leak in by
+  omission); flagged this pass: readers, default save format, layout
+  choice, theme, display sizes (steppers), reduce motion, AI
+  enable/key/model. `SettingMeta` also gains `webOnly` (the desktop
+  dialog now filters on it, mirroring `electronOnly`), and the
+  desktop dialog gets a radio editor for the layout setting.
+  Deliberate deviation from the spec sketch: one scrolling page with
+  section headers instead of subpages (the flagged set is small);
+  tablet keeps the bottom mode bar in this phase rather than app-bar
+  segments. Move mode (tap-pick + move commands + outline drop) and
+  Repair mode are P3/P4 per the spec.
+
 - **Mode-switch (three-pane ↔ windows) restores exactly the open
   set** (`src/editor/index.ts`, new `src/editor/mode-switch.ts`,
   `multi-pane-shell.ts`, `apps/desktop/src/main.ts`, preload +

@@ -52,6 +52,8 @@ import {
   modeSwitchDirtyMap,
   type ModeSwitchDoc,
 } from './mode-switch.js';
+import { resolveMobileLayout } from './mobile-layout.js';
+import { mobilePlugin, setMobileShellActive } from './mobile-plugin.js';
 import {
   quickCardsStore,
   buildQuickCard,
@@ -1337,7 +1339,7 @@ settingsBtn.addEventListener('click', () => openSettings());
  * as clicking the UI — and so binding/unbinding a command never leaves
  * the UI orphaned.
  */
-function runRibbon(id: RibbonCommandId): void {
+export function runRibbon(id: RibbonCommandId): void {
   if (!view) return;
   getRibbonCommand(id, ribbonContext)(view.state, view.dispatch.bind(view), view);
 }
@@ -3489,6 +3491,10 @@ function makeNewDocBody(): PMNode {
  */
 export function buildEditorPlugins(): Plugin[] {
   const plugins: Plugin[] = [
+    // First so its `editable` / read-mode tap-marker props win on the
+    // mobile shell; a no-op everywhere else (the active flag is set
+    // once at boot, before any view mounts).
+    mobilePlugin,
     history(),
     keymap({ 'Mod-z': readModeAwareUndo, 'Mod-y': readModeAwareRedo, 'Mod-Shift-z': readModeAwareRedo }),
     // Tag/analytic boundary editing rules (ARCHITECTURE.md §14.3).
@@ -5669,7 +5675,22 @@ function countSummary(doc: PMNode): string {
 // shell. Otherwise mount the starter doc in the single-doc shell.
 // Crash recovery runs after the editor is up (so the recovery modal
 // has somewhere to mount over).
-const BOOT_MULTI_DOC_WORKSPACE = settings.get('multiDocWorkspace');
+//
+// Mobile shell (web edition, small touch screens — SPEC-mobile-view.md):
+// resolved FIRST and once per load. It rides the single-doc machinery
+// (same mountView, open/save flows, recovery), so it forces the
+// multi-pane branch off for this session WITHOUT writing the synced
+// `multiDocWorkspace` setting — toggling back to desktop restores the
+// workspace untouched.
+const BOOT_MOBILE = resolveMobileLayout(settings.get('mobileLayout'), {
+  hostKind: getHost().kind,
+  coarsePointer:
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches,
+  viewportWidth: window.innerWidth,
+});
+if (BOOT_MOBILE) setMobileShellActive(true);
+const BOOT_MULTI_DOC_WORKSPACE = !BOOT_MOBILE && settings.get('multiDocWorkspace');
 // Multi-window mode = single-doc + a host that can spawn windows
 // (Electron). Gates the speech-stack ribbon cluster's visibility
 // via CSS (single-doc-without-spawn has nothing to send TO).
@@ -5808,6 +5829,12 @@ if (BOOT_MULTI_DOC_WORKSPACE) {
   // stale multi-pane registration (from before a mode-toggle reload)
   // is cleared.
   void getElectronHost()?.registerMultipane(false);
+  // Mobile shell mounts its chrome over the single-doc machinery
+  // (dynamic import — the shell imports back into this module, the
+  // same cycle-break the multi-pane shell uses).
+  if (BOOT_MOBILE) {
+    void import('./mobile-shell.js').then((m) => m.mountMobileShell());
+  }
   void initSingleDocBoot();
 }
 
@@ -5981,6 +6008,10 @@ async function mountFromSpawnPayload(
 let modeSwitchInFlight = false;
 settings.subscribe((s, meta) => {
   if (modeSwitchInFlight) return;
+  // The mobile shell forces single-doc rendering without writing the
+  // synced `multiDocWorkspace` setting, so the boot constant can
+  // disagree with the stored value here by design — never a switch.
+  if (BOOT_MOBILE) return;
   // A `multiDocWorkspace` toggle in ANOTHER window reaches us through
   // the cross-window storage-event sync. Only the window the user
   // actually toggled in may drive the switch (close the other windows

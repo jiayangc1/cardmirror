@@ -390,7 +390,10 @@ class SettingsModal {
       panel.setAttribute('role', 'tabpanel');
       const hostKind = getHost().kind;
       const entries = SETTING_METADATA.filter(
-        (m) => m.category === id && (!m.electronOnly || hostKind === 'electron'),
+        (m) =>
+          m.category === id &&
+          (!m.electronOnly || hostKind === 'electron') &&
+          (!m.webOnly || hostKind === 'browser'),
       );
       for (const meta of entries) {
         const row = this.renderEntry(meta);
@@ -627,6 +630,10 @@ class SettingsModal {
     } else if (meta.kind === 'multiDocLayoutMode') {
       row.appendChild(text);
       row.appendChild(buildMultiDocLayoutModeEditor());
+      return row;
+    } else if (meta.kind === 'mobileLayout') {
+      row.appendChild(text);
+      row.appendChild(buildMobileLayoutEditor());
       return row;
     } else if (meta.kind === 'number') {
       row.appendChild(text);
@@ -2733,6 +2740,42 @@ function buildMultiDocLayoutModeEditor(): HTMLElement {
     row.appendChild(input);
     const labelText = document.createElement('span');
     labelText.className = 'pmd-multi-doc-layout-mode-row-label';
+    labelText.textContent = o.label;
+    row.appendChild(labelText);
+    wrap.appendChild(row);
+  }
+  return wrap;
+}
+
+function buildMobileLayoutEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-mobile-layout-editor';
+  const options: { value: 'auto' | 'mobile' | 'desktop'; label: string }[] = [
+    { value: 'auto', label: 'Auto — mobile layout on small touch screens (default)' },
+    { value: 'mobile', label: 'Mobile — always the view-first layout' },
+    { value: 'desktop', label: 'Desktop — always this layout' },
+  ];
+  const groupName = `pmd-mobile-layout-${Math.random().toString(36).slice(2, 8)}`;
+  for (const o of options) {
+    const row = document.createElement('label');
+    row.className = 'pmd-mobile-layout-row';
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = groupName;
+    input.value = o.value;
+    input.checked = o.value === settings.get('mobileLayout');
+    input.addEventListener('change', () => {
+      if (!input.checked) return;
+      settings.set('mobileLayout', o.value);
+      // The shell is chosen once per load; offer the reload here so
+      // the choice takes effect now rather than on the next visit.
+      if (window.confirm('Reload now to apply the layout change?')) {
+        window.location.reload();
+      }
+    });
+    row.appendChild(input);
+    const labelText = document.createElement('span');
+    labelText.className = 'pmd-mobile-layout-row-label';
     labelText.textContent = o.label;
     row.appendChild(labelText);
     wrap.appendChild(row);

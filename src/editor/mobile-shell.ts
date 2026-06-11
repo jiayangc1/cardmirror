@@ -1,0 +1,380 @@
+/**
+ * Mobile shell — view-first chrome for phones and tablets on the web
+ * edition (SPEC-mobile-view.md). Mounted at boot by editor/index.ts
+ * when `resolveMobileLayout` picks mobile; rides the single-doc
+ * machinery (same mountView, open/save flows, recovery, home screen)
+ * rather than running its own editor.
+ *
+ * Structure:
+ *   app bar     ☰ title ↶ ↷ Aa ⋮
+ *   #app        the existing single-doc scroller (PM view inside,
+ *               never editable — see mobile-plugin.ts)
+ *   mode bar    Read toggle (Move / Repair arrive in later phases)
+ *   #status-bar the existing footer, restyled by mobile CSS
+ *
+ * The outline drawer hosts the SAME NavigationPanel instance the
+ * desktop sidebar uses — its mount element (#nav-panel) is relocated
+ * into the drawer, so caret tracking, level filters, and
+ * click-to-jump keep working unchanged.
+ */
+
+import { settings } from './settings.js';
+import { getActiveView, runRibbon } from './index.js';
+import { readModeAwareUndo, readModeAwareRedo } from './read-mode-plugin.js';
+import { mobileDensity } from './mobile-layout.js';
+
+const ZOOM_MIN = 50;
+const ZOOM_MAX = 200;
+
+let mounted = false;
+
+export function mountMobileShell(): void {
+  if (mounted) return;
+  mounted = true;
+  document.body.classList.add('pmd-mobile', `pmd-mobile-${mobileDensity(window.innerWidth)}`);
+
+  const appBar = buildAppBar();
+  document.body.insertBefore(appBar, document.body.firstChild);
+  const { drawer, scrim, openDrawer, closeDrawer } = buildDrawer();
+  document.body.appendChild(scrim);
+  document.body.appendChild(drawer);
+  document.body.appendChild(buildModeBar());
+  installPinchZoom();
+  installEdgeSwipe(openDrawer);
+
+  // ☰ in the app bar drives the drawer.
+  appBar.querySelector<HTMLButtonElement>('.pmd-mappbar-drawer')!
+    .addEventListener('click', () => {
+      if (document.body.classList.contains('pmd-mobile-drawer-open')) closeDrawer();
+      else openDrawer();
+    });
+}
+
+// ─── App bar ───────────────────────────────────────────────────────
+
+function buildAppBar(): HTMLElement {
+  const bar = document.createElement('header');
+  bar.className = 'pmd-mobile-appbar';
+
+  const drawerBtn = iconButton('☰', 'Outline', 'pmd-mappbar-drawer');
+  bar.appendChild(drawerBtn);
+
+  const title = document.createElement('span');
+  title.className = 'pmd-mappbar-title';
+  bar.appendChild(title);
+  syncTitle(title);
+
+  // Undo / redo are permanent app-bar residents (markers, moves and
+  // repairs all live in PM history); a no-op tap is harmless, so no
+  // enabled-state tracking is needed.
+  const undoBtn = iconButton('↶', 'Undo', 'pmd-mappbar-undo');
+  undoBtn.addEventListener('click', () => {
+    const view = getActiveView();
+    if (view) readModeAwareUndo(view.state, view.dispatch.bind(view), view);
+  });
+  bar.appendChild(undoBtn);
+  const redoBtn = iconButton('↷', 'Redo', 'pmd-mappbar-redo');
+  redoBtn.addEventListener('click', () => {
+    const view = getActiveView();
+    if (view) readModeAwareRedo(view.state, view.dispatch.bind(view), view);
+  });
+  bar.appendChild(redoBtn);
+
+  const displayBtn = iconButton('Aa', 'Display options', 'pmd-mappbar-display');
+  displayBtn.addEventListener('click', () => toggleSheet(buildDisplaySheet));
+  bar.appendChild(displayBtn);
+
+  const menuBtn = iconButton('⋮', 'Menu', 'pmd-mappbar-menu');
+  menuBtn.addEventListener('click', () => toggleSheet(buildOverflowSheet));
+  bar.appendChild(menuBtn);
+
+  return bar;
+}
+
+/** Mirror the window title (sans app suffix) into the app bar. The
+ *  single-doc title flow already maintains document.title on every
+ *  open/save/dirty change; observing it avoids new exports. */
+function syncTitle(el: HTMLSpanElement): void {
+  const apply = (): void => {
+    el.textContent = document.title.replace(/\s*[—-]\s*CardMirror\s*$/, '') || 'CardMirror';
+  };
+  apply();
+  const titleEl = document.querySelector('title');
+  if (titleEl) {
+    new MutationObserver(apply).observe(titleEl, { childList: true });
+  }
+}
+
+function iconButton(glyph: string, label: string, cls: string): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = `pmd-mappbar-btn ${cls}`;
+  btn.textContent = glyph;
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  return btn;
+}
+
+// ─── Outline drawer ────────────────────────────────────────────────
+
+function buildDrawer(): {
+  drawer: HTMLElement;
+  scrim: HTMLElement;
+  openDrawer: () => void;
+  closeDrawer: () => void;
+} {
+  const drawer = document.createElement('div');
+  drawer.className = 'pmd-mobile-drawer';
+  const scrim = document.createElement('div');
+  scrim.className = 'pmd-mobile-scrim';
+
+  // Adopt the desktop nav mount point wholesale — the NavigationPanel
+  // instance inside keeps its EditorView attachment and caret sync.
+  const navEl = document.getElementById('nav-panel');
+  if (navEl) drawer.appendChild(navEl);
+  // The drawer must never be emptied by the desktop "hide nav pane"
+  // toggle; visibility is the drawer's own open/closed state.
+  settings.set('navPaneVisible', true);
+
+  const openDrawer = (): void => {
+    document.body.classList.add('pmd-mobile-drawer-open');
+  };
+  const closeDrawer = (): void => {
+    document.body.classList.remove('pmd-mobile-drawer-open');
+  };
+  scrim.addEventListener('click', closeDrawer);
+  // Jumping somewhere is the end of a navigation — dismiss (overlay
+  // densities only; the tablet rail stays put via CSS, where this
+  // class toggle has no effect).
+  drawer.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).closest('.pmd-nav-item')) {
+      window.setTimeout(closeDrawer, 120);
+    }
+  });
+  return { drawer, scrim, openDrawer, closeDrawer };
+}
+
+/** Left-edge swipe opens the drawer (phone density). */
+function installEdgeSwipe(openDrawer: () => void): void {
+  let startX = -1;
+  let startY = -1;
+  let pointerId = -1;
+  window.addEventListener('pointerdown', (e) => {
+    if (e.clientX > 24) return;
+    startX = e.clientX;
+    startY = e.clientY;
+    pointerId = e.pointerId;
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== pointerId) return;
+    const dx = e.clientX - startX;
+    const dy = Math.abs(e.clientY - startY);
+    if (dx > 36 && dy < 48) {
+      pointerId = -1;
+      openDrawer();
+    }
+  });
+  window.addEventListener('pointerup', () => {
+    pointerId = -1;
+  });
+}
+
+// ─── Mode bar ──────────────────────────────────────────────────────
+
+function buildModeBar(): HTMLElement {
+  const bar = document.createElement('div');
+  bar.className = 'pmd-mobile-modebar';
+
+  const readBtn = document.createElement('button');
+  readBtn.type = 'button';
+  readBtn.className = 'pmd-mobile-mode-btn pmd-mobile-mode-read';
+  readBtn.textContent = '◉ Read';
+  readBtn.title = 'Read mode — highlights and cites only; tap text to drop a reading marker';
+  const syncRead = (): void => {
+    readBtn.classList.toggle('pmd-mode-active', settings.get('readMode'));
+  };
+  syncRead();
+  settings.subscribe(syncRead);
+  readBtn.addEventListener('click', () => runRibbon('toggleReadMode'));
+  bar.appendChild(readBtn);
+
+  // Move / Repair modes land in later phases (SPEC P3/P4).
+  return bar;
+}
+
+// ─── Bottom sheets (display options, overflow menu) ────────────────
+
+let openSheetEl: HTMLElement | null = null;
+let openSheetBuilder: (() => HTMLElement) | null = null;
+
+function toggleSheet(builder: () => HTMLElement): void {
+  // Tapping the same trigger twice closes; a different trigger swaps.
+  const same = openSheetBuilder === builder;
+  closeSheet();
+  if (same) return;
+  const sheet = builder();
+  sheet.classList.add('pmd-mobile-sheet');
+  document.body.appendChild(sheet);
+  openSheetEl = sheet;
+  openSheetBuilder = builder;
+  const dismiss = (e: PointerEvent): void => {
+    if (openSheetEl && !openSheetEl.contains(e.target as Node)) closeSheet();
+  };
+  // Defer so the opening tap doesn't immediately dismiss.
+  window.setTimeout(() => {
+    document.addEventListener('pointerdown', dismiss, { once: true });
+  }, 0);
+}
+
+function closeSheet(): void {
+  openSheetEl?.remove();
+  openSheetEl = null;
+  openSheetBuilder = null;
+}
+
+function buildDisplaySheet(): HTMLElement {
+  const sheet = document.createElement('div');
+
+  const zoomRow = document.createElement('div');
+  zoomRow.className = 'pmd-msheet-row';
+  const zoomLabel = document.createElement('span');
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = String(ZOOM_MIN);
+  slider.max = String(ZOOM_MAX);
+  slider.step = '5';
+  slider.value = String(settings.get('zoomPct'));
+  zoomLabel.textContent = `Text size — ${slider.value}%`;
+  slider.addEventListener('input', () => {
+    settings.set('zoomPct', Number(slider.value));
+    zoomLabel.textContent = `Text size — ${slider.value}%`;
+  });
+  zoomRow.appendChild(zoomLabel);
+  zoomRow.appendChild(slider);
+  sheet.appendChild(zoomRow);
+
+  const themeRow = document.createElement('div');
+  themeRow.className = 'pmd-msheet-row';
+  const themeLabel = document.createElement('span');
+  themeLabel.textContent = 'Theme';
+  themeRow.appendChild(themeLabel);
+  const group = document.createElement('div');
+  group.className = 'pmd-msheet-segment';
+  for (const t of ['light', 'dark', 'system'] as const) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = t[0]!.toUpperCase() + t.slice(1);
+    const sync = (): void => {
+      btn.classList.toggle('pmd-mode-active', settings.get('theme') === t);
+    };
+    sync();
+    settings.subscribe(sync);
+    btn.addEventListener('click', () => settings.set('theme', t));
+    group.appendChild(btn);
+  }
+  themeRow.appendChild(group);
+  sheet.appendChild(themeRow);
+
+  return sheet;
+}
+
+function buildOverflowSheet(): HTMLElement {
+  const sheet = document.createElement('div');
+  const item = (label: string, run: () => void): void => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pmd-msheet-item';
+    btn.textContent = label;
+    btn.addEventListener('click', () => {
+      closeSheet();
+      run();
+    });
+    sheet.appendChild(btn);
+  };
+  item('Open…', () => runRibbon('openFile'));
+  item('New document', () => runRibbon('newDocument'));
+  item('Export a copy…', () => runRibbon('saveAs'));
+  item('Word count', () => runRibbon('wordCountSelection'));
+  item('Settings', () => {
+    void import('./mobile-settings-ui.js').then((m) => m.openMobileSettings());
+  });
+  item('Use desktop layout', () => {
+    settings.set('mobileLayout', 'desktop');
+    window.location.reload();
+  });
+  item('Home', () => runRibbon('goHome'));
+  return sheet;
+}
+
+// ─── Pinch zoom ────────────────────────────────────────────────────
+
+/** Two-finger pinch on the doc scroller drives the SAME content zoom
+ *  as the desktop status-bar buttons (`zoomPct` → `--editor-zoom`,
+ *  CSS `zoom` on the editor). Live preview writes the CSS variable
+ *  directly; the setting commits once at gesture end (clamped, in
+ *  5% steps) so cross-tab sync isn't spammed mid-gesture. */
+function installPinchZoom(): void {
+  const app = document.getElementById('app');
+  if (!app) return;
+  const pointers = new Map<number, { x: number; y: number }>();
+  let startDist = 0;
+  let startPct = 100;
+  let badgeTimer = 0;
+
+  const badge = document.createElement('div');
+  badge.className = 'pmd-mobile-zoom-badge';
+  badge.hidden = true;
+  document.body.appendChild(badge);
+
+  const dist = (): number => {
+    const [a, b] = [...pointers.values()];
+    if (!a || !b) return 0;
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+
+  app.addEventListener('pointerdown', (e) => {
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      startDist = dist();
+      startPct = settings.get('zoomPct');
+    }
+  });
+  app.addEventListener(
+    'pointermove',
+    (e) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size !== 2 || startDist === 0) return;
+      e.preventDefault();
+      const pct = clampZoom(startPct * (dist() / startDist));
+      document.documentElement.style.setProperty('--editor-zoom', String(pct / 100));
+      badge.textContent = `${Math.round(pct)}%`;
+      badge.hidden = false;
+      window.clearTimeout(badgeTimer);
+      badgeTimer = window.setTimeout(() => {
+        badge.hidden = true;
+      }, 800);
+    },
+    { passive: false },
+  );
+  const release = (e: PointerEvent): void => {
+    if (!pointers.has(e.pointerId)) return;
+    if (pointers.size === 2) {
+      // Gesture ends — commit the final value through the settings
+      // pipeline (applyZoom re-derives --editor-zoom from it).
+      const livePct =
+        Number(
+          getComputedStyle(document.documentElement).getPropertyValue('--editor-zoom'),
+        ) * 100 || startPct;
+      settings.set('zoomPct', Math.round(clampZoom(livePct) / 5) * 5);
+      startDist = 0;
+    }
+    pointers.delete(e.pointerId);
+  };
+  app.addEventListener('pointerup', release);
+  app.addEventListener('pointercancel', release);
+}
+
+function clampZoom(pct: number): number {
+  return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, pct));
+}

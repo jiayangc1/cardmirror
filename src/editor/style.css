@@ -9688,3 +9688,424 @@ body.pmd-voice-m-asleep #editor { box-shadow: none; }
 .pmd-voice-model-download:hover {
   background: var(--pmd-c-hover);
 }
+
+/* ════════════════════════════════════════════════ Mobile shell
+   View-first chrome for phones/tablets on the web edition
+   (SPEC-mobile-view.md). Activated by `body.pmd-mobile` +
+   a density class (`pmd-mobile-phone` / `pmd-mobile-tablet`),
+   set once at boot by mobile-shell.ts. The single-doc layout
+   variables are re-pointed at the mobile chrome, so the #app
+   scroller and #status-bar reposition without new rules. */
+
+body.pmd-mobile {
+  --pmd-mobile-appbar-h: calc(3rem + env(safe-area-inset-top, 0px));
+  --pmd-mobile-modebar-h: 2.75rem;
+  --nav-width: 0px;
+  --ribbon-height: var(--pmd-mobile-appbar-h);
+}
+
+/* Desktop chrome that has no mobile role. */
+body.pmd-mobile #ribbon,
+body.pmd-mobile #nav-pane-pull-tab,
+body.pmd-mobile #comments-column,
+body.pmd-mobile #status-bar .zoom-controls,
+body.pmd-mobile #speech-doc-banner {
+  display: none;
+}
+
+/* The doc scroller sits between the app bar and the mode bar +
+   status strip; pinch is handled by the shell's pointer tracker,
+   vertical pan stays native. */
+body.pmd-mobile:not(.pmd-multi-doc) #app {
+  bottom: calc(var(--status-bar-height) + var(--pmd-mobile-modebar-h) + env(safe-area-inset-bottom, 0px));
+  touch-action: pan-y;
+}
+
+/* ------------------------------------------------ App bar */
+.pmd-mobile-appbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--pmd-mobile-appbar-h);
+  padding-top: env(safe-area-inset-top, 0px);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--pmd-c-surface);
+  border-bottom: 1px solid var(--pmd-c-border-soft);
+  z-index: 300;
+  font-family: var(--pmd-ui-font);
+  touch-action: manipulation;
+}
+.pmd-mappbar-btn {
+  flex: 0 0 auto;
+  min-width: 2.75rem;
+  height: 2.75rem;
+  border: none;
+  background: none;
+  color: var(--pmd-c-text);
+  font-size: 1.15rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.pmd-mappbar-btn:active {
+  background: var(--pmd-c-hover);
+}
+.pmd-mappbar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+  color: var(--pmd-c-text);
+}
+
+/* ------------------------------------------------ Mode bar */
+.pmd-mobile-modebar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--status-bar-height) + env(safe-area-inset-bottom, 0px));
+  height: var(--pmd-mobile-modebar-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--pmd-c-surface);
+  border-top: 1px solid var(--pmd-c-border-soft);
+  z-index: 300;
+  font-family: var(--pmd-ui-font);
+  touch-action: manipulation;
+}
+.pmd-mobile-mode-btn {
+  min-height: 2.1rem;
+  padding: 0 1rem;
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 999px;
+  background: none;
+  color: var(--pmd-c-text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.pmd-mode-active {
+  background: var(--pmd-c-accent);
+  color: var(--pmd-c-bg);
+  border-color: var(--pmd-c-accent);
+}
+
+/* Status strip: the existing #status-bar, shifted up over the safe
+   area and left full-width (--nav-width is 0 on mobile). */
+body.pmd-mobile #status-bar {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  height: calc(var(--status-bar-height) + env(safe-area-inset-bottom, 0px));
+  justify-content: center;
+}
+
+/* ------------------------------------------------ Outline drawer */
+.pmd-mobile-drawer {
+  position: fixed;
+  top: var(--pmd-mobile-appbar-h);
+  bottom: 0;
+  left: 0;
+  width: min(85vw, 320px);
+  background: var(--pmd-c-bg);
+  border-right: 1px solid var(--pmd-c-border-soft);
+  z-index: 320;
+  transform: translateX(-100%);
+  transition: transform 160ms ease;
+  display: flex;
+}
+body.pmd-mobile-drawer-open .pmd-mobile-drawer {
+  transform: translateX(0);
+}
+.pmd-mobile-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--pmd-c-overlay);
+  z-index: 310;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+body.pmd-mobile-drawer-open .pmd-mobile-scrim {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* The relocated nav panel fills the drawer; the desktop fixed-
+   sidebar geometry and the hide-toggle no longer apply. */
+body.pmd-mobile .pmd-mobile-drawer .pmd-nav-panel {
+  position: static;
+  width: 100%;
+  border-right: none;
+}
+body.pmd-mobile.pmd-nav-hidden .pmd-mobile-drawer .pmd-nav-panel {
+  display: flex;
+}
+body.pmd-mobile .pmd-nav-close {
+  display: none;
+}
+/* Touch-height outline rows. */
+body.pmd-mobile .pmd-nav-item {
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+}
+
+/* Tablet density: the drawer is a persistent rail, no scrim. */
+body.pmd-mobile-tablet .pmd-mobile-drawer {
+  transform: none;
+  transition: none;
+  width: 260px;
+}
+body.pmd-mobile-tablet .pmd-mobile-scrim {
+  display: none;
+}
+body.pmd-mobile-tablet:not(.pmd-multi-doc) #app,
+body.pmd-mobile-tablet #status-bar,
+body.pmd-mobile-tablet .pmd-mobile-modebar {
+  left: 260px;
+}
+
+/* ------------------------------------------------ Bottom sheets */
+.pmd-mobile-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--status-bar-height) + var(--pmd-mobile-modebar-h) + env(safe-area-inset-bottom, 0px));
+  background: var(--pmd-c-surface);
+  border-top: 1px solid var(--pmd-c-border-soft);
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -4px 16px var(--pmd-c-shadow-strong);
+  z-index: 330;
+  padding: 0.75rem;
+  font-family: var(--pmd-ui-font);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+body.pmd-mobile-tablet .pmd-mobile-sheet {
+  left: auto;
+  right: 0.5rem;
+  width: 340px;
+  border-radius: 12px;
+}
+.pmd-msheet-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0.25rem;
+  color: var(--pmd-c-text);
+}
+.pmd-msheet-row input[type='range'] {
+  width: 100%;
+}
+.pmd-msheet-segment {
+  display: flex;
+  gap: 0.4rem;
+}
+.pmd-msheet-segment button {
+  flex: 1 1 0;
+  min-height: 2.1rem;
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 6px;
+  background: none;
+  color: var(--pmd-c-text);
+  cursor: pointer;
+}
+.pmd-msheet-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border: none;
+  background: none;
+  color: var(--pmd-c-text);
+  font-size: 0.95rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.pmd-msheet-item:active {
+  background: var(--pmd-c-hover);
+}
+
+/* ------------------------------------------------ Zoom badge */
+.pmd-mobile-zoom-badge {
+  position: fixed;
+  top: calc(var(--pmd-mobile-appbar-h) + 0.75rem);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--pmd-c-surface);
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 999px;
+  padding: 0.2rem 0.8rem;
+  z-index: 340;
+  font-family: var(--pmd-ui-font);
+  color: var(--pmd-c-text);
+}
+
+/* ------------------------------------------------ Settings page */
+.pmd-mobile-settings {
+  position: fixed;
+  inset: 0;
+  background: var(--pmd-c-bg);
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--pmd-ui-font);
+}
+.pmd-msettings-bar {
+  flex: 0 0 auto;
+  height: var(--pmd-mobile-appbar-h);
+  padding-top: env(safe-area-inset-top, 0px);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--pmd-c-surface);
+  border-bottom: 1px solid var(--pmd-c-border-soft);
+}
+.pmd-msettings-back {
+  min-width: 4rem;
+  height: 2.75rem;
+  border: none;
+  background: none;
+  color: var(--pmd-c-accent);
+  font-size: 1rem;
+  cursor: pointer;
+}
+.pmd-msettings-title {
+  font-size: 1rem;
+  color: var(--pmd-c-text);
+}
+.pmd-msettings-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 0.75rem calc(1.5rem + env(safe-area-inset-bottom, 0px));
+}
+.pmd-msettings-section {
+  margin: 1.25rem 0 0.25rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pmd-c-text-secondary);
+}
+.pmd-msettings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.25rem;
+  border-bottom: 1px solid var(--pmd-c-border-soft);
+  color: var(--pmd-c-text);
+}
+.pmd-msettings-rowtext {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.pmd-msettings-desc {
+  font-size: 0.78rem;
+  color: var(--pmd-c-text-secondary);
+}
+.pmd-msettings-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.pmd-msettings-switch {
+  width: 1.4rem;
+  height: 1.4rem;
+  flex: 0 0 auto;
+}
+.pmd-msettings-textwrap {
+  display: flex;
+  gap: 0.3rem;
+  flex: 0 1 14rem;
+}
+.pmd-msettings-text,
+.pmd-msettings-number {
+  width: 100%;
+  min-height: 2.2rem;
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 6px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+  padding: 0 0.5rem;
+}
+.pmd-msettings-reveal {
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  min-width: 2.2rem;
+}
+.pmd-msettings-steppers,
+.pmd-msettings-readers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 0 1 16rem;
+}
+.pmd-msettings-stepper,
+.pmd-msettings-reader-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.pmd-msettings-stepper span:first-child {
+  flex: 1 1 auto;
+}
+.pmd-msettings-stepper button,
+.pmd-msettings-reader-row button {
+  min-width: 2.2rem;
+  min-height: 2.2rem;
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 6px;
+  background: none;
+  color: var(--pmd-c-text);
+  cursor: pointer;
+}
+.pmd-msettings-stepper-value {
+  min-width: 3.2rem;
+  text-align: center;
+}
+.pmd-msettings-reader-row input[type='text'] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pmd-msettings-reader-row input[type='number'] {
+  width: 4.5rem;
+}
+.pmd-msettings-reader-row input {
+  min-height: 2.2rem;
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 6px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+  padding: 0 0.4rem;
+}
+.pmd-msettings-reader-add {
+  align-self: flex-start;
+  min-height: 2.2rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 6px;
+  background: none;
+  color: var(--pmd-c-accent);
+  cursor: pointer;
+}
+
+/* Home screen overlay hides the mobile chrome the same way it hides
+   the desktop chrome. */
+html.pmd-home-active .pmd-mobile-appbar,
+html.pmd-home-active .pmd-mobile-modebar,
+html.pmd-home-active .pmd-mobile-drawer,
+html.pmd-home-active .pmd-mobile-scrim {
+  display: none;
+}
+/* Light pass so the home cards stack comfortably on a phone. */
+body.pmd-mobile-phone .pmd-home-screen {
+  padding: 1rem;
+}

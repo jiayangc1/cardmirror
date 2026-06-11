@@ -798,6 +798,14 @@ export interface Settings {
    *  page reload to (re)build the editor shell. Comments are
    *  unavailable while this is on. See SPEC-multi-pane.md. */
   multiDocWorkspace: boolean;
+  /** Which UI shell the web edition uses on this device. `'auto'`
+   *  picks the mobile shell on coarse-pointer screens narrower than
+   *  1024px (resolved once per load — rotating mid-session doesn't
+   *  thrash the shell); `'mobile'` / `'desktop'` force it. The
+   *  mobile shell is view-first: no on-screen keyboard, reading +
+   *  outline navigation + crude structural moves. See
+   *  SPEC-mobile-view.md. */
+  mobileLayout: 'auto' | 'mobile' | 'desktop';
   /** When `multiDocWorkspace` is on and three slots are populated:
    *  `compact` shows all three panes side by side; `wide` widens
    *  each pane and lets the user paged-scroll between them
@@ -992,6 +1000,7 @@ const DEFAULTS: Settings = {
   googleTranslateApiKey: '',
   prependTranslationMarker: true,
   multiDocWorkspace: false,
+  mobileLayout: 'auto',
   multiDocLayoutMode: 'compact',
   quickCardActiveTags: [],
   quickCardSkipMidTextInsertConfirm: false,
@@ -1070,7 +1079,8 @@ export interface SettingMeta {
     | 'clod'
     | 'aiCitePrompt'
     | 'translationConfig'
-    | 'multiDocLayoutMode';
+    | 'multiDocLayoutMode'
+    | 'mobileLayout';
   /** Which tab this setting lives under in the settings dialog. */
   category: SettingsCategory;
   /** When set, this row is greyed out and its controls disabled
@@ -1082,6 +1092,14 @@ export interface SettingMeta {
    *  hosts (real file paths, native dialogs). The settings UI
    *  hides the row entirely on the web edition. */
   electronOnly?: boolean;
+  /** When true, this setting is only relevant on the web edition
+   *  (browser host). The settings UI hides the row on Electron. */
+  webOnly?: boolean;
+  /** When true, the row also appears in the MOBILE settings page.
+   *  Explicit opt-in (default false) so editing- and desktop-shaped
+   *  settings can never leak onto phones by omission. The desktop
+   *  dialog ignores this flag. */
+  mobile?: boolean;
   /** Extra search terms for the command palette. The label often
    *  uses one name for a thing the user might search by another
    *  ("Theme" vs "dark mode", "Line spacing" vs "line height"); these
@@ -1099,6 +1117,7 @@ export const SETTING_METADATA: SettingMeta[] = [
       'Each reader has a name and a words-per-minute rate. The first two are displayed live in the bottom bar; all show up in the Word Count Selection dialog.',
     kind: 'readers',
     category: 'general',
+    mobile: true,
   },
   {
     key: 'liveSelectionWordCount',
@@ -1156,6 +1175,17 @@ export const SETTING_METADATA: SettingMeta[] = [
     kind: 'multiDocLayoutMode',
     category: 'general',
     dependsOn: 'multiDocWorkspace',
+  },
+  {
+    key: 'mobileLayout',
+    label: 'Layout on this device',
+    description:
+      'Which layout the web edition uses here. Auto picks the view-first mobile layout on touch screens narrower than 1024px and the desktop layout everywhere else; Mobile / Desktop force one. Changing this reloads the page.',
+    kind: 'mobileLayout',
+    category: 'general',
+    webOnly: true,
+    mobile: true,
+    aliases: ['mobile layout', 'desktop layout', 'phone', 'tablet', 'touch'],
   },
   {
     key: 'showOnboardingStarter',
@@ -1225,6 +1255,7 @@ export const SETTING_METADATA: SettingMeta[] = [
       'Sets the format the Save-As dialog defaults to for a doc you haven\'t saved before. .docx is the default — Word- and Verbatim-compatible. Pick .cmir to make every new doc save in CardMirror\'s native format (lossless, and the only format that supports autosave). Doesn\'t affect existing files on disk — those always re-save in whatever format they were opened from.',
     kind: 'saveFormat',
     category: 'general',
+    mobile: true,
   },
   {
     key: 'prefixPresetSaveFilenames',
@@ -1328,6 +1359,7 @@ export const SETTING_METADATA: SettingMeta[] = [
       "Light, dark, or follow the operating system's preference. System mode tracks OS-level changes live.",
     kind: 'theme',
     category: 'appearance',
+    mobile: true,
     aliases: ['light mode', 'dark mode', 'toggle theme', 'system theme', 'color scheme'],
   },
   {
@@ -1370,6 +1402,7 @@ export const SETTING_METADATA: SettingMeta[] = [
       "Render size for each named style. Doesn't change the underlying doc — only how it looks here.",
     kind: 'displaySizes',
     category: 'appearance',
+    mobile: true,
   },
   {
     key: 'displayTypography',
@@ -1432,6 +1465,7 @@ export const SETTING_METADATA: SettingMeta[] = [
       "Disable UI animations and transitions (drag-pickup vacuum, popover slides, etc.). 'System' follows your OS preference; 'On' always reduces motion; 'Off' overrides the OS and plays full motion.",
     kind: 'reduceMotion',
     category: 'accessibility',
+    mobile: true,
     aliases: ['animations', 'disable animations'],
   },
   {
@@ -1683,6 +1717,7 @@ export const SETTING_METADATA: SettingMeta[] = [
       'Master switch for AI-powered comment features (in-comment "Explain" prompts, @AI mentions). Requires an Anthropic API key below.',
     kind: 'toggle',
     category: 'comments-ai',
+    mobile: true,
   },
   {
     key: 'anthropicApiKey',
@@ -1691,6 +1726,7 @@ export const SETTING_METADATA: SettingMeta[] = [
       'Used only when AI features are enabled. Stored locally in browser settings; sent only to api.anthropic.com.',
     kind: 'password',
     category: 'comments-ai',
+    mobile: true,
     dependsOn: 'aiFeaturesEnabled',
   },
   {
@@ -1700,6 +1736,7 @@ export const SETTING_METADATA: SettingMeta[] = [
       'Optional. The Claude model id used by all AI features (e.g. claude-opus-4-8). Leave blank to use the version built into this release. Set a newer id here if the built-in model has been retired and you’d rather not update the whole app. A malformed entry is ignored and the default is used.',
     kind: 'text',
     category: 'comments-ai',
+    mobile: true,
     dependsOn: 'aiFeaturesEnabled',
     aliases: ['model', 'claude model', 'model override', 'opus', 'sonnet', 'haiku'],
   },
@@ -2115,6 +2152,10 @@ function sanitize(s: Settings): Settings {
       typeof s.googleTranslateApiKey === 'string' ? s.googleTranslateApiKey.trim() : '',
     prependTranslationMarker: s.prependTranslationMarker === false ? false : true,
     multiDocWorkspace: !!s.multiDocWorkspace,
+    mobileLayout:
+      s.mobileLayout === 'mobile' || s.mobileLayout === 'desktop'
+        ? s.mobileLayout
+        : DEFAULTS.mobileLayout,
     multiDocLayoutMode:
       s.multiDocLayoutMode === 'wide' || s.multiDocLayoutMode === 'compact'
         ? s.multiDocLayoutMode
