@@ -532,6 +532,17 @@ class DocxExporter {
       } else if (ch === '­') {
         flush();
         runChildren.push('<w:softHyphen/>');
+      } else if (ch === '\t') {
+        // Round-trips with the importer's `<w:tab/>` → '\t'. Without this
+        // the tab landed as a literal character inside `<w:t>`.
+        flush();
+        runChildren.push('<w:tab/>');
+      } else if (ch === '\n') {
+        // Importer maps `<w:br/>` → '\n'. (A page break also imports as
+        // '\n', so it re-exports as a line break — the break type isn't
+        // preserved in the doc model, but the break itself now is.)
+        flush();
+        runChildren.push('<w:br/>');
       } else {
         buf += ch;
       }

@@ -124,6 +124,15 @@ code (`reference-docs/AUDIT-2026-06-10.md`):
   prior `cmirDocId`, appends ours with a fresh `pid`, and preserves every
   other property. Tests in `tests/round-trip/docid.test.ts`.
 
+- **Tab/line-break export loss** (`export/exporter.ts`, `emitTextRun`).
+  The importer maps `<w:tab/>`→'\t' and `<w:br/>`→'\n', but the exporter
+  left those characters inside `<w:t>` content, where Word ignores them.
+  `emitTextRun` now splits on '\t'/'\n' and emits `<w:tab/>`/`<w:br/>`
+  (mirroring the existing no-break/soft-hyphen handling). Page-break type
+  is still not preserved — a `<w:br w:type="page"/>` imports as '\n' and
+  re-exports as a plain `<w:br/>` — because the doc model has no node for
+  it; tracked separately. Test in `tests/round-trip/inverse.test.ts`.
+
 ## 0.1.0-alpha.12 — 2026-06-12
 
 - **Voice control failed to start in packaged builds.** The recognizer

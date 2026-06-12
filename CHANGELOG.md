@@ -64,6 +64,11 @@ see `DETAILED_CHANGELOG.md`.
   the document id (used by the study/Learn layer) used to overwrite the
   file's other custom properties; it now merges, leaving them intact.
 
+- **Tabs and line breaks export correctly to Word.** They were written as
+  raw characters Word ignored; they now export as proper tab/break
+  elements. (A page break still comes back as a line break — the break
+  type isn't tracked yet.)
+
 ## 0.1.0-alpha.12 — 2026-06-12
 
 ### Added

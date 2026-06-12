@@ -22,6 +22,7 @@ import { Fragment, Mark, type Node as PMNode } from 'prosemirror-model';
 import { schema, newHeadingId } from '../../src/schema/index.js';
 import { fromDocx } from '../../src/import/index.js';
 import { toDocx } from '../../src/export/index.js';
+import { Docx } from '../../src/ooxml/docx.js';
 
 async function roundTrip(doc: PMNode): Promise<PMNode> {
   return fromDocx(await toDocx(doc));
@@ -236,5 +237,17 @@ describe('inverse round-trip — documented exceptions', () => {
     const after = await roundTrip(before);
     const expected = docOf(para(marked('direct underline', m('underline_mark'))));
     expect(rankSorted(after).eq(rankSorted(expected))).toBe(true);
+  });
+});
+
+describe('inverse round-trip — tab and line break', () => {
+  it('exports \\t/\\n as <w:tab/>/<w:br/> (not raw text) and round-trips', async () => {
+    const doc = docOf(para(marked('a\tb\nc')));
+    const xml = await (await Docx.load(await toDocx(doc))).readText('word/document.xml');
+    expect(xml).toContain('<w:tab/>');
+    expect(xml).toContain('<w:br/>');
+    // The chars must not survive as raw text in <w:t> any more.
+    expect(xml).not.toMatch(/<w:t[^>]*>[^<]*\t[^<]*<\/w:t>/);
+    await expectInverse(doc, 'tab + line break');
   });
 });
