@@ -13,9 +13,11 @@
  *     repair, text/formatting repair, an image), so the box isn't
  *     misleadingly expanded to the whole card.
  *
- * View-only decoration: never a mark, never serialized. At most one is
- * active; `setAiWorking(view, range, scope)` sets it, `…(view, null)`
- * clears it.
+ * View-only decoration: never a mark, never serialized. Multiple ops can
+ * be working at once (the edit coordinator makes concurrent AI edits safe),
+ * so the plugin keeps ONE decoration per active op, keyed by a token:
+ * `setAiWorking(view, token, range, scope)` sets/updates that op's box,
+ * `…(view, token, null)` clears just it. Each op keeps its own cue.
  */
 
 import { Plugin, PluginKey } from 'prosemirror-state';
@@ -28,10 +30,18 @@ interface Range {
 }
 export type AiWorkingScope = 'container' | 'selection';
 
-// undefined meta → map through the edit; null → clear; payload → set.
-type Meta = { range: Range; scope: AiWorkingScope } | null;
+interface Entry {
+  from: number;
+  to: number;
+  scope: AiWorkingScope;
+}
+/** token → its worked-on range; remapped through every edit. */
+type State = Map<string, Entry>;
 
-const aiWorkingKey = new PluginKey<DecorationSet>('ai-working');
+// undefined meta → map ranges through the edit; payload → set/clear a token.
+type Meta = { token: string; range: Range | null; scope: AiWorkingScope };
+
+const aiWorkingKey = new PluginKey<State>('ai-working');
 
 // Same containers the drag-pickup recognizes: the card/unit is the
 // preferred target; the structural wrappers are a fallback.
@@ -68,47 +78,62 @@ function nodeOrInline(doc: PMNode, range: Range): Decoration | null {
   return Decoration.inline(range.from, range.to, { class: 'pmd-ai-working-inline' });
 }
 
-function decorate(doc: PMNode, range: Range, scope: AiWorkingScope): DecorationSet {
+function decorationsFor(doc: PMNode, range: Range, scope: AiWorkingScope): Decoration[] {
   if (scope === 'container') {
     const box = containerRange(doc, range);
-    if (box) {
-      return DecorationSet.create(doc, [
-        Decoration.node(box.from, box.to, { class: 'pmd-ai-working' }),
-      ]);
-    }
+    if (box) return [Decoration.node(box.from, box.to, { class: 'pmd-ai-working' })];
     // No enclosing container — fall back to marking the range itself.
   }
   const deco = nodeOrInline(doc, range);
-  return deco ? DecorationSet.create(doc, [deco]) : DecorationSet.empty;
+  return deco ? [deco] : [];
 }
 
-export const aiWorkingPlugin = new Plugin<DecorationSet>({
+export const aiWorkingPlugin = new Plugin<State>({
   key: aiWorkingKey,
   state: {
-    init: () => DecorationSet.empty,
-    apply(tr, set) {
+    init: () => new Map(),
+    apply(tr, prev) {
+      let next = prev;
+      if (tr.docChanged && prev.size) {
+        next = new Map();
+        for (const [token, e] of prev) {
+          next.set(token, { ...e, from: tr.mapping.map(e.from, 1), to: tr.mapping.map(e.to, -1) });
+        }
+      }
       const meta = tr.getMeta(aiWorkingKey) as Meta | undefined;
-      if (meta === undefined) return set.map(tr.mapping, tr.doc);
-      if (meta === null) return DecorationSet.empty;
-      return decorate(tr.doc, meta.range, meta.scope);
+      if (meta) {
+        if (next === prev) next = new Map(prev);
+        if (meta.range === null) next.delete(meta.token);
+        else next.set(meta.token, { from: meta.range.from, to: meta.range.to, scope: meta.scope });
+      }
+      return next;
     },
   },
   props: {
     decorations(state) {
-      return aiWorkingKey.getState(state);
+      const entries = aiWorkingKey.getState(state);
+      if (!entries || entries.size === 0) return null;
+      const decos: Decoration[] = [];
+      for (const e of entries.values()) {
+        decos.push(...decorationsFor(state.doc, { from: e.from, to: e.to }, e.scope));
+      }
+      return decos.length ? DecorationSet.create(state.doc, decos) : null;
     },
   },
 });
 
-/** Mark the part of the document the AI is working on (or clear with
- *  null). `scope` chooses the container box vs. just the selected range. */
+/** Mark the part of the document the AI is working on for the op identified
+ *  by `token` (or clear just that op with a null range). `scope` chooses the
+ *  container box vs. the selected range. Each token is independent, so
+ *  concurrent AI ops each keep their own box. */
 export function setAiWorking(
   view: EditorView,
+  token: string,
   range: Range | null,
   scope: AiWorkingScope = 'container',
 ): void {
   try {
-    view.dispatch(view.state.tr.setMeta(aiWorkingKey, range ? { range, scope } : null));
+    view.dispatch(view.state.tr.setMeta(aiWorkingKey, { token, range, scope }));
   } catch {
     // View torn down — nothing to set.
   }

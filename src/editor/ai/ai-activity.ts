@@ -17,11 +17,16 @@ import { ThinkingTooltip, type TooltipRange } from './thinking-tooltip.js';
 import { setAiWorking, type AiWorkingScope } from './ai-working-plugin.js';
 import { AiWorkingBox } from './ai-working-box.js';
 
+/** Distinct token per activity so concurrent container-scope boxes in the
+ *  ai-working plugin don't overwrite each other. */
+let activityCounter = 0;
+
 export class AiActivity {
   private readonly tip = new ThinkingTooltip();
   /** Selection scope draws a single bounding box (overlay); container
    *  scope outlines the enclosing card node (PM decoration). */
   private readonly box: AiWorkingBox | null;
+  private readonly token = `aiw-${++activityCounter}`;
   private range: TooltipRange;
 
   /** `scope` controls the purple box: `container` outlines the enclosing
@@ -39,7 +44,7 @@ export class AiActivity {
 
   start(): void {
     if (this.box) this.box.show(this.view, this.range);
-    else setAiWorking(this.view, this.range, this.scope);
+    else setAiWorking(this.view, this.token, this.range, this.scope);
     this.tip.show(this.view, this.range);
   }
 
@@ -48,7 +53,7 @@ export class AiActivity {
   setRange(range: TooltipRange): void {
     this.range = range;
     if (this.box) this.box.setRange(range);
-    else setAiWorking(this.view, range, this.scope);
+    else setAiWorking(this.view, this.token, range, this.scope);
     this.tip.setRange(range);
   }
 
@@ -60,6 +65,6 @@ export class AiActivity {
   stop(): void {
     this.tip.hide();
     if (this.box) this.box.hide();
-    else setAiWorking(this.view, null);
+    else setAiWorking(this.view, this.token, null);
   }
 }

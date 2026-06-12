@@ -319,8 +319,6 @@ export function applyCiteToSelection(
   return true;
 }
 
-let activeActivity: AiActivity | null = null;
-
 // --------------------------- command ----------------------------
 
 /** Entry point — fires on `aiCreateCite` ribbon command. Reads
@@ -361,10 +359,10 @@ export function runAiCreateCite(view: EditorView): void {
     return;
   }
 
-  // Pill + purple tint over the selection being formatted.
-  if (activeActivity) activeActivity.stop();
-  activeActivity = new AiActivity(view, { from: sel.from, to: sel.to }, 'selection');
-  activeActivity.start();
+  // Pill + purple tint over the selection being formatted. One per call,
+  // so concurrent cites each keep their own cue and clean up independently.
+  const activity = new AiActivity(view, { from: sel.from, to: sel.to }, 'selection');
+  activity.start();
 
   void (async () => {
     try {
@@ -391,10 +389,7 @@ export function runAiCreateCite(view: EditorView): void {
       }
     } finally {
       lease.release();
-      if (activeActivity) {
-        activeActivity.stop();
-        activeActivity = null;
-      }
+      activity.stop();
     }
   })();
 }
