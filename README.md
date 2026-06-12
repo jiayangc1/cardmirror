@@ -348,9 +348,7 @@ modular rich-text editor framework created and maintained by
 [Marijn Haverbeke](https://marijnhaverbeke.nl/). Nearly every editor
 primitive CardMirror leans on — the schema-validated transactions,
 the typed-tree document model, NodeViews, plugin state, the keymap
-and history modules — is ProseMirror's. The work in this repo is a
-debate-domain editor *on top of* that substrate, not a reinvention
-of it.
+and history modules — is ProseMirror's.
 
 The idea to use ProseMirror, as well as credit for dozens of course-corrections along the way, belongs to [text editor wizard Slim Lim](https://slim.computer/). 
 
@@ -364,6 +362,14 @@ Thank you to Marijn and the ProseMirror community for the years of
 careful library design that made this project tractable. If
 ProseMirror has been useful to you too, Marijn's work is supported
 directly at <https://marijnhaverbeke.nl/fund/>.
+
+CardMirror's voice control was shaped by ideas pioneered in the
+hands-free-editing community — [Talon](https://talonvoice.com/),
+[Cursorless](https://www.cursorless.org/), and
+[Pokey Rule](https://github.com/pokey). Concepts like spoken targeting
+of on-screen elements, hat/marker-based addressing, and composable voice
+commands informed the initial design of CardMirror's voice interaction
+pattern.
 
 The app's interface icons are from the
 [Untitled UI free icons](https://www.untitledui.com/free-icons),
