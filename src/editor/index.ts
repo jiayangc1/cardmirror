@@ -1142,6 +1142,9 @@ const ribbonContext: RibbonContext = {
   addQuickCard: () => {
     if (view) void runAddQuickCard(view);
   },
+  manageQuickCards: () => {
+    void quickCardsManageUI.open();
+  },
   openQuickCardSearch: () => {
     // Centre over the focused pane (multi-pane) or the editor element
     // (single-doc); opens browse-only when there's no active view.
@@ -2753,6 +2756,8 @@ const VIEWLESS_RIBBON_COMMANDS = new Set<RibbonCommandId>([
   // Quick-card search palette — opens browse-only without a doc, so
   // its Mod-Shift-Space binding must work view-less too.
   'openQuickCardSearch',
+  // Opens the Quick Cards manager overlay — no active doc required.
+  'manageQuickCards',
   // Multi-pane workspace commands — fire on the shell, not a
   // doc. View-less so they work even when no slot has a doc.
   'focusSlot1',
@@ -2784,6 +2789,7 @@ function runViewlessRibbon(id: RibbonCommandId): void {
     case 'toggleNavPane': ribbonContext.toggleNavPane(); return;
     case 'goHome': ribbonContext.goHome(); return;
     case 'openQuickCardSearch': ribbonContext.openQuickCardSearch(); return;
+    case 'manageQuickCards': ribbonContext.manageQuickCards(); return;
     case 'toggleVoice': ribbonContext.toggleVoice(); return;
     case 'startFlowHost': ribbonContext.startFlowHost(); return;
     // Multi-pane workspace navigation. Each dispatches into the

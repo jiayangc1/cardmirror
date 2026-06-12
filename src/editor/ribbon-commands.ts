@@ -3759,6 +3759,7 @@ export type RibbonCommandId =
   // current selection as a named, tagged snippet (no default binding);
   // the search palette opens on Mod-Shift-Space.
   | 'addQuickCard'
+  | 'manageQuickCards'
   | 'openQuickCardSearch'
   | 'insertImage'
   | 'zoomIn'
@@ -3907,6 +3908,7 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'deleteCurrentHeading',
   'copyCurrentHeading',
   'addQuickCard',
+  'manageQuickCards',
   'openQuickCardSearch',
   'insertImage',
   'zoomIn',
@@ -4038,6 +4040,7 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   deleteCurrentHeading: 'Delete Current Heading',
   copyCurrentHeading: 'Copy Current Heading',
   addQuickCard: 'Add Quick Card',
+  manageQuickCards: 'Manage Quick Cards',
   openQuickCardSearch: 'Search Everything',
   insertImage: 'Insert Image at Cursor',
   zoomIn: 'Zoom In',
@@ -4233,6 +4236,7 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   deleteCurrentHeading: '',
   copyCurrentHeading: '',
   addQuickCard: '',
+  manageQuickCards: '',
   openQuickCardSearch: 'Mod-Shift-Space',
   newSpeechDocument: '',
   markActiveAsSpeech: '',
@@ -4422,6 +4426,8 @@ export interface RibbonContext {
   /** Save the current selection as a named, tagged quick card
    *  (opens the Add dialog). No-op + toast if the selection is empty. */
   addQuickCard: () => void;
+  /** Open the Quick Cards manager (browse/edit the saved library). */
+  manageQuickCards: () => void;
   /** Open the floating quick-card search palette. Works with no
    *  active doc (browse-only; insert no-ops). */
   openQuickCardSearch: () => void;
@@ -4540,6 +4546,7 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   deleteCurrentHeading: () => {},
   copyCurrentHeading: () => {},
   addQuickCard: () => {},
+  manageQuickCards: () => {},
   openQuickCardSearch: () => {},
   insertImage: () => {},
   zoomIn: () => {},
@@ -4936,6 +4943,12 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
       return (_state, dispatch) => {
         if (!dispatch) return true;
         ctx.addQuickCard();
+        return true;
+      };
+    case 'manageQuickCards':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.manageQuickCards();
         return true;
       };
     case 'openQuickCardSearch':

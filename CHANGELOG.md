@@ -7,6 +7,12 @@ see `DETAILED_CHANGELOG.md`.
 
 ## Unreleased
 
+### Added
+
+- **"Manage Quick Cards" is now a command.** It's searchable in the command
+  bar and rebindable under Settings → Keyboard shortcuts, like the other
+  Quick Cards actions.
+
 ### Fixed
 
 - **Voice control now starts on macOS.** The packaged Mac build bundles an
