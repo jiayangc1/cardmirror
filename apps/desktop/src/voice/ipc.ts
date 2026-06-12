@@ -66,6 +66,19 @@ function resolveVoiceAssets(): { libPath: string; modelDir: string } | null {
  * Falling back to electron-as-node still works for the STANDARD model;
  * the large model is then disabled with an explicit flag.
  */
+/** Filesystem path to the forked recognizer worker. In a packaged
+ *  build the worker is forked under a REAL Node (execPath: nodeBin),
+ *  which has no asar support and so cannot load worker.js from inside
+ *  app.asar — the require fails with MODULE_NOT_FOUND. electron-builder's
+ *  `asarUnpack` keeps dist/voice/** (and koffi) on disk under
+ *  app.asar.unpacked; rewrite the path to point there. In dev __dirname
+ *  is an ordinary directory with no `app.asar` segment, so the replace
+ *  is a no-op and the real dist path is used. */
+function resolveWorkerPath(): string {
+  const p = path.join(__dirname, 'worker.js');
+  return p.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`);
+}
+
 function resolveNodeBinary(): string | null {
   const candidates = [
     process.env.CARDMIRROR_NODE,
@@ -189,7 +202,7 @@ export function registerVoiceIpc(): void {
       const nodeBin = resolveNodeBinary();
       const wantLarge = opts.dictationModel === 'large' && largeModelPresent();
       const largeUnsupported = wantLarge && !nodeBin;
-      const child = fork(path.join(__dirname, 'worker.js'), [], {
+      const child = fork(resolveWorkerPath(), [], {
         ...(nodeBin
           ? { execPath: nodeBin, env: { ...process.env } }
           : { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } }),
