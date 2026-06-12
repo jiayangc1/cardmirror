@@ -108,6 +108,7 @@ import { runAiCreateCite } from './ai/cite-creator.js';
 import { runTranslate } from './translate.js';
 import { runRepairText } from './ai/repair-text.js';
 import { runRepairFormatting } from './ai/repair-formatting.js';
+import { runSendToFlow, runPullFromFlow, runCreateFlow } from './flow-port.js';
 import {
   readModePlugin,
   PMD_READ_MODE_TOGGLE,
@@ -1001,6 +1002,24 @@ const ribbonContext: RibbonContext = {
   repairFormatting: () => {
     if (!view) return;
     runRepairFormatting(view);
+  },
+  sendToFlowColumn: () => {
+    if (view) void runSendToFlow(view, { mode: 'column', headingsOnly: false });
+  },
+  sendToFlowCell: () => {
+    if (view) void runSendToFlow(view, { mode: 'cell', headingsOnly: false });
+  },
+  sendHeadingsToFlowColumn: () => {
+    if (view) void runSendToFlow(view, { mode: 'column', headingsOnly: true });
+  },
+  sendHeadingsToFlowCell: () => {
+    if (view) void runSendToFlow(view, { mode: 'cell', headingsOnly: true });
+  },
+  pullFromFlow: () => {
+    if (view) void runPullFromFlow(view);
+  },
+  createFlow: () => {
+    void runCreateFlow();
   },
   createFlashcard: () => {
     if (!view) return;

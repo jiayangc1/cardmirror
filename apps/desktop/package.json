@@ -47,6 +47,10 @@
       {
         "from": "resources/voice",
         "to": "voice"
+      },
+      {
+        "from": "resources/flow",
+        "to": "flow"
       }
     ],
     "fileAssociations": [

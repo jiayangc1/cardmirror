@@ -183,6 +183,17 @@ export const RIBBON_GROUPS: RibbonGroup[] = [
     commands: ['aiAskAboutSelection', 'aiCreateCite', 'translate', 'repairText', 'repairFormatting'],
   },
   {
+    title: 'Flow',
+    commands: [
+      'sendToFlowColumn',
+      'sendToFlowCell',
+      'sendHeadingsToFlowColumn',
+      'sendHeadingsToFlowCell',
+      'pullFromFlow',
+      'createFlow',
+    ],
+  },
+  {
     title: 'Reading',
     commands: ['toggleReadingMarker'],
   },

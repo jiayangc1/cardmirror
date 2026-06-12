@@ -35,6 +35,23 @@ export interface QuickCardIpc {
   updatedAt: number;
 }
 
+/** Verbatim Flow bridge result shapes (mirrors verbatim-flow.ps1). */
+export interface FlowAvailable {
+  available: boolean;
+  workbook?: string;
+  reason?: string;
+  error?: string;
+}
+export interface FlowResult {
+  ok: boolean;
+  written?: number;
+  needsConfirm?: boolean;
+  cell?: string;
+  cells?: string[];
+  template?: string;
+  error?: string;
+}
+
 /** The shape we expect the preload script to expose. Defined here
  *  (and not imported from the desktop workspace) so the editor
  *  doesn't take a build-time dependency on Electron-specific code. */
@@ -50,6 +67,12 @@ interface ElectronAPI {
     bytes: Uint8Array;
     handle: string;
   } | null>;
+  /** Verbatim Flow bridge (Windows COM → Excel). Optional so an older
+   *  preload tolerates its absence. */
+  flowAvailable?(): Promise<FlowAvailable>;
+  flowSend?(payload: { cells: string[] }, force?: boolean): Promise<FlowResult>;
+  flowPull?(): Promise<FlowResult>;
+  flowCreate?(templatePath?: string): Promise<FlowResult>;
   /** Card-cutter local plugin (experimental; optional so an older
    *  preload tolerates its absence). */
   cardCutterPickFile?(): Promise<string | null>;
@@ -261,6 +284,21 @@ export class ElectronHost implements Host {
     title?: string;
   }): Promise<string | null> {
     return api().pickDirectory(opts);
+  }
+
+  /** Verbatim Flow bridge (Windows COM → Excel). Resolve a "windows-only"
+   *  / "unsupported" result on hosts that can't do it. */
+  async flowAvailable(): Promise<FlowAvailable> {
+    return (await api().flowAvailable?.()) ?? { available: false, error: 'unsupported' };
+  }
+  async flowSend(payload: { cells: string[] }, force?: boolean): Promise<FlowResult> {
+    return (await api().flowSend?.(payload, force)) ?? { ok: false, error: 'unsupported' };
+  }
+  async flowPull(): Promise<FlowResult> {
+    return (await api().flowPull?.()) ?? { ok: false, error: 'unsupported' };
+  }
+  async flowCreate(templatePath?: string): Promise<FlowResult> {
+    return (await api().flowCreate?.(templatePath)) ?? { ok: false, error: 'unsupported' };
   }
 
   /** Card-cutter local plugin: pick the engine file / load it from disk

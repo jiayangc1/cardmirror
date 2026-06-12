@@ -7,6 +7,30 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Verbatim Flow integration — experimental, Windows only** (new
+  `src/editor/flow-port.ts`, `apps/desktop/src/flow-bridge.ts`,
+  `apps/desktop/resources/flow/verbatim-flow.ps1`; `flow*` host methods).
+  The six commands are registered as command-palette / keyboard commands
+  only — NO ribbon-toolbar buttons, and no default keybindings; the
+  "Flow" entry in `ribbon-groups.ts` is purely the shortcuts-cheat-sheet
+  / keybindings-editor taxonomy, not a toolbar group. Interoperates with
+  Verbatim Flow (the Excel
+  template `Debate.xltm`) the same way the Verbatim Word add-in does:
+  entirely through the standard Excel COM object model, requiring no
+  modification to Flow (a passive recipient of active-cell writes). The
+  renderer can't speak COM, so the desktop main process spawns a fixed,
+  bundled Windows-PowerShell helper that attaches to the running Excel
+  (`[Marshal]::GetActiveObject`), finds the workbook whose name contains
+  "flow", and writes the serialized blocks down its active column
+  (`ActiveCell.Value2` → `Offset(1,0)`) — or reads the selected cells for
+  Pull, or opens `Debate.xltm` for Create. Payloads cross via a temp-file
+  arg (never the command line); results return as JSON on stdout. Send
+  has four variants (cell vs column × all vs headings-only, where
+  "headings" keeps tags/cites/headings and drops `card_body`) plus the
+  overwrite guard Verbatim shows. Off Windows every call resolves to a
+  "windows-only" result and nothing spawns. Audit + design in
+  `reference-docs/SPEC-verbatim-flow-interop.md`.
+
 - **Mobile layout — view-first shell for the web edition** (new
   `src/editor/mobile-shell.ts`, `mobile-plugin.ts`,
   `mobile-layout.ts`, `mobile-settings-ui.ts`, `structural-move.ts`;

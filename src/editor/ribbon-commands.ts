@@ -3709,6 +3709,12 @@ export type RibbonCommandId =
   | 'translate'
   | 'repairText'
   | 'repairFormatting'
+  | 'sendToFlowColumn'
+  | 'sendToFlowCell'
+  | 'sendHeadingsToFlowColumn'
+  | 'sendHeadingsToFlowCell'
+  | 'pullFromFlow'
+  | 'createFlow'
   | 'createFlashcard'
   | 'manageFlashcards'
   | 'wordCountSelection'
@@ -3855,6 +3861,12 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'translate',
   'repairText',
   'repairFormatting',
+  'sendToFlowColumn',
+  'sendToFlowCell',
+  'sendHeadingsToFlowColumn',
+  'sendHeadingsToFlowCell',
+  'pullFromFlow',
+  'createFlow',
   'createFlashcard',
   'manageFlashcards',
   'wordCountSelection',
@@ -3977,6 +3989,12 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   translate: 'Translate Selection (to Clipboard)',
   repairText: 'Repair OCR/PDF Text',
   repairFormatting: 'Repair Formatting (AI)',
+  sendToFlowColumn: 'Send to Flow (one cell per line)',
+  sendToFlowCell: 'Send to Flow (single cell)',
+  sendHeadingsToFlowColumn: 'Send Headings to Flow (one cell per line)',
+  sendHeadingsToFlowCell: 'Send Headings to Flow (single cell)',
+  pullFromFlow: 'Pull Selection from Flow',
+  createFlow: 'Create New Flow',
   createFlashcard: 'Create Flashcard From Selection',
   manageFlashcards: 'Manage Flashcards',
   wordCountSelection: 'Word Count Selection',
@@ -4143,6 +4161,12 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   translate: 'Mod-Shift-t',
   repairText: 'Mod-Shift-r',
   repairFormatting: 'Mod-Alt-r',
+  sendToFlowColumn: '',
+  sendToFlowCell: '',
+  sendHeadingsToFlowColumn: '',
+  sendHeadingsToFlowCell: '',
+  pullFromFlow: '',
+  createFlow: '',
   createFlashcard: '',
   manageFlashcards: '',
   wordCountSelection: '',
@@ -4328,6 +4352,14 @@ export interface RibbonContext {
   repairText: () => void;
   /** Repair body-text formatting (underline/emphasis/highlight scheme). */
   repairFormatting: () => void;
+  /** Verbatim Flow (Windows COM → Excel). Send selected blocks / pull
+   *  selected cells / open a new Flow. */
+  sendToFlowColumn: () => void;
+  sendToFlowCell: () => void;
+  sendHeadingsToFlowColumn: () => void;
+  sendHeadingsToFlowCell: () => void;
+  pullFromFlow: () => void;
+  createFlow: () => void;
   createFlashcard: () => void;
   manageFlashcards: () => void;
   /** File-level commands. These work regardless of whether the editor
@@ -4450,6 +4482,12 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   translate: () => {},
   repairText: () => {},
   repairFormatting: () => {},
+  sendToFlowColumn: () => {},
+  sendToFlowCell: () => {},
+  sendHeadingsToFlowColumn: () => {},
+  sendHeadingsToFlowCell: () => {},
+  pullFromFlow: () => {},
+  createFlow: () => {},
   createFlashcard: () => {},
   manageFlashcards: () => {},
   newDocument: () => {},
@@ -4656,6 +4694,42 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
         if (state.selection.empty) return false;
         if (!dispatch) return true;
         ctx.repairFormatting();
+        return true;
+      };
+    case 'sendToFlowColumn':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.sendToFlowColumn();
+        return true;
+      };
+    case 'sendToFlowCell':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.sendToFlowCell();
+        return true;
+      };
+    case 'sendHeadingsToFlowColumn':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.sendHeadingsToFlowColumn();
+        return true;
+      };
+    case 'sendHeadingsToFlowCell':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.sendHeadingsToFlowCell();
+        return true;
+      };
+    case 'pullFromFlow':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.pullFromFlow();
+        return true;
+      };
+    case 'createFlow':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.createFlow();
         return true;
       };
     case 'createFlashcard':

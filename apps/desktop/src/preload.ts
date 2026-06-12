@@ -552,6 +552,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
    *  env, or the default userData/plugins location) and runs it in the
    *  renderer's MAIN world, where it self-registers via
    *  window.__registerCardCutter. Never bundled in the release. */
+  /** Verbatim Flow bridge (Windows COM → Excel). All resolve a JSON
+   *  status object; off Windows they resolve `{ error: 'windows-only' }`. */
+  flowAvailable: (): Promise<Record<string, unknown>> =>
+    ipcRenderer.invoke('host:flow-available'),
+  flowSend: (payload: { cells: string[] }, force?: boolean): Promise<Record<string, unknown>> =>
+    ipcRenderer.invoke('host:flow-send', payload, !!force),
+  flowPull: (): Promise<Record<string, unknown>> => ipcRenderer.invoke('host:flow-pull'),
+  flowCreate: (templatePath?: string): Promise<Record<string, unknown>> =>
+    ipcRenderer.invoke('host:flow-create', templatePath),
+
   cardCutterPickFile: (): Promise<string | null> =>
     ipcRenderer.invoke('host:cardcutter-pick-file'),
   cardCutterLoad: async (

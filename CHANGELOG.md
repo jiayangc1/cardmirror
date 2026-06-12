@@ -9,6 +9,23 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Added
 
+- **Send to Verbatim Flow (experimental, Windows only).** A set of
+  commands connects CardMirror to Verbatim Flow — the Excel flowing
+  template — exactly the way the Verbatim Word add-in does, with no
+  changes needed to Flow itself. These are command-palette and
+  keyboard-shortcut commands only — they are **not** buttons on the
+  ribbon and take up no ribbon space. Find them by searching the command
+  bar, or bind your own shortcuts in Settings → Keybindings (none are
+  bound by default). With Excel open and a workbook whose name contains
+  "Flow": "Send to Flow" drops your selected tags, cites, and text into
+  the flow's current column (one cell per line, or all in a single
+  cell); "Send Headings to Flow" leaves out card bodies; "Pull from
+  Flow" reads the cells you've selected in Excel back into your document;
+  and "Create New Flow" opens a fresh flow from the Verbatim template. It
+  works only on Windows (it drives Excel over COM); on other platforms
+  the commands report that and do nothing. Experimental — expect rough
+  edges.
+
 - **A mobile layout for the web edition.** Opening
   CardMirror in a phone or tablet browser — or any browser window
   narrower than 768px (touch screens up to 1024px) — now gets a
