@@ -26,6 +26,14 @@ see `DETAILED_CHANGELOG.md`.
   untouched). A transitional tool — it'll be retired once libraries have
   migrated.
 
+### Fixed
+
+- **Spell check no longer flags a word whose styling changes mid-word.** When
+  part of a word was underlined, highlighted, or otherwise styled differently
+  from the rest (e.g. an underline ending partway through), the checker saw it
+  as two separate fragments and red-underlined the pieces; it now checks the
+  whole word.
+
 ## 0.1.0-alpha.13 — 2026-06-12
 
 ### Added

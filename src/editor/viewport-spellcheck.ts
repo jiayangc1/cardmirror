@@ -14,6 +14,7 @@
  * chunk loaded only the first time spellcheck is switched on.
  */
 import { Plugin, PluginKey } from 'prosemirror-state';
+import type { Node as PMNode } from 'prosemirror-model';
 import { Decoration, DecorationSet, type EditorView } from 'prosemirror-view';
 import { settings } from './settings.js';
 import { showToast } from './toast.js';
@@ -90,6 +91,10 @@ async function ensureSpell(onReady: () => void): Promise<void> {
 
 // Latin words incl. internal apostrophes (don't / O'Brien).
 const WORD_RE = /[A-Za-z][A-Za-z']*/g;
+// A character WORD_RE can never match, used to break words across non-text
+// inline nodes when joining a textblock's inline content (U+FFFF, a
+// noncharacter that won't appear in real document text).
+const WORD_BREAK_SENTINEL = String.fromCharCode(0xffff);
 
 /** Doc range currently on screen, found via hit-testing the viewport
  *  top/bottom — O(log n), independent of doc size. */
@@ -105,28 +110,62 @@ function visibleRange(view: EditorView): { from: number; to: number } {
   return { from: Math.max(0, from - 40), to: Math.min(size, to + 40) };
 }
 
+/**
+ * Misspelled word ranges within ONE textblock. The textblock's inline text
+ * is joined into a single string before checking, so a word whose styling
+ * changes mid-word — split across adjacent text nodes, e.g. "signifi"
+ * (underlined) + "cant" — is checked as the whole word, not the fragments
+ * (which the dictionary flags individually). Adjacent inline text nodes are
+ * contiguous in position space, so the returned ranges are correct across
+ * the mark boundary too. `base` is the textblock's first inline doc
+ * position (`textblockPos + 1`). Pure (no view) so it's unit-testable.
+ */
+export function misspelledRangesIn(
+  node: PMNode,
+  base: number,
+  isWordCorrect: (word: string) => boolean,
+): Array<{ from: number; to: number }> {
+  const parts: string[] = [];
+  const map: number[] = []; // map[i] = doc position of the joined string's i-th char
+  node.forEach((child, offset) => {
+    if (child.isText && child.text) {
+      const childStart = base + offset;
+      parts.push(child.text);
+      for (let i = 0; i < child.text.length; i++) map.push(childStart + i);
+    } else {
+      // A non-text inline node (image, hard break) ends a word: insert a
+      // sentinel WORD_RE never matches so no word spans across it.
+      parts.push(WORD_BREAK_SENTINEL);
+      map.push(base + offset);
+    }
+  });
+  const text = parts.join('');
+  const out: Array<{ from: number; to: number }> = [];
+  WORD_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = WORD_RE.exec(text)) !== null) {
+    // Trim a trailing possessive apostrophe ("dogs'", "James'") so the base
+    // word is what gets checked — and underlined — not the apostrophe-
+    // suffixed form the dictionary never contains.
+    const w = m[0].replace(/'+$/, '');
+    if (w.length < 3) continue; // skip a/an/etc.
+    if (w === w.toUpperCase()) continue; // skip ACRONYMS / ALLCAPS
+    if (isWordCorrect(w)) continue;
+    out.push({ from: map[m.index]!, to: map[m.index + w.length - 1]! + 1 });
+  }
+  return out;
+}
+
 function computeDecos(view: EditorView): DecorationSet {
   if (!spell) return DecorationSet.empty;
   const { from, to } = visibleRange(view);
   const decos: Decoration[] = [];
   view.state.doc.nodesBetween(from, to, (node, pos) => {
-    if (!node.isText || !node.text) return;
-    const text = node.text;
-    WORD_RE.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = WORD_RE.exec(text)) !== null) {
-      // Trim a trailing possessive apostrophe ("dogs'", "James'") so the
-      // base word is what gets checked — and underlined — not the
-      // apostrophe-suffixed form the dictionary never contains.
-      const w = m[0].replace(/'+$/, '');
-      if (w.length < 3) continue; // skip a/an/etc.
-      if (w === w.toUpperCase()) continue; // skip ACRONYMS / ALLCAPS
-      if (isCorrect(w)) continue;
-      const start = pos + m.index;
-      decos.push(
-        Decoration.inline(start, start + w.length, { class: 'pmd-misspelled' }),
-      );
+    if (!node.isTextblock) return; // descend into containers; words live in textblocks
+    for (const r of misspelledRangesIn(node, pos + 1, isCorrect)) {
+      decos.push(Decoration.inline(r.from, r.to, { class: 'pmd-misspelled' }));
     }
+    return false; // inline content handled above; don't re-descend into it
   });
   return DecorationSet.create(view.state.doc, decos);
 }

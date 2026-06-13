@@ -7,6 +7,18 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Spell check joins style-split words** (`viewport-spellcheck.ts`).
+  `computeDecos` ran the word regex over each text node separately, so a word
+  whose styling changes mid-word — which ProseMirror stores as adjacent text
+  nodes with different marks ("signifi" underlined + "cant") — was checked as
+  fragments and the fragments flagged. It now iterates textblocks (not text
+  nodes), joins each block's inline content into one string with a
+  char→doc-position map (non-text inline nodes insert a sentinel `WORD_RE`
+  can't match, so words don't span an image/break), and checks/decorates the
+  whole word across the mark boundary. The per-block detection is extracted to
+  a pure `misspelledRangesIn` helper. Analogous to the earlier possessive-
+  apostrophe fix: check the real word, not a fragment.
+
 - **`.cmir` gzip compression** (`native/codec.ts`, `native/index.ts`,
   `docid.ts`). The native file is now a gzip-wrapped JSON envelope — the JSON
   shape and `formatVersion` are unchanged, since compression is a container
