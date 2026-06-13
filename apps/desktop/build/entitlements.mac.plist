@@ -9,14 +9,19 @@
        helper is what opens the device. -->
   <key>com.apple.security.device.audio-input</key>
   <true/>
-  <!-- Electron's standard hardened-runtime requirements (V8 JIT). These
-       mirror electron-builder's default entitlements, which this file
-       replaces. -->
+  <!-- Electron's standard hardened-runtime requirements. These MIRROR
+       electron-builder's default entitlements (which this file replaces).
+       `disable-library-validation` is essential: without it, the hardened
+       runtime refuses to load the Electron Framework in an ad-hoc/unsigned
+       build (the framework and the executable have mismatched Team IDs) and
+       the app crashes at launch with a DYLD "Library missing" error. -->
   <key>com.apple.security.cs.allow-jit</key>
   <true/>
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
   <true/>
   <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
 </dict>
 </plist>
