@@ -9,6 +9,18 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Added
 
+- **Bulk re-apply and replace of structural styles across a "select all of this
+  style" selection.** Right-click a structural ribbon button (Tag, Analytic,
+  Undertag, or a Pocket/Hat/Block heading) to select every block of that style,
+  then left-click a structural button to act on all of them at once:
+  - the **same** button scrubs stray direct font sizes off every selected
+    block — the quick way to clean up odd sizes that ride in from imported
+    `.docx` files (right-click the style, left-click to re-apply);
+  - a **different** structural button converts them all — e.g. turn every tag
+    into an analytic, or every pocket into a hat. Tag↔analytic conversions keep
+    the card/analytic structure and its cites/bodies intact; heading swaps keep
+    their ids.
+
 - **Visible paragraph-break cue in selections.** When a selection reaches to
   the very start of the next paragraph — for example after Ctrl-Shift-Down, or
   Shift-Down past the end of a line — a highlighted `¶` now appears at the end

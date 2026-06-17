@@ -231,6 +231,56 @@ function clearFontSizeOnNode(node: PMNode): PMNode {
 }
 
 /**
+ * Bulk re-apply of a structural style over a right-click "select all of
+ * this style" shadow selection (`selectAllOfStyle`). `applyStructuralToSelection`
+ * only sees the real PM selection — which `selectAllOfStyle` collapses — so a
+ * shadow that spans many paragraphs (e.g. every tag in the doc) couldn't be
+ * re-styled at all. Re-applying a structural style to a block that is ALREADY
+ * that type is, by design, a no-op on structure that just clears stray direct
+ * `font_size` marks (the same-type re-press behavior, mirroring
+ * `stripIndentAtDepth(..., { clearFontSize: true })`). This does exactly that
+ * across every same-type block the shadow covers, in one transaction — the
+ * intended way to scrub stray sizes (often imported from .docx) off all tags:
+ * right-click the ribbon style button to select them, left-click to re-apply.
+ *
+ * Only fires for a shadow selection (`fromShadow`) whose blocks already match
+ * `targetType`; a shadow of a different style, or a real selection, falls
+ * through so the caller's normal conversion logic runs. Returns false when no
+ * same-type block is covered (nothing to clear).
+ */
+function bulkReapplyStructuralOnShadow(
+  state: EditorState,
+  dispatch: ((tr: Transaction) => void) | undefined,
+  targetType: string,
+): boolean {
+  const op = getOperatingRanges(state);
+  if (!op.fromShadow || op.ranges.length === 0) return false;
+  const fontSize = schema.marks['font_size'];
+  if (!fontSize) return false;
+  const clears: { from: number; to: number }[] = [];
+  for (const range of op.ranges) {
+    state.doc.nodesBetween(range.from, range.to, (node, pos) => {
+      if (node.isTextblock && node.type.name === targetType) {
+        const from = Math.max(range.from, pos + 1);
+        const to = Math.min(range.to, pos + node.nodeSize - 1);
+        if (from < to) clears.push({ from, to });
+      }
+      return true;
+    });
+  }
+  if (clears.length === 0) return false;
+  if (!dispatch) return true;
+  const tr = state.tr;
+  // removeMark steps don't change positions, so original coords stay valid
+  // across the loop — no mapping needed.
+  for (const c of clears) tr.removeMark(c.from, c.to, fontSize);
+  // Keep the shadow alive so further bulk ops can chain off the same matches.
+  tr.setMeta(META_OPERATING_ON_SHADOW, true);
+  dispatch(tr);
+  return true;
+}
+
+/**
  * Same-type re-press helper: strip the `indent` attr off the node at
  * `depth` while preserving its type and every other attr. Returns
  * true unconditionally — the keystroke is consumed either way.
@@ -285,6 +335,8 @@ export function setHeading(typeName: HeadingTypeName): Command {
         headingType: typeName,
       });
     }
+    if (bulkReapplyStructuralOnShadow(state, dispatch, typeName)) return true;
+    if (bulkReplaceStructuralOnShadow(state, dispatch, { mode: 'heading', headingType: typeName })) return true;
     const $from = state.selection.$from;
 
     if ($from.depth === 1) {
@@ -336,6 +388,8 @@ export function setTag(): Command {
     if (!state.selection.empty) {
       return applyStructuralToSelection(state, dispatch, { mode: 'tag' });
     }
+    if (bulkReapplyStructuralOnShadow(state, dispatch, 'tag')) return true;
+    if (bulkReplaceStructuralOnShadow(state, dispatch, { mode: 'tag' })) return true;
     const $from = state.selection.$from;
 
     if ($from.depth === 1) {
@@ -399,6 +453,8 @@ export function setAnalytic(): Command {
     if (!state.selection.empty) {
       return applyStructuralToSelection(state, dispatch, { mode: 'analytic' });
     }
+    if (bulkReapplyStructuralOnShadow(state, dispatch, 'analytic')) return true;
+    if (bulkReplaceStructuralOnShadow(state, dispatch, { mode: 'analytic' })) return true;
     const $from = state.selection.$from;
 
     if ($from.depth === 1) {
@@ -464,6 +520,8 @@ export function setUndertag(): Command {
     if (!state.selection.empty) {
       return applyStructuralToSelection(state, dispatch, { mode: 'undertag' });
     }
+    if (bulkReapplyStructuralOnShadow(state, dispatch, 'undertag')) return true;
+    if (bulkReplaceStructuralOnShadow(state, dispatch, { mode: 'undertag' })) return true;
     const $from = state.selection.$from;
 
     if ($from.depth === 1) {
@@ -569,6 +627,24 @@ function dissolveContainerToUndertag(
   return true;
 }
 
+/** Pure node transform: a `card` → the equivalent `analytic_unit`. Tag →
+ *  analytic is a same-tier swap (same structural role, just cite/analytic
+ *  semantic) so direct formatting on the head is preserved; the card's body
+ *  slots map into valid analytic_unit content via `toAnalyticUnitChild`.
+ *  Shared by the cursor command and the shadow bulk-replace so both keep the
+ *  container intact (rather than dissolving it). */
+function cardToAnalyticUnitNode(card: PMNode): PMNode {
+  const tag = card.firstChild!;
+  const id = (tag.attrs['id'] as string | null) ?? newHeadingId();
+  const analyticNode = schema.nodes['analytic']!.create({ id }, tag.content);
+  const rest: PMNode[] = [];
+  card.forEach((child, _offset, index) => {
+    if (index === 0) return;
+    rest.push(toAnalyticUnitChild(child));
+  });
+  return schema.nodes['analytic_unit']!.create(null, [analyticNode, ...rest]);
+}
+
 function convertCardToAnalyticUnit(
   state: EditorState,
   dispatch: ((tr: Transaction) => void) | undefined,
@@ -578,18 +654,7 @@ function convertCardToAnalyticUnit(
   const card = $from.node(1);
   if (!dispatch) return true;
 
-  const id = (tag.attrs['id'] as string | null) ?? newHeadingId();
-  // Tag → analytic is a same-tier swap (same structural role, just
-  // different cite/analytic semantic). Preserve direct formatting the
-  // user manually applied — the apply-style strip is only meant to
-  // fire when promoting INTO a different kind of element.
-  const analyticNode = schema.nodes['analytic']!.create({ id }, tag.content);
-  const rest: PMNode[] = [];
-  card.forEach((child, _offset, index) => {
-    if (index === 0) return;
-    rest.push(toAnalyticUnitChild(child));
-  });
-  const unitNode = schema.nodes['analytic_unit']!.create(null, [analyticNode, ...rest]);
+  const unitNode = cardToAnalyticUnitNode(card);
 
   const from = $from.before(1);
   const to = $from.after(1);
@@ -2773,7 +2838,7 @@ function computeShrinkScope(state: import('prosemirror-state').EditorState): { f
  * residual overlap between variants (e.g. `[[…Omitted…]]` also
  * matches the inner `[…Omitted…]`).
  */
-function findProtectedRanges(
+export function findProtectedRanges(
   doc: PMNode,
   ranges: { from: number; to: number }[],
   patterns: readonly RegExp[],
@@ -3496,6 +3561,21 @@ function liftCardChild(child: PMNode): PMNode {
   return child;
 }
 
+/** Pure node transform: an `analytic_unit` → the equivalent `card`. Reverse
+ *  of `cardToAnalyticUnitNode`; the analytic_unit's body slots are already
+ *  valid card content, so they pass through unchanged. */
+function analyticUnitToCardNode(unit: PMNode): PMNode {
+  const analytic = unit.firstChild!;
+  const id = (analytic.attrs['id'] as string | null) ?? newHeadingId();
+  const tagNode = schema.nodes['tag']!.create({ id }, analytic.content);
+  const rest: PMNode[] = [];
+  unit.forEach((child, _offset, index) => {
+    if (index === 0) return;
+    rest.push(child);
+  });
+  return schema.nodes['card']!.create(null, [tagNode, ...rest]);
+}
+
 function convertAnalyticUnitToCard(
   state: EditorState,
   dispatch: ((tr: Transaction) => void) | undefined,
@@ -3505,15 +3585,7 @@ function convertAnalyticUnitToCard(
   const unit = $from.node(1);
   if (!dispatch) return true;
 
-  const id = (analytic.attrs['id'] as string | null) ?? newHeadingId();
-  // Analytic → tag: same-tier swap, see convertCardToAnalyticUnit.
-  const tagNode = schema.nodes['tag']!.create({ id }, analytic.content);
-  const rest: PMNode[] = [];
-  unit.forEach((child, _offset, index) => {
-    if (index === 0) return;
-    rest.push(child);
-  });
-  const cardNode = schema.nodes['card']!.create(null, [tagNode, ...rest]);
+  const cardNode = analyticUnitToCardNode(unit);
 
   const from = $from.before(1);
   const to = $from.after(1);
@@ -3551,14 +3623,21 @@ type StructuralMode =
  *     stays, analytic → analytic_unit). Untouched children that
  *     precede the first touched stay inside the original container.
  */
-function applyStructuralToSelection(
+/**
+ * Compute the doc-child replacement for restyling everything in `[from, to]`
+ * to `opts`'s structural type — the shared core of selection-based apply and
+ * the shadow bulk-replace. Returns the contiguous doc-child range to replace
+ * and the transformed children, or null when nothing intersects or the
+ * transform is a no-op (e.g. the range only touched same-type heads with no
+ * font_size to clear).
+ */
+function computeStructuralReplacement(
   state: EditorState,
-  dispatch: ((tr: Transaction) => void) | undefined,
+  from: number,
+  to: number,
   opts: StructuralMode,
-): boolean {
-  const from = state.selection.from;
-  let to = state.selection.to;
-  if (from === to) return false;
+): { replaceFrom: number; replaceTo: number; newChildren: PMNode[] } | null {
+  if (from === to) return null;
   // A trailing selection boundary that merely sits at the START of the
   // next paragraph — the Ctrl-Shift-Down / Shift-Down-past-block-end shape,
   // which lands `to` at offset 0 of the following textblock — means that
@@ -3581,7 +3660,7 @@ function applyStructuralToSelection(
     }
     p = cEnd;
   });
-  if (firstIdx === -1) return false;
+  if (firstIdx === -1) return null;
 
   let replaceFrom = -1;
   let replaceTo = -1;
@@ -3599,29 +3678,99 @@ function applyStructuralToSelection(
     transformDocChild(child, cStart, from, to, opts, newChildren);
   });
 
-  if (newChildren.length === 0) return false;
+  if (newChildren.length === 0) return null;
   // Nothing actually transformed (e.g. the selection only touched
-  // same-type heads): report false instead of dispatching an identical
-  // replace — which would burn an undo step and yank the cursor.
+  // same-type heads): report null instead of an identical replace —
+  // which would burn an undo step and yank the cursor.
   const unchanged =
     newChildren.length === originalChildren.length &&
     newChildren.every((n, i) => n === originalChildren[i] || n.eq(originalChildren[i]!));
-  if (unchanged) return false;
+  if (unchanged) return null;
+  return { replaceFrom, replaceTo, newChildren };
+}
+
+function applyStructuralToSelection(
+  state: EditorState,
+  dispatch: ((tr: Transaction) => void) | undefined,
+  opts: StructuralMode,
+): boolean {
+  const r = computeStructuralReplacement(
+    state,
+    state.selection.from,
+    state.selection.to,
+    opts,
+  );
+  if (!r) return false;
   if (!dispatch) return true;
   const tr = state.tr.replaceWith(
-    replaceFrom,
-    replaceTo,
-    Fragment.fromArray(newChildren),
+    r.replaceFrom,
+    r.replaceTo,
+    Fragment.fromArray(r.newChildren),
   );
   // Place cursor at the first text position inside the new range.
   // Selection.near handles the case where replaceFrom+1 is inside a
   // non-textblock container (card / analytic_unit).
   try {
-    tr.setSelection(Selection.near(tr.doc.resolve(replaceFrom + 1)));
+    tr.setSelection(Selection.near(tr.doc.resolve(r.replaceFrom + 1)));
   } catch {
     /* fallback to default mapped selection */
   }
   dispatch(tr);
+  return true;
+}
+
+/**
+ * Bulk *replace* of one structural style with another over a right-click
+ * "select all of this style" shadow selection — e.g. select all tags, then
+ * press Mod-F7 to turn every one into an analytic; or select all pockets and
+ * press F5 to make them hats. The single-block conversion rules already live
+ * in `transformDocChild`/`computeStructuralReplacement`; this runs them once
+ * per matched block, in one transaction.
+ *
+ * Each shadow range sits inside one structural block (one doc-level child —
+ * a card for a tag, the heading itself for pocket/hat/block), so each yields
+ * one independent doc-child replacement. They're applied back-to-front so the
+ * earlier (lower) positions stay valid as later ones are rewritten. Only fires
+ * for a shadow selection; a same-type target produces no change here (handled
+ * by `bulkReapplyStructuralOnShadow`, which clears stray font_size instead).
+ * No `META_OPERATING_ON_SHADOW`, so the now-stale matches dissipate.
+ */
+function bulkReplaceStructuralOnShadow(
+  state: EditorState,
+  dispatch: ((tr: Transaction) => void) | undefined,
+  opts: StructuralMode,
+): boolean {
+  const op = getOperatingRanges(state);
+  if (!op.fromShadow || op.ranges.length === 0) return false;
+  const repls = new Map<number, { from: number; to: number; nodes: PMNode[] }>();
+  for (const range of op.ranges) {
+    const $pos = state.doc.resolve(range.from);
+    const child = $pos.depth >= 1 ? $pos.node(1) : null;
+    const ct = child?.type.name;
+    // Container head swaps (tag↔analytic) preserve the container and its
+    // body slots — use the dedicated node-builders, not transformDocChild,
+    // which would dissolve the card and lift the cite/body to doc level.
+    if (child && ct === 'card' && opts.mode === 'analytic') {
+      const from = $pos.before(1);
+      repls.set(from, { from, to: $pos.after(1), nodes: [cardToAnalyticUnitNode(child)] });
+    } else if (child && ct === 'analytic_unit' && opts.mode === 'tag') {
+      const from = $pos.before(1);
+      repls.set(from, { from, to: $pos.after(1), nodes: [analyticUnitToCardNode(child)] });
+    } else {
+      // Everything else (heading↔heading swaps, and the rarer cross-tier
+      // conversions) goes through the shared selection transform.
+      const r = computeStructuralReplacement(state, range.from, range.to, opts);
+      if (r) repls.set(r.replaceFrom, { from: r.replaceFrom, to: r.replaceTo, nodes: r.newChildren });
+    }
+  }
+  if (repls.size === 0) return false;
+  if (!dispatch) return true;
+  const sorted = [...repls.values()].sort((a, b) => b.from - a.from);
+  const tr = state.tr;
+  for (const r of sorted) {
+    tr.replaceWith(r.from, r.to, Fragment.fromArray(r.nodes));
+  }
+  dispatch(tr.scrollIntoView());
   return true;
 }
 

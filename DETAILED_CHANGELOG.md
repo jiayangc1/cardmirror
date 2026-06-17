@@ -7,6 +7,31 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Bulk structural re-apply / replace over a shadow selection**
+  (`editor/ribbon-commands.ts`). `selectAllOfStyle` (right-click a ribbon style
+  button) sets shadow ranges and collapses the PM selection, but
+  `applyStructuralToSelection` only read the real selection — so a shadow
+  spanning many blocks couldn't be re-styled. The structural commands
+  (`setTag`/`setAnalytic`/`setUndertag`/`setHeading`) now, in their
+  empty-selection branch, try two shadow handlers before the single-cursor
+  logic. (1) `bulkReapplyStructuralOnShadow` — when the shadow's blocks already
+  match the pressed style, `removeMark`s `font_size` across every same-type
+  block in one transaction (the same-type re-press effect, scaled to all
+  matches; keeps the shadow alive via `META_OPERATING_ON_SHADOW`). The intended
+  way to scrub stray imported `.docx` sizes off all tags. (2)
+  `bulkReplaceStructuralOnShadow` — converts each matched block to a different
+  style. `applyStructuralToSelection`'s core is extracted to
+  `computeStructuralReplacement(state, from, to, opts)`; the bulk path runs it
+  per shadow range and applies the per-doc-child replacements back-to-front (so
+  lower positions stay valid) in one transaction. Container head swaps go
+  through dedicated node-builders `cardToAnalyticUnitNode` /
+  `analyticUnitToCardNode` (extracted from the cursor commands) instead of
+  `transformDocChild`, which would dissolve the card and lift the cite/body to
+  doc level; heading↔heading and rarer cross-tier conversions use the shared
+  transform. No `META_OPERATING_ON_SHADOW`, so the now-stale matches dissipate.
+  Only fires for `fromShadow` selections; real selections keep the contiguous
+  apply.
+
 - **Trailing-pilcrow selection cue** (`editor/pilcrow-selection-plugin.ts`,
   `editor/index.ts`, `editor/style.css`). A selection's end can land at offset
   0 of a later textblock — the shape Ctrl/Alt-Shift-Down produces (and native

@@ -23,6 +23,7 @@ import type { Transaction } from 'prosemirror-state';
 import type { Node as PMNode } from 'prosemirror-model';
 import { schema } from '../schema/index.js';
 import { settings } from './settings.js';
+import { compileShrinkProtections, findProtectedRanges } from './ribbon-commands.js';
 import { callAnthropic } from './ai/anthropic.js';
 import { resolveAiModel } from './ai/anthropic.js';
 import { showToast } from './toast.js';
@@ -256,9 +257,47 @@ function cardState(f: FocusedCard): { hasUnderline: boolean; hasHighlight: boole
   return { hasUnderline, hasHighlight };
 }
 
+/** Delimiter-protected spans — bracketed Omitted / ALT TEXT / FOOTNOTE
+ *  markers, "Condense with warning" PAUSES/RESUMES, translator attributions,
+ *  and the user's custom protections — must never be sent to the cutter: the
+ *  highlight it returns is read aloud, and only text from the original article
+ *  may be read. Same pattern set Shrink uses, applied unconditionally (this is
+ *  independent of the shrink-keeps-protected setting). */
+function cardCutterProtectionPatterns(): readonly RegExp[] {
+  return compileShrinkProtections(
+    settings.get('shrinkCustomProtections'),
+    settings.get('condenseWarningDelimiter') === 'custom'
+      ? settings.get('condenseWarningCustomPauseMarker')
+      : '',
+    settings.get('condenseWarningDelimiter') === 'custom'
+      ? settings.get('condenseWarningCustomResumeMarker')
+      : '',
+  );
+}
+
+/** Blank every character of `text` whose doc position falls in a protected
+ *  range, replacing it with a space. Keeping the length identical preserves
+ *  the 1:1 text-offset ↔ doc-position mapping the rest of the port relies on;
+ *  the cutter highlights words, so a blanked (whitespace) span is never
+ *  selected, and the engine's whitespace-split word count skips it too. */
+function maskProtected(
+  text: string,
+  contentStart: number,
+  protectedRanges: readonly { from: number; to: number }[],
+): string {
+  if (protectedRanges.length === 0 || text.length === 0) return text;
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const docPos = contentStart + i;
+    const masked = protectedRanges.some((r) => docPos >= r.from && docPos < r.to);
+    out += masked ? ' ' : text[i];
+  }
+  return out;
+}
+
 /** Find the card containing the cursor and pull its tag / cite / plain
- *  body text. Returns null if the cursor isn't in a card or the body
- *  is empty. */
+ *  body text, with delimiter-protected spans blanked out. Returns null if
+ *  the cursor isn't in a card or the body is empty. */
 export function focusedPlainCard(view: EditorView): FocusedCard | null {
   const { $from } = view.state.selection;
   let cardPos = -1;
@@ -273,6 +312,23 @@ export function focusedPlainCard(view: EditorView): FocusedCard | null {
   }
   if (!cardNode || cardPos < 0) return null;
 
+  // Blank delimiter-protected spans from everything sent to the engine so
+  // protected spans can't be read aloud. Scan PER child paragraph: scanning
+  // the whole card at once concatenates tag/cite/body with no separators, so
+  // an opening delimiter in one (e.g. the tag's `[TRANSLATION…]`) could pair
+  // with a keyword in another and over-mask across them.
+  const protectionPatterns = cardCutterProtectionPatterns();
+  const maskChild = (child: PMNode, childPos: number): string =>
+    maskProtected(
+      child.textContent,
+      childPos + 1,
+      findProtectedRanges(
+        view.state.doc,
+        [{ from: childPos, to: childPos + child.nodeSize }],
+        protectionPatterns,
+      ),
+    );
+
   let tag = '';
   let cite = '';
   const paras: string[] = [];
@@ -282,9 +338,9 @@ export function focusedPlainCard(view: EditorView): FocusedCard | null {
     const t = child.type.name;
     const childPos = cardPos + 1 + offset; // position of child node
     if (t === 'tag' || t === 'analytic') {
-      tag += child.textContent;
+      tag += maskChild(child, childPos);
     } else if (t === 'cite_paragraph') {
-      cite += (cite ? '\n' : '') + child.textContent;
+      cite += (cite ? '\n' : '') + maskChild(child, childPos);
     } else if (child.isTextblock) {
       const p = paras.length;
       // Read existing body marks into char-range spans, tracking the
@@ -303,7 +359,7 @@ export function focusedPlainCard(view: EditorView): FocusedCard | null {
         }
         textOff = end;
       });
-      paras.push(child.textContent);
+      paras.push(maskChild(child, childPos));
       paraStarts.push(childPos + 1); // +1 into the textblock's content
     }
   });
