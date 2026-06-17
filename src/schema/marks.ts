@@ -115,10 +115,18 @@ export const marks: { [name: string]: MarkSpec } = {
     ],
     toDOM: (mark) => {
       const hp = Number(mark.attrs['halfPoints'] ?? 22);
+      // Also publish the size as `--pmd-run-font-size`. The named-style
+      // marks (cite/underline/emphasis) render INSIDE this wrapper and
+      // would otherwise pin the glyph to their per-style display size,
+      // overriding an explicit per-run size — so their CSS reads this
+      // variable first and falls back to the display size only when no
+      // `font_size` mark is present. This matches `ptForRun`'s precedence
+      // (a `font_size` mark is "direct" and wins) and Word's "direct
+      // `<w:sz>` overrides a character style's size" semantics.
       return [
         'span',
         {
-          style: `font-size: ${hp / 2}pt`,
+          style: `font-size: ${hp / 2}pt; --pmd-run-font-size: ${hp / 2}pt`,
           'data-half-points': String(hp),
         },
         0,

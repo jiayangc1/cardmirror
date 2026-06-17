@@ -58,6 +58,22 @@ in each release, see `CHANGELOG.md`.
   is left to the existing own-paragraph split). Enter/`splitBlock` over such a
   selection is not yet covered.
 
+- **Explicit font size overrides the per-style display size on cite / underline
+  / emphasis** (`schema/marks.ts`, `editor/style.css`). `.pmd-cite`,
+  `.pmd-underline`, and `.pmd-emphasis` hard-set `font-size: var(--pmd-size-*)`
+  (the per-style display size). Since these named-style marks render INSIDE the
+  outermost `font_size` wrapper, that rule clamped the glyph to the display size
+  and an explicit per-run size only grew the wrapper's box — line height and the
+  selection band changed, the letters didn't. The `font_size` mark's `toDOM`
+  now also publishes `--pmd-run-font-size`, and the three rules read
+  `font-size: var(--pmd-run-font-size, var(--pmd-size-<style>))` — so a run that
+  carries a `font_size` mark uses it, otherwise it falls back to the display
+  size. This makes the render match `ptForRun`'s precedence (a `font_size` mark
+  is "direct" and wins) and Word's direct-`<w:sz>`-over-character-style
+  semantics. Note: imported docs whose cite/underline/emphasis runs carry a
+  stored `<w:sz>` now render at that size instead of the uniform display size
+  (consistent with the size chip, which already flagged them as direct).
+
 ## 0.1.0-alpha.14 — 2026-06-13
 
 - **macOS voice no-audio: microphone permission/entitlement + capture fixes**

@@ -27,6 +27,14 @@ see `DETAILED_CHANGELOG.md`.
   paragraph you were editing. The same fix applies to AI Format Cite, which no
   longer leaves the cursor in the following paragraph.
 
+- **Changing the font size of cite / underlined / emphasized text now actually
+  resizes the letters.** Increasing or decreasing the size on text in one of
+  these styles used to grow the line height and selection highlight but leave
+  the glyphs at the style's display size. An explicit per-run size now wins over
+  the style's display size (matching the size shown in the toolbar, and Word's
+  behavior where a directly-applied size overrides the character style). Text
+  with no explicit size still renders at the configured per-style display size.
+
 ## 0.1.0-alpha.14 — 2026-06-13
 
 ### Changed

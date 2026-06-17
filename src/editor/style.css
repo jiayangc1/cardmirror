@@ -1775,16 +1775,23 @@ code {
    below ONLY when their containing paragraph is shrunk, which keeps
    visible content readable while letting the paragraph strut shrink.
 
-   Cite is the exception: it carries its own font-size unconditionally,
-   matching Verbatim's behavior where Cite always renders at 13pt. The
+   Cite is the exception: it carries its own font-size, matching
+   Verbatim's behavior where Cite renders at 13pt by default. The
    --pmd-size-* CSS variables are how Verbatim's per-style font-size
    customization (Styles tab) plumbs in — settings.displaySizes ↔ CSS
-   variables ↔ rendered font-size. */
+   variables ↔ rendered font-size.
+
+   Each per-style size is a FALLBACK behind `--pmd-run-font-size`: when a
+   run also carries an explicit `font_size` mark (the outer wrapper, see
+   marks.ts) that variable is set, so a per-run size the user typed wins
+   over the style's display size — otherwise the inner span would clamp
+   the glyph to the display size while the outer wrapper still grew the
+   line box (the "letter doesn't change size" bug). Matches `ptForRun`. */
 
 /* Style13ptBold (Cite): bold + Verbatim's canonical 13pt. */
 .pmd-cite {
   font-weight: bold;
-  font-size: var(--pmd-size-cite);
+  font-size: var(--pmd-run-font-size, var(--pmd-size-cite));
 }
 
 /* StyleUnderline: just an underline. Per-style font size is driven
@@ -1792,7 +1799,7 @@ code {
    on documentElement by `applyDisplaySizes` in index.ts. */
 .pmd-underline {
   text-decoration: underline;
-  font-size: var(--pmd-size-underline);
+  font-size: var(--pmd-run-font-size, var(--pmd-size-underline));
 }
 
 /* Emphasis: underline by default; bold/italic/box decorations are
@@ -1800,7 +1807,7 @@ code {
    font size via `--pmd-size-emphasis` — parallel to underline. */
 .pmd-emphasis {
   text-decoration: underline;
-  font-size: var(--pmd-size-emphasis);
+  font-size: var(--pmd-run-font-size, var(--pmd-size-emphasis));
 }
 
 /* UndertagChar (inline form): same color/decoration rules as the
