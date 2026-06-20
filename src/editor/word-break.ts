@@ -68,6 +68,18 @@ export function isWordChar(ch: string): boolean {
   return classifyChar(ch) === 'word';
 }
 
+/** Fold Word's "smart" / curly quotes to their straight ASCII equivalents so
+ *  text matching (find, repair-paragraph) treats a query typed with straight
+ *  `'` / `"` as equal to the curly `‘ ’ “ ”` Word produces, and vice versa.
+ *  Every replacement is a single BMP char → a single ASCII char, so the result
+ *  is the SAME length as the input — callers can fold both haystack and needle
+ *  without shifting the character offsets they map back to doc positions. */
+export function foldQuotes(s: string): string {
+  return s
+    .replace(/[‘’‚‛]/g, "'")
+    .replace(/[“”„‟]/g, '"');
+}
+
 /** The base unit (without trailing-space absorption) containing
  *  the character at index `idx` in `text`. Returns `{ from, to }`
  *  with `to` exclusive. `idx` must satisfy `0 <= idx < text.length`;

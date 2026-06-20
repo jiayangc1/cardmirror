@@ -312,6 +312,32 @@ behaves — `respect` (the default; leaves headings separate, merges only
 body runs), `strict` (refuses to touch a selection that includes
 structure), or `demolish` (flattens everything touched).
 
+### Repair paragraph integrity (workflow)
+
+When a card's body has collapsed into one run — a PDF that lost its breaks,
+or text pasted as a single block — **Repair Paragraph Integrity** rebuilds
+the paragraphs one break at a time. Put your cursor in the card (or select
+it) and run the command; a small bar opens and a green box outlines the card
+it's working on.
+
+Type a phrase that should *begin* a paragraph. As you type, every occurrence
+of it in the card's body is highlighted in green. Once you've typed enough
+that exactly **one** occurrence matches, the bar flashes green and shows a
+check — press **Enter** to drop a paragraph break right before that phrase.
+The box clears so you can type the next paragraph's opening phrase, and so on.
+
+Press **Ctrl-Enter** instead of Enter to break *and* mark that paragraph to be
+**indented** — it gets a green bar in the left margin. The indent isn't applied
+right away; it lands when you exit, on whatever that paragraph has become by
+then. So if you later split it again, only the final paragraph (up to the next
+break) is indented, not the rest of the card. Press **Esc** to apply any
+pending indents and leave the workflow.
+
+It only searches the card's body (not the tag), so you can't accidentally
+break a heading. The command ships without a default shortcut — assign one in
+Settings → Keybindings (it's also in the command bar as *Repair Paragraph
+Integrity*).
+
 ### Shrink (Mod-8)
 
 **Shrink** cycles the non-underlined text in the current card or
@@ -541,6 +567,10 @@ it off may help.
 - **Find and Replace (Mod-H)** adds a replace field.
 - **Find without category grouping (Alt-F)** orders matches by position
   rather than grouping them by structural type.
+
+Straight and curly quotes match interchangeably: a query typed with a
+straight `'` or `"` finds Word's smart quotes (`court's` finds `court’s`,
+`"clear"` finds `“clear”`), and vice versa.
 
 ### The Search Everything palette (Mod-Shift-Space)
 

@@ -4321,6 +4321,7 @@ export type RibbonCommandId =
   | 'translate'
   | 'repairText'
   | 'repairFormatting'
+  | 'repairParagraphIntegrity'
   | 'sendToFlowColumn'
   | 'sendToFlowCell'
   | 'sendHeadingsToFlowColumn'
@@ -4478,6 +4479,7 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'translate',
   'repairText',
   'repairFormatting',
+  'repairParagraphIntegrity',
   'sendToFlowColumn',
   'sendToFlowCell',
   'sendHeadingsToFlowColumn',
@@ -4611,6 +4613,7 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   translate: 'Translate Selection (to Clipboard)',
   repairText: 'Repair OCR/PDF Text',
   repairFormatting: 'Repair Formatting (AI)',
+  repairParagraphIntegrity: 'Repair Paragraph Integrity',
   sendToFlowColumn: 'Send to Flow (one cell per line)',
   sendToFlowCell: 'Send to Flow (single cell)',
   sendHeadingsToFlowColumn: 'Send Headings to Flow (one cell per line)',
@@ -4707,6 +4710,12 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
  * Keep entries lowercase. Only commands that need an alias appear here.
  */
 export const RIBBON_COMMAND_ALIASES: Partial<Record<RibbonCommandId, readonly string[]>> = {
+  repairParagraphIntegrity: [
+    'paragraph integrity',
+    'split paragraphs',
+    'add paragraph breaks',
+    'paragraph starts',
+  ],
   // show/hide ⇄ toggle visibility pairs
   toggleCommentsVisible: ['toggle comments', 'comments'],
   toggleNavPane: ['toggle navigation pane', 'toggle nav pane', 'sidebar', 'outline pane'],
@@ -4798,6 +4807,8 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   translate: 'Mod-Shift-t',
   repairText: 'Mod-Shift-r',
   repairFormatting: 'Mod-Alt-r',
+  // No default binding — rebindable in Settings → Keybindings.
+  repairParagraphIntegrity: '',
   sendToFlowColumn: '',
   sendToFlowCell: '',
   sendHeadingsToFlowColumn: '',
@@ -4993,6 +5004,8 @@ export interface RibbonContext {
   repairText: () => void;
   /** Repair body-text formatting (underline/emphasis/highlight scheme). */
   repairFormatting: () => void;
+  /** Open the Repair Paragraph Integrity workflow on the current card. */
+  openRepairParagraph: () => void;
   /** Verbatim Flow (Windows COM → Excel). Send selected blocks / pull
    *  selected cells / open a new Flow. */
   sendToFlowColumn: () => void;
@@ -5135,6 +5148,7 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   translate: () => {},
   repairText: () => {},
   repairFormatting: () => {},
+  openRepairParagraph: () => {},
   sendToFlowColumn: () => {},
   sendToFlowCell: () => {},
   sendHeadingsToFlowColumn: () => {},
@@ -5354,6 +5368,12 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
         if (state.selection.empty) return false;
         if (!dispatch) return true;
         ctx.repairFormatting();
+        return true;
+      };
+    case 'repairParagraphIntegrity':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.openRepairParagraph();
         return true;
       };
     case 'sendToFlowColumn':

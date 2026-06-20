@@ -134,10 +134,12 @@ import {
   type StyleSelector,
 } from './similar-selection-plugin.js';
 import { findReplacePlugin } from './find-replace-plugin.js';
+import { repairParagraphPlugin } from './repair-paragraph-plugin.js';
 import { frozenSelectionPlugin } from './frozen-selection-plugin.js';
 import { pilcrowSelectionPlugin } from './pilcrow-selection-plugin.js';
 import { buildMacroKeymap } from './keyboard-macros.js';
 import { FindReplaceBar } from './find-replace-ui.js';
+import { RepairParagraphBar } from './repair-paragraph-ui.js';
 import { tableEditing, columnResizing } from 'prosemirror-tables';
 import { buildPastePlugin } from './paste-plugin.js';
 import { buildImageNodeFromBlob, insertImageNode } from './image-insert.js';
@@ -638,6 +640,13 @@ function ensureFindReplaceBar(): FindReplaceBar {
     );
   }
   return findReplaceBar;
+}
+let repairParagraphBar: RepairParagraphBar | null = null;
+function ensureRepairParagraphBar(): RepairParagraphBar {
+  if (!repairParagraphBar) {
+    repairParagraphBar = new RepairParagraphBar(() => view);
+  }
+  return repairParagraphBar;
 }
 /** Speech-doc command hooks. Installed by the multi-pane shell; in
  *  single-doc mode these stay null and the commands no-op (no
@@ -1183,6 +1192,10 @@ const ribbonContext: RibbonContext = {
   openFind: () => {
     if (!view) return;
     ensureFindReplaceBar().open({ mode: 'find', sortMode: 'categorized' });
+  },
+  openRepairParagraph: () => {
+    if (!view) return;
+    ensureRepairParagraphBar().open();
   },
   openFindReplace: () => {
     if (!view) return;
@@ -3696,6 +3709,7 @@ export function buildEditorPlugins(): Plugin[] {
     fontSizeClassPlugin,
     buildSimilarSelectionPlugin(effectivePtForNode),
     findReplacePlugin(),
+    repairParagraphPlugin(),
     tableEditing(),
     columnResizing(),
     // Tab / Shift-Tab indent — registered AFTER tableEditing so it

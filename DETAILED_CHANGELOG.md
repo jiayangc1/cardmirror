@@ -7,6 +7,51 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Quote-insensitive text matching** (`editor/word-break.ts`,
+  `editor/find-replace-plugin.ts`, `editor/repair-paragraph-plugin.ts`). New
+  shared `foldQuotes()` maps Word's smart quotes (`‘ ’ ‚ ‛` → `'`, `“ ” „ ‟` →
+  `"`) to straight ASCII. Both Find's `findMatches` and the paragraph-repair
+  `findBodyMatches` now fold the haystack AND the needle before `indexOf`, so a
+  query typed with straight quotes matches curly text and vice versa. The fold
+  is strictly length-preserving (each BMP char → one ASCII char), so the
+  character offsets still map back to the correct doc positions — match ranges
+  land on the real (curly) characters, and Replace edits the right span.
+
+- **Repair Paragraph Integrity workflow** (`editor/repair-paragraph-plugin.ts`,
+  `editor/repair-paragraph-ui.ts`). A card-scoped workflow for re-splitting a
+  collapsed body. `repairParagraphPlugin` owns the workflow view-state (active
+  flag, the operated-on card range, the query, and match positions) and paints:
+  a green `Decoration.node` box around the operated-on card the whole time it's
+  open (`.pmd-repair-card-box`, the green analog of the AI working box's
+  `.pmd-ai-working` card outline), plus green inline decorations over every body
+  match — `.pmd-repair-match`, with the lone Enter-ready match a stronger
+  `.pmd-repair-match-single` (the green analog of Find's current-match). `findBodyMatches` scans only the card's body
+  textblocks (`card_body` / `cite_paragraph` / `undertag`), never the tag, using
+  the same `pos + 1 + idx` offset mapping Find uses. The bar UI captures the
+  enclosing card range at open (so focusing the input doesn't lose scope),
+  pushes the query via `setQuery` meta, reads the match count back to toggle the
+  in-box check + green entrance/reached-one pulse, and on Enter calls
+  `buildSplitForSingleMatch` — `tr.split(matchFrom)` (guarded by `canSplit` and a
+  parentOffset>0 "already a paragraph start" check) which yields two `card_body`
+  siblings with the phrase leading the second; the same transaction clears the
+  query for the next phrase. The card range maps forward through every doc
+  change (including the split) so highlights track edits.
+  **Ctrl-Enter** splits the same way but also *designates* the new paragraph for
+  indent-on-exit: `buildSplitForSingleMatch(state, true)` tags its `afterSplit`
+  meta, and the plugin records the tr's caret position in `designated[]`. Those
+  positions map forward through every later edit, so as subsequent splits shrink
+  the paragraph the marker keeps pointing at its (moving) start — the indent is
+  deliberately deferred so it lands on the *final* paragraph, not the whole rest
+  of the body. A `Decoration.node` (`.pmd-repair-indent-pending`, faint tint +
+  a green bar in the left gutter) marks each designated paragraph. On exit,
+  `buildExitTransaction` resolves each designated position to its current
+  textblock and `setNodeMarkup`s `indent += INDENT_STEP_DXA` (deduped by block),
+  then closes — so Esc both applies the pending indents and tears the workflow
+  down. Wired as a new ribbon
+  command `repairParagraphIntegrity` (label *Repair Paragraph Integrity*, no
+  default key so it's rebindable, search aliases, a `ctx.openRepairParagraph`
+  hook), registered in the editor plugin list and command bar.
+
 - **Gap-fix no longer converts emphasis to underline for unrelated commands**
   (`editor/ribbon-commands.ts`). `withGapFix` runs `applyFullGapTarget` over the
   edge gaps after *every* formatting command. Its underline-family rule treats
@@ -60,6 +105,31 @@ in each release, see `CHANGELOG.md`.
   from the unchanged bookends. Whitespace is intentionally *not* protected, so a
   selected trailing space is still normalized away — matching the Layer-3 trim's
   space-only policy (`government. ` → period underlined, space not).
+
+- **A structural-led paste preserves its full structure instead of demoting**
+  (`editor/paste-plugin.ts`). When the clipboard leads with structural content
+  and the cursor is in a card/analytic_unit body, PM's default fitting demoted
+  it: the clipboard's flat, open `[tag, card_body, …]` shape (what a selection
+  starting inside a tag, or a whole-card copy, produces) has its *open* head
+  merged into the cursor's body, stripping the tag and absorbing the rest.
+  Diagnosis: a *closed* structural slice splits correctly on its own, but PM
+  leaves a phantom empty-tag card for the post-cursor remainder. The rewritten
+  `tryPasteSplitContainer` now (a) accepts any structural lead — `tag` /
+  `analytic` / `pocket` / `hat` / `block` / whole `card` / `analytic_unit` — not
+  just a lone tag/analytic; (b) re-groups the flat nodes into proper containers
+  via `groupStructuralNodes` (a bare `tag` + following bodies → `card`, a bare
+  `analytic` → `analytic_unit`, with `fitForCard`/`fitForAnalyticUnit` coercing
+  bodies to each container's content rule); (c) preserves the WHOLE pasted
+  structure (head + content), where the previous code synthesized a single head
+  and dropped the body; and (d) absorbs the destination's post-cursor remainder
+  into the LAST pasted container (so two clean cards result, no phantom), or —
+  when the paste ends in a doc-level heading — ejects and lifts the remainder to
+  the doc root via `liftToDocRoot`. `handlePaste` tries the slice PM handed us
+  first, falling back to `reparseClipboardStructuralSlice` (a doc-level,
+  context-free re-parse of the clipboard `text/html`, re-running the
+  `transformPasted` fresh-id + table-unwrap normalization) for the case where PM
+  already flattened the head to inline in the slice. Replaces the old
+  `detectPastedHead` / `findHeadInSlice` / `parseHeadFromHTML` single-head path.
 
 - **"Fix" / "repair" are command-search synonyms** (`editor/quick-card-search-ui.ts`).
   `searchCommandSource`'s per-command `haystack` now appends `repair` to any

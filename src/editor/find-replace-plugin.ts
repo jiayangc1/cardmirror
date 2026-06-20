@@ -42,7 +42,7 @@ import {
 import { Decoration, DecorationSet } from 'prosemirror-view';
 import type { Node as PMNode } from 'prosemirror-model';
 import { preciseScrollIntoView } from './precise-scroll.js';
-import { isWordChar } from './word-break.js';
+import { isWordChar, foldQuotes } from './word-break.js';
 
 /** Match category, derived from the containing textblock's node type
  *  at scan time. Used by the `categorized` sort mode to bubble
@@ -169,7 +169,9 @@ function findMatches(
 ): FindMatch[] {
   if (!query) return [];
   const out: FindMatch[] = [];
-  const needleNorm = caseSensitive ? query : query.toLowerCase();
+  // Fold curly quotes so a straight ' / " query matches Word's smart quotes
+  // (and vice versa). Length-preserving, so offsets still map to doc positions.
+  const needleNorm = foldQuotes(caseSensitive ? query : query.toLowerCase());
   state.doc.descendants((node, pos) => {
     if (!node.isTextblock) return true;
     // NOT textContent: inline atoms (images) have nodeSize 1 but
@@ -181,7 +183,7 @@ function findMatches(
     const text = node.textBetween(0, node.content.size, undefined, '\u0000');
     if (!text) return false;
     const category = categoryForTextblockType(node.type.name);
-    const hay = caseSensitive ? text : text.toLowerCase();
+    const hay = foldQuotes(caseSensitive ? text : text.toLowerCase());
     let searchFrom = 0;
     while (searchFrom <= hay.length - needleNorm.length) {
       const idx = hay.indexOf(needleNorm, searchFrom);

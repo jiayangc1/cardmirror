@@ -7,7 +7,28 @@ see `DETAILED_CHANGELOG.md`.
 
 ## Unreleased
 
+### Added
+
+- **Repair Paragraph Integrity workflow.** A focused way to re-introduce
+  paragraph breaks into a card whose body collapsed into one run. Run it with
+  your cursor in a card (or the card selected) and a small bar opens, with a
+  green box around the card it's operating on. Type a phrase that should begin a
+  paragraph; every occurrence in the card's body is highlighted in green. When
+  exactly one match remains, the bar flashes green with a check — press Enter to
+  insert a paragraph break right before that phrase and clear the box for the
+  next one. **Ctrl-Enter** does the same but also marks that paragraph to be
+  indented (shown with a green bar in the left margin); the indent is applied when
+  you exit, to whatever that paragraph has become by then — so further splits
+  inside it don't drag the indent across the rest of the card. Esc applies any
+  pending indents and exits. The command (*Repair Paragraph Integrity*) ships
+  unbound; assign a shortcut in Settings → Keybindings.
+
 ### Fixed
+
+- **Find and the paragraph-repair search now match straight and curly quotes
+  interchangeably.** Typing a straight `'` or `"` matches Word's smart quotes
+  (`‘ ’ “ ”`) in the document, and vice versa — so searching `court's` finds
+  `court’s` and `"clear"` finds `“clear”`.
 
 - **Highlighting emphasized text no longer breaks the emphasis at the edges.**
   Toggling highlight (or shading, or a font-size change) over a run of
@@ -30,6 +51,14 @@ see `DETAILED_CHANGELOG.md`.
   unformatted. Spaces still behave as before: selecting `government. ` with the
   trailing space underlines the period but not the space. Punctuation you didn't
   select still bridges normally between two formatted words.
+
+- **Pasting a card, analytic, or heading into a card keeps its structure.**
+  Pasting content that leads with a tag, analytic, or a Pocket/Hat/Block heading
+  into a card — including dropping a whole copied card at the end of another —
+  used to demote the heading into ordinary body text and absorb the content into
+  the destination card. Now the pasted structure wins: the destination card
+  splits at the cursor and the pasted card/analytic/heading lands intact, with
+  its full content, as its own structural block.
 
 ### Changed
 

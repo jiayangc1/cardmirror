@@ -5445,6 +5445,130 @@ body.pmd-steady-cursor .pmd-italic-caret,
   box-shadow: inset 0 0 0 1px var(--pmd-c-drop-outline);
 }
 
+/* ---------------------------------------- Repair Paragraph Integrity workflow */
+
+/* Box around the card being operated on — mirrors the AI working box's card
+   outline (`.pmd-ai-working`), but green, so it's clear which card is in
+   scope for the whole workflow. */
+:is(#editor, .pmd-pane-editor) .pmd-repair-card-box {
+  outline: 2px solid #2e7d32;
+  outline-offset: -2px;
+  background: color-mix(in srgb, #2e7d32 8%, transparent);
+  border-radius: 4px;
+}
+
+/* A paragraph designated (Ctrl-Enter) to be indented when the workflow exits.
+   A faint tint plus a green bar in the LEFT GUTTER (a `::before` outside the
+   text, so it never overlaps or hides the paragraph's words). */
+:is(#editor, .pmd-pane-editor) .pmd-repair-indent-pending {
+  position: relative;
+  background: color-mix(in srgb, #2e7d32 6%, transparent);
+}
+:is(#editor, .pmd-pane-editor) .pmd-repair-indent-pending::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -8px;
+  width: 3px;
+  border-radius: 2px;
+  background: #2e7d32;
+  pointer-events: none;
+}
+
+/* Match highlights — same idea as find, but green. Every occurrence gets a
+   soft green band; the single remaining match (Enter-ready) is stronger with
+   an outline, the "green selection" the workflow targets. */
+.pmd-repair-match {
+  background-color: rgba(76, 175, 80, 0.32);
+  border-radius: 2px;
+}
+.pmd-repair-match-single {
+  background-color: rgba(76, 175, 80, 0.55);
+  outline: 1px solid rgba(46, 125, 50, 0.85);
+  outline-offset: 0;
+}
+
+/* The input bar. Centered near the top, mirroring the command bar's placement
+   and entrance flash. */
+.pmd-repair-para-bar {
+  position: fixed;
+  top: calc(var(--ribbon-height) + 1.25rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  background: var(--pmd-c-bg);
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px var(--pmd-c-shadow-deep);
+  padding: 0.6rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  width: 420px;
+  max-width: calc(100vw - 2rem);
+}
+.pmd-repair-para-bar[hidden] { display: none; }
+.pmd-repair-para-title {
+  font-weight: 600;
+  color: var(--pmd-c-text);
+}
+.pmd-repair-para-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.pmd-repair-para-input {
+  flex: 1;
+  padding: 0.4rem 1.9rem 0.4rem 0.55rem;
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 6px;
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+  font-size: 0.95rem;
+  outline: none;
+}
+.pmd-repair-para-input:focus {
+  border-color: var(--pmd-c-accent);
+}
+.pmd-repair-ok .pmd-repair-para-input {
+  border-color: rgba(46, 125, 50, 0.9);
+}
+/* The check that appears inside the box once exactly one match remains. */
+.pmd-repair-para-check {
+  position: absolute;
+  right: 0.55rem;
+  color: #2e7d32;
+  font-weight: 700;
+  font-size: 1rem;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 120ms ease-out, transform 120ms ease-out;
+  pointer-events: none;
+}
+.pmd-repair-ok .pmd-repair-para-check {
+  opacity: 1;
+  transform: scale(1);
+}
+.pmd-repair-para-hint {
+  color: var(--pmd-c-text-soft, var(--pmd-c-text));
+  opacity: 0.75;
+  font-size: 0.78rem;
+}
+.pmd-repair-para-error .pmd-repair-para-input {
+  border-color: rgba(200, 60, 60, 0.85);
+}
+
+/* Green entrance / reached-one flash, mirroring the command bar's pulse. */
+@keyframes pmd-repair-para-pulse {
+  0%   { box-shadow: 0 8px 32px var(--pmd-c-shadow-deep), 0 0 0 3px rgba(76, 175, 80, 0.9); }
+  100% { box-shadow: 0 8px 32px var(--pmd-c-shadow-deep), 0 0 0 0 transparent; }
+}
+.pmd-repair-para-pulse {
+  animation: pmd-repair-para-pulse 520ms ease-out;
+}
+
 /* ---------------------------------------------- Reference (cheat-sheet) modal */
 
 /* ---------------------------------------------- Comments column */
