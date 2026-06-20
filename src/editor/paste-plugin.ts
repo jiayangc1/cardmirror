@@ -16,20 +16,18 @@
  *    before the paste toggles the flag back off. The status-bar UI
  *    shows the armed state.
  *
- * 2. **Tag/analytic paste splits the destination container.** When
- *    PM's parsed clipboard slice's first child is a `tag` or
- *    `analytic` node and the cursor sits in a body slot
- *    (`card_body` / `cite_paragraph` / `undertag`) of a `card` /
- *    `analytic_unit`, the default "fit inline content where it
- *    matches" behavior strips the heading wrapper and converts to
- *    body text. That's wrong — the user wanted the structural
- *    type. We instead split the destination container: original
- *    keeps the pre-cursor children and pre-cursor body text; new
- *    container (card if pasted head is a tag, analytic_unit if it's
- *    an analytic) gets the pasted head + post-cursor body remainder
- *    + the original container's following children. Falls through
- *    to default PM behavior in any other shape (no head node,
- *    cursor not in a body slot, etc.).
+ * 2. **A structural-led paste splits the destination container.** When the
+ *    clipboard leads with structural content — a `tag` / `analytic` head, a
+ *    doc-level heading (`pocket` / `hat` / `block`), or a whole `card` /
+ *    `analytic_unit` — and the cursor sits in a body slot (`card_body` /
+ *    `cite_paragraph` / `undertag`) of a `card` / `analytic_unit`, PM's default
+ *    fitting demotes the structure to body text (the clipboard's flat, open
+ *    `[tag, card_body, …]` shape merges its open head into the cursor's body).
+ *    That's wrong — the user wanted the structural type, with its content. We
+ *    instead re-group the pasted nodes into proper containers and split the
+ *    destination, preserving the FULL pasted structure (see
+ *    `tryPasteSplitContainer`). Falls through to default PM behavior in any
+ *    other shape (no structural head, cursor not in a body slot, etc.).
  *
  * Order: armed mode wins over auto-split.
  */
@@ -38,7 +36,6 @@ import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } 
 import { DOMParser as PMDOMParser, Fragment, Slice, type Node as PMNode } from 'prosemirror-model';
 import type { EditorView } from 'prosemirror-view';
 import { schema } from '../schema/index.js';
-import { newHeadingId } from '../schema/ids.js';
 import { freshHeadingIds } from './drag-controller.js';
 import { condenseBranchC, condenseMerge } from './condense.js';
 import { buildImageNodeFromBlob, insertImageNode } from './image-insert.js';
@@ -105,6 +102,92 @@ const SPLITTABLE_BODY_SLOTS = new Set<string>([
   'cite_paragraph',
   'undertag',
 ]);
+
+/** Structural heads a paste can lead with that must "win" over a card body:
+ *  the card-anchoring `tag`, the analytic_unit-anchoring `analytic`, and the
+ *  doc-level headings (`pocket` / `hat` / `block`). */
+const STRUCTURAL_HEAD_NAMES = new Set<string>([
+  'tag',
+  'analytic',
+  'pocket',
+  'hat',
+  'block',
+]);
+const DOC_LEVEL_HEADINGS = new Set<string>(['pocket', 'hat', 'block']);
+/** Whole structural containers a paste can lead with. */
+const STRUCTURAL_CONTAINERS = new Set<string>(['card', 'analytic_unit']);
+
+/** Fit an arbitrary body node into a `card`'s content rule
+ *  (`card_body | undertag | cite_paragraph | analytic | table`). A bare
+ *  `paragraph` (common from external HTML) becomes a `card_body`; the rest
+ *  pass through. */
+function fitForCard(child: PMNode): PMNode {
+  const t = child.type.name;
+  if (t === 'card_body' || t === 'undertag' || t === 'cite_paragraph' || t === 'analytic' || t === 'table') {
+    return child;
+  }
+  return schema.nodes['card_body']!.create(null, child.content);
+}
+
+/** Fit a body node into an `analytic_unit`'s content rule
+ *  (`card_body | undertag | cite_paragraph | table`). An `analytic` (only one
+ *  is allowed, the head) or a bare `paragraph` folds into a `card_body`. */
+function fitForAnalyticUnit(child: PMNode): PMNode {
+  const t = child.type.name;
+  if (t === 'card_body' || t === 'undertag' || t === 'cite_paragraph' || t === 'table') {
+    return child;
+  }
+  return schema.nodes['card_body']!.create(null, child.content);
+}
+
+/** Convert a card/unit body child into the equivalent node valid at the doc
+ *  root — for when a pasted doc-level heading ejects the post-cursor remainder
+ *  out of its container. Mirrors `liftCardChild` in ribbon-commands. */
+function liftToDocRoot(child: PMNode): PMNode {
+  const t = child.type.name;
+  if (t === 'card_body' || t === 'cite_paragraph') {
+    return schema.nodes['paragraph']!.create(null, child.content);
+  }
+  if (t === 'analytic') {
+    return schema.nodes['analytic_unit']!.create(null, [child]);
+  }
+  return child;
+}
+
+/** Normalize a flat sequence of pasted structural nodes into doc-level-valid
+ *  containers: a bare `tag` (plus the body nodes that follow it) wraps into a
+ *  `card`; a bare `analytic` into an `analytic_unit`; doc-level headings,
+ *  whole `card`/`analytic_unit` nodes, and loose blocks pass through. This
+ *  re-closes the open, flat `[tag, card_body, …]` shape the clipboard produces
+ *  when a selection starts inside a tag — the shape PM would otherwise demote
+ *  by merging the open head into the cursor's body. */
+function groupStructuralNodes(nodes: PMNode[]): PMNode[] {
+  const out: PMNode[] = [];
+  let i = 0;
+  const isBoundary = (n: PMNode): boolean =>
+    STRUCTURAL_HEAD_NAMES.has(n.type.name) || STRUCTURAL_CONTAINERS.has(n.type.name);
+  while (i < nodes.length) {
+    const n = nodes[i]!;
+    const t = n.type.name;
+    if (t === 'tag' || t === 'analytic') {
+      const isCard = t === 'tag';
+      const fit = isCard ? fitForCard : fitForAnalyticUnit;
+      const bodies: PMNode[] = [];
+      i++;
+      while (i < nodes.length && !isBoundary(nodes[i]!)) {
+        bodies.push(fit(nodes[i]!));
+        i++;
+      }
+      out.push(
+        schema.nodes[isCard ? 'card' : 'analytic_unit']!.create(null, [n, ...bodies]),
+      );
+    } else {
+      out.push(n);
+      i++;
+    }
+  }
+  return out;
+}
 
 export interface PastePluginCtx {
   condenseOnPaste: () => boolean;
@@ -271,18 +354,20 @@ export function buildPastePlugin(ctx: PastePluginCtx): Plugin<PluginState> {
           return true;
         }
 
-        const head = detectPastedHead(slice, event);
-        if (head) {
-          // Synthesize a clean single-head slice so the split logic
-          // doesn't have to second-guess PM's contextual re-shaping of
-          // the original slice.
-          const synthetic = new Slice(Fragment.from(head), 0, 0);
-          const splitTr = tryPasteSplitContainer(view.state, synthetic);
-          if (splitTr) {
-            event.preventDefault();
-            view.dispatch(splitTr.scrollIntoView());
-            return true;
-          }
+        // A structural-led paste (tag / analytic / heading / whole card) into
+        // a card body splits the destination so the pasted structure wins.
+        // Try the slice PM gave us first; if its head was flattened to inline
+        // while fitting the cursor's body slot, recover the true structure by
+        // re-parsing the clipboard HTML at the doc level.
+        let splitTr = tryPasteSplitContainer(view.state, slice);
+        if (!splitTr) {
+          const reparsed = reparseClipboardStructuralSlice(event);
+          if (reparsed) splitTr = tryPasteSplitContainer(view.state, reparsed);
+        }
+        if (splitTr) {
+          event.preventDefault();
+          view.dispatch(splitTr.scrollIntoView());
+          return true;
         }
 
         // Multi-paragraph paste into a card_body cursor context:
@@ -391,11 +476,22 @@ function liftSingleCellTable(
 }
 
 /**
- * When the pasted slice's first child is a `tag` or `analytic` node and
- * the cursor is in a body slot of a `card` / `analytic_unit`, split the
- * container so the pasted head starts a new card / analytic_unit at
- * the cursor's position. Returns null otherwise so PM handles the
- * paste normally.
+ * When a pasted slice leads with structural content — a `tag` / `analytic`
+ * head, a doc-level heading (`pocket` / `hat` / `block`), or a whole
+ * `card` / `analytic_unit` — and the cursor sits in a body slot of a
+ * `card` / `analytic_unit`, split the destination so the pasted structure
+ * WINS rather than being demoted to body text. Returns null otherwise so PM
+ * handles the paste normally.
+ *
+ * The whole pasted structure is preserved (head AND its content), not just the
+ * head: the clipboard's flat, open `[tag, card_body, …]` shape is re-grouped
+ * into proper `card` / `analytic_unit` nodes first (`groupStructuralNodes`).
+ * The destination splits at the cursor — the original container keeps the
+ * pre-cursor children + pre-cursor body text; the pasted nodes land after it;
+ * and the post-cursor remainder (post-body + following children) is absorbed
+ * by the LAST pasted container (so two clean cards result, no phantom
+ * empty-tag sibling). When the paste ends in a doc-level heading instead, the
+ * remainder is ejected to the doc root and lifted.
  *
  * Exported for unit tests.
  */
@@ -404,28 +500,31 @@ export function tryPasteSplitContainer(
   slice: Slice,
 ): Transaction | null {
   if (slice.content.childCount === 0) return null;
-  const pastedHead = slice.content.firstChild;
-  if (!pastedHead) return null;
-  const headName = pastedHead.type.name;
-  if (headName !== 'tag' && headName !== 'analytic') return null;
-  // Multi-node pastes (e.g. user copied a whole card with tag + bodies)
-  // fall through to PM's default handling. A tag node ALONE is the
-  // case the user described.
-  if (slice.content.childCount !== 1) return null;
+  const lead = slice.content.firstChild;
+  if (!lead) return null;
+  // Must lead with structural content; a plain body/inline paste falls through.
+  if (!STRUCTURAL_HEAD_NAMES.has(lead.type.name) && !STRUCTURAL_CONTAINERS.has(lead.type.name)) {
+    return null;
+  }
 
   const $from = state.selection.$from;
   if ($from.depth !== 2) return null;
   const cursorBody = $from.parent;
   if (!SPLITTABLE_BODY_SLOTS.has(cursorBody.type.name)) return null;
   const container = $from.node(1);
-  const containerName = container.type.name;
-  if (containerName !== 'card' && containerName !== 'analytic_unit') return null;
+  if (!STRUCTURAL_CONTAINERS.has(container.type.name)) return null;
 
   let cursorIndex = -1;
   container.forEach((child, _o, idx) => {
     if (cursorIndex === -1 && child === cursorBody) cursorIndex = idx;
   });
   if (cursorIndex < 1) return null;
+
+  // Re-group the (possibly flat, open) pasted nodes into doc-level containers.
+  const flat: PMNode[] = [];
+  slice.content.forEach((n) => flat.push(n));
+  const pastedNodes = groupStructuralNodes(flat);
+  if (pastedNodes.length === 0) return null;
 
   const parentOffset = $from.parentOffset;
   const preContent = cursorBody.content.cut(0, parentOffset);
@@ -444,36 +543,42 @@ export function tryPasteSplitContainer(
 
   const originalChildren = [...beforeChildren];
   if (preBody) originalChildren.push(preBody);
-
-  const newContainerName: 'card' | 'analytic_unit' =
-    headName === 'tag' ? 'card' : 'analytic_unit';
-
-  // When splitting off an analytic_unit from a card, any following
-  // children that are `analytic` (cite-position-alternative) must be
-  // re-wrapped as card_body — analytic_unit's content rule only
-  // permits one `analytic` (the head).
-  const followingFitted = followingChildren.map((child) =>
-    newContainerName === 'analytic_unit' && child.type.name === 'analytic'
-      ? schema.nodes['card_body']!.create(null, child.content)
-      : child,
-  );
-
-  const newChildren: PMNode[] = [pastedHead];
-  if (postBody) newChildren.push(postBody);
-  newChildren.push(...followingFitted);
-
   const originalContainer = container.copy(Fragment.fromArray(originalChildren));
-  const newContainer = schema.nodes[newContainerName]!.create(null, newChildren);
+
+  // The destination's post-cursor remainder.
+  const remainder: PMNode[] = [];
+  if (postBody) remainder.push(postBody);
+  remainder.push(...followingChildren);
+
+  // Absorb the remainder into the LAST pasted container, or — if the paste
+  // ends in a doc-level heading — eject + lift it to the doc root after.
+  const last = pastedNodes[pastedNodes.length - 1]!;
+  const lastName = last.type.name;
+  let trailing: PMNode[] = [];
+  if (lastName === 'card' || lastName === 'analytic_unit') {
+    const fit = lastName === 'card' ? fitForCard : fitForAnalyticUnit;
+    const lastKids: PMNode[] = [];
+    last.forEach((c) => lastKids.push(c));
+    pastedNodes[pastedNodes.length - 1] = last.copy(
+      Fragment.fromArray([...lastKids, ...remainder.map(fit)]),
+    );
+  } else {
+    trailing = remainder.map(liftToDocRoot);
+  }
 
   const containerFrom = $from.before(1);
   const containerTo = $from.after(1);
-  const replacement = Fragment.fromArray([originalContainer, newContainer]);
+  const replacement = Fragment.fromArray([originalContainer, ...pastedNodes, ...trailing]);
   let tr = state.tr.replaceWith(containerFrom, containerTo, replacement);
 
-  // Cursor at the end of the pasted head's text — same convention as
-  // F7 (setTag), so the user can immediately edit the heading name.
-  const newContainerStart = containerFrom + originalContainer.nodeSize;
-  const cursorPos = newContainerStart + 1 + pastedHead.content.size + 1;
+  // Cursor at the end of the FIRST pasted head's text — the F7/setHeading
+  // convention, so the user can immediately edit the heading name.
+  const afterOriginal = containerFrom + originalContainer.nodeSize;
+  const firstDoc = pastedNodes[0]!;
+  const head = STRUCTURAL_CONTAINERS.has(firstDoc.type.name) ? firstDoc.firstChild : firstDoc;
+  const cursorPos = STRUCTURAL_CONTAINERS.has(firstDoc.type.name)
+    ? afterOriginal + 2 + (head?.content.size ?? 0) // +1 into container, +1 into head
+    : afterOriginal + 1 + (head?.content.size ?? 0); // +1 into the heading
   try {
     tr = tr.setSelection(TextSelection.create(tr.doc, cursorPos));
   } catch {
@@ -534,71 +639,24 @@ export function tryPasteAsCardBodies(
 }
 
 /**
- * Find a `tag` or `analytic` node that the user is pasting, regardless
- * of how PM has shaped the slice. Two paths:
- *
- * 1. **Slice walk.** Walks `slice.content.firstChild` and its first
- *    descendants through single-child wrappers (a common shape when
- *    PM's `Slice.maxOpen` opens a slice down through the head's parent
- *    container before exposing the head itself).
- * 2. **HTML fallback.** PM may have unwrapped the head into bare
- *    inline content when fitting the slice to the cursor's body slot
- *    (`<h4 class="pmd-tag">…</h4>` → inline-only slice because card_body
- *    accepts `inline*`). The clipboard's `text/html` still carries
- *    the original markup, so re-parse it with PM's parser outside
- *    of any contextual fitting and pick out the head node.
+ * Re-parse the clipboard's `text/html` at the DOC level — no `context: $from`,
+ * so PM's parser doesn't demote structural heads to fit the cursor's body slot.
+ * Used as a fallback when the slice PM handed us has already had its leading
+ * head flattened to inline content (it can, when fitting the slice to a
+ * `card_body`'s `inline*` rule), so `tryPasteSplitContainer` can still recover
+ * the true structure. Re-applies the plugin's `transformPasted` normalization
+ * (fresh heading ids + single-cell-table unwrap), which the raw re-parse
+ * bypasses. Returns null when there's no HTML or no DOM (headless).
  *
  * Exported for tests.
  */
-export function detectPastedHead(slice: Slice, event: ClipboardEvent): PMNode | null {
-  const fromSlice = findHeadInSlice(slice);
-  if (fromSlice) return fromSlice;
-  return parseHeadFromHTML(event);
-}
-
-function findHeadInSlice(slice: Slice): PMNode | null {
-  if (slice.content.childCount === 0) return null;
-  let node: PMNode | null = slice.content.firstChild;
-  while (node) {
-    const n = node.type.name;
-    if (n === 'tag' || n === 'analytic') return node;
-    // Only descend through single-child structural wrappers — a multi-
-    // child container (whole-card paste, etc.) is a different shape and
-    // falls through.
-    if (node.isLeaf || node.childCount !== 1) return null;
-    node = node.firstChild;
-  }
-  return null;
-}
-
-function parseHeadFromHTML(event: ClipboardEvent): PMNode | null {
+export function reparseClipboardStructuralSlice(event: ClipboardEvent): Slice | null {
   if (typeof document === 'undefined') return null;
   const html = event.clipboardData?.getData('text/html') ?? '';
   if (!html) return null;
   const wrap = document.createElement('div');
   wrap.innerHTML = html;
-  // PM's clipboard serializer prepends `<!--ProseMirror--><meta>` markers;
-  // hop past them to find the first real structural element.
-  let first: Element | null = wrap.firstElementChild;
-  while (first && (first.tagName === 'META' || first.tagName === 'STYLE')) {
-    first = first.nextElementSibling;
-  }
-  if (!first) return null;
-  const isTag = first.tagName === 'H4' && first.classList.contains('pmd-tag');
-  const isAnalytic = first.tagName === 'P' && first.classList.contains('pmd-analytic');
-  if (!isTag && !isAnalytic) return null;
-  // Re-parse without context: we don't pass `context: $from` so PM's
-  // parser doesn't strip the head to fit the cursor's body slot.
-  const wrapForParse = document.createElement('div');
-  wrapForParse.appendChild(first.cloneNode(true));
-  const parsed = PMDOMParser.fromSchema(schema).parseSlice(wrapForParse);
-  const node = parsed.content.firstChild;
-  if (!node) return null;
-  if (node.type.name !== 'tag' && node.type.name !== 'analytic') return null;
-  // This path re-parses the raw clipboard HTML directly, so it bypasses
-  // the plugin's `transformPasted` fresh-id stamping — give the
-  // reconstructed head its own id (it parses back as null, same as the
-  // slice path). Without it a tag pasted into a card body via the
-  // split path would land id-less.
-  return node.type.create({ ...node.attrs, id: newHeadingId() }, node.content, node.marks);
+  const parsed = PMDOMParser.fromSchema(schema).parseSlice(wrap);
+  if (parsed.content.childCount === 0) return null;
+  return freshHeadingIds(unwrapSingleCellTables(parsed));
 }

@@ -3240,14 +3240,89 @@ describe('tryPasteSplitContainer (paste tag/analytic into a container body)', ()
     expect(next.doc.lastChild!.firstChild!.textContent).toBe('Pasted');
   });
 
-  it('returns null when the slice has multiple children', () => {
+  it('a whole copied card (tag + body) keeps its structure when pasted into a card', () => {
+    // The flat [tag, card_body] shape a whole-card copy produces. Pasting it
+    // mid-body must preserve the pasted card, NOT absorb its tag into the
+    // destination body.
     const card = cardWith(tag('T'), cardBody('foobar'));
-    const state = stateInBody(card, 'foobar', 3);
-    const slice = new Slice(Fragment.from([tag('A'), cardBody('B')]), 0, 0);
-    expect(tryPasteSplitContainer(state, slice)).toBeNull();
+    const state = stateInBody(card, 'foobar', 3); // 'foo|bar'
+    const slice = new Slice(Fragment.fromArray([tag('Pasted'), cardBody('B')]), 0, 0);
+    const next = state.apply(tryPasteSplitContainer(state, slice)!);
+    expect(next.doc.childCount).toBe(2);
+    const c1: { type: string; text: string }[] = [];
+    next.doc.firstChild!.forEach((c) => c1.push({ type: c.type.name, text: c.textContent }));
+    expect(c1).toEqual([
+      { type: 'tag', text: 'T' },
+      { type: 'card_body', text: 'foo' },
+    ]);
+    const c2: { type: string; text: string }[] = [];
+    next.doc.lastChild!.forEach((c) => c2.push({ type: c.type.name, text: c.textContent }));
+    // Pasted card keeps tag + its body, and absorbs the destination remainder.
+    expect(c2).toEqual([
+      { type: 'tag', text: 'Pasted' },
+      { type: 'card_body', text: 'B' },
+      { type: 'card_body', text: 'bar' },
+    ]);
   });
 
-  it("returns null when the slice's first child isn't a tag/analytic", () => {
+  it('a whole copied card pasted at the END of a card lands as its own card', () => {
+    // The reported case: paste a card at the end of another card. The pasted
+    // card must NOT be absorbed/demoted.
+    const card = cardWith(tag('Dest'), cardBody('foobar'));
+    const state = stateInBody(card, 'foobar', 'foobar'.length);
+    const slice = new Slice(Fragment.fromArray([tag('Pasted'), cardBody('body')]), 0, 0);
+    const next = state.apply(tryPasteSplitContainer(state, slice)!);
+    const types: string[] = [];
+    next.doc.forEach((c) => types.push(c.type.name));
+    expect(types).toEqual(['card', 'card']);
+    expect(next.doc.firstChild!.textContent).toBe('Destfoobar');
+    const c2: string[] = [];
+    next.doc.lastChild!.forEach((c) => c2.push(c.type.name + ':' + c.textContent));
+    expect(c2).toEqual(['tag:Pasted', 'card_body:body']);
+  });
+
+  it('a whole copied card as a card NODE slice also lands as its own card', () => {
+    const cardNode = cardWith(tag('Pasted'), cardBody('body'));
+    const dest = cardWith(tag('Dest'), cardBody('foobar'));
+    const state = stateInBody(dest, 'foobar', 'foobar'.length);
+    const slice = new Slice(Fragment.from(cardNode), 0, 0);
+    const next = state.apply(tryPasteSplitContainer(state, slice)!);
+    const types: string[] = [];
+    next.doc.forEach((c) => types.push(c.type.name));
+    expect(types).toEqual(['card', 'card']);
+    expect(next.doc.lastChild!.firstChild!.type.name).toBe('tag');
+    expect(next.doc.lastChild!.firstChild!.textContent).toBe('Pasted');
+  });
+
+  it('a heading pasted MID-body ejects the remainder to a doc-root paragraph', () => {
+    const card = cardWith(tag('T'), cardBody('foobar'));
+    const state = stateInBody(card, 'foobar', 3); // 'foo|bar'
+    const slice = new Slice(Fragment.from(pocket('P')), 0, 0);
+    const next = state.apply(tryPasteSplitContainer(state, slice)!);
+    const top: { type: string; text: string }[] = [];
+    next.doc.forEach((c) => top.push({ type: c.type.name, text: c.textContent }));
+    expect(top).toEqual([
+      { type: 'card', text: 'Tfoo' },
+      { type: 'pocket', text: 'P' },
+      { type: 'paragraph', text: 'bar' },
+    ]);
+  });
+
+  it('a copied heading + its content keeps BOTH when pasted into a card', () => {
+    const card = cardWith(tag('Dest'), cardBody('foobar'));
+    const state = stateInBody(card, 'foobar', 'foobar'.length);
+    const slice = new Slice(Fragment.fromArray([pocket('Heading'), paragraph('content')]), 0, 0);
+    const next = state.apply(tryPasteSplitContainer(state, slice)!);
+    const top: { type: string; text: string }[] = [];
+    next.doc.forEach((c) => top.push({ type: c.type.name, text: c.textContent }));
+    expect(top).toEqual([
+      { type: 'card', text: 'Destfoobar' },
+      { type: 'pocket', text: 'Heading' },
+      { type: 'paragraph', text: 'content' },
+    ]);
+  });
+
+  it("returns null when the slice's first child isn't a tag/analytic/heading", () => {
     const card = cardWith(tag('T'), cardBody('foobar'));
     const state = stateInBody(card, 'foobar', 3);
     const slice = new Slice(Fragment.from(cardBody('X')), 0, 0);
