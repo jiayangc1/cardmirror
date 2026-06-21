@@ -31,13 +31,14 @@ for the parts that aren't.
 9. [Comments and notes](#9-comments-and-notes)
 10. [Learn: spaced-repetition flashcards](#10-learn-spaced-repetition-flashcards)
 11. [AI features](#11-ai-features)
-12. [Voice control](#12-voice-control)
-13. [Saving and file formats](#13-saving-and-file-formats)
-14. [Settings reference](#14-settings-reference)
-15. [Appearance and accessibility](#15-appearance-and-accessibility)
-16. [Keyboard shortcuts](#16-keyboard-shortcuts)
-17. [What's not here yet](#17-whats-not-here-yet)
-18. [Glossary](#18-glossary)
+12. [Send to Verbatim Flow](#12-send-to-verbatim-flow)
+13. [Voice control](#13-voice-control)
+14. [Saving and file formats](#14-saving-and-file-formats)
+15. [Settings reference](#15-settings-reference)
+16. [Appearance and accessibility](#16-appearance-and-accessibility)
+17. [Keyboard shortcuts](#17-keyboard-shortcuts)
+18. [What's not here yet](#18-whats-not-here-yet)
+19. [Glossary](#19-glossary)
 
 ## 1. Getting started
 
@@ -131,6 +132,9 @@ covered in full in the section linked.
 - **[Shrink protections and Condense with warning](#shrink-mod-8)** —
   Shrink can keep omission notes, warning markers, and your own custom
   strings at normal size while everything else shrinks.
+- **[Repair paragraph integrity](#repair-paragraph-integrity-workflow)** —
+  rebuild a card's paragraph breaks one at a time when a PDF or a paste
+  collapsed them into a single run.
 - **[Create Reference](#citations)** — copy a formatted reference for the
   current document to the clipboard, built in.
 - **[Extract Undertag](#document-and-card-cleanup)** — pull a phrase out of
@@ -159,6 +163,9 @@ covered in full in the section linked.
 - **[Send-to-speech with a dropzone](#send-to-speech-and-the-dropzone)** —
   send cards and headings into a speech doc, with a holding shelf for
   staging evidence before you place it.
+- **[Card sharing](#card-sharing-send-and-receive-pills)** — send cards to
+  other people's machines, end-to-end encrypted, with Send and Receive pills
+  beside the dropzone. *(Desktop only.)*
 - **[Spaced-repetition flashcards](#10-learn-spaced-repetition-flashcards)**
   — study your own evidence; cards live on your machine and never travel
   with a shared file.
@@ -169,7 +176,7 @@ covered in full in the section linked.
   and tables from an image.
 - **[Translate a selection](#11-ai-features)** — to the clipboard, with a
   keyless backend that works even without AI features set up.
-- **[Display customizations and accessibility](#15-appearance-and-accessibility)**
+- **[Display customizations and accessibility](#16-appearance-and-accessibility)**
   — themes, dyslexia-friendly fonts, per-style colors, and color overrides
   that change how styles look on your screen without altering the document
   or its style definitions.
@@ -623,7 +630,7 @@ so you can narrow cards by topic.
 
 This palette is the in-editor seed of full corpus search: it already
 reaches files that aren't open, but a persistent, library-wide *content*
-index is still [planned](#17-whats-not-here-yet) — for now, searching
+index is still [planned](#18-whats-not-here-yet) — for now, searching
 *inside* a file happens one file at a time, when you dive in.
 
 ---
@@ -757,9 +764,35 @@ rearrange.
 
 When it's time to share a speech with the judge or opponent, use the
 **Send Doc** options described under
-[Saving and file formats](#13-saving-and-file-formats) — a clean copy
+[Saving and file formats](#14-saving-and-file-formats) — a clean copy
 with comments, analytics, and undertags stripped — either through Save As
 or in one keystroke with **Save Send Doc (Mod-Alt-S)**.
+
+### Card sharing (Send and Receive pills)
+
+*Desktop only.* Card sharing sends cards to other people's machines over the
+network. Two pills sit to the right of the dropzone — **Send** and **Receive**.
+
+**Turn it on.** In **Settings → Card Sharing**, switch it on. Your machine gets
+a **code**, shown there — share it with anyone you want to be able to send you
+cards. To send to someone, add them under **Recipients**: paste the code they
+gave you and give them a name. You can also bundle several recipients into a
+**group** (say, a partnership) to send to all of them at once.
+
+**Send a card.** Drag a card — from the document or the dropzone — onto the
+**Send** pill. It expands to show your recipients and groups; drop on one to
+send. Dropping on a group fans the card out to every member.
+
+**Receive cards.** Cards others send you land in the **Receive** pill, which
+flashes when one arrives and shows how many you haven't read. Open it to see
+each card with who sent it and when; from there a received card behaves just
+like a dropzone item — drag it into your document, or click to insert.
+
+**Privacy.** Cards are end-to-end encrypted: only you and the recipient can
+read them. The relay server that passes them along sees only scrambled data —
+never the card, who it's from, or who it's going to — and it forgets every card
+after three hours. Your machine checks for new cards on an interval you set
+(default 30 seconds). Sharing is off until you turn it on.
 
 ---
 
@@ -880,6 +913,7 @@ you're offline.
 | **Format Cite** | Mod-Shift-X on a selection | Turns a pasted citation or URL into a properly styled cite, with the cite mark on the author and date. |
 | **Repair Text** | Mod-Shift-R on a selection | Fixes OCR / PDF extraction errors (dropped ligatures, `rn`/`m`, mid-word hyphenation, run-together words) without changing the wording. Corrections apply in place, one at a time with a highlight; the whole repair is a single undo. |
 | **Repair Formatting** | Mod-Alt-R on a selection | Normalizes an imported card's formatting to Verbatim's four-layer scheme (underline / emphasis / highlighting / shading) — fixing bold or italics standing in for emphasis, direct underlining, bold-underline, and underlining lost to an unsupported style. It never changes your text. |
+| **Translate** | Mod-Shift-T on a selection | Translates the selection and copies it to the clipboard, leaving your document unchanged. Uses Anthropic when AI is on; otherwise falls back to a free, keyless backend, so it works even with AI off. |
 | **Ask AI about selection** | Mod-Shift-Q on a selection | Asks Claude a question about the selection — including any images in it (up to five pictures are sent to the model), with the surrounding card as context; the answer lands as an AI note. Works on a selected image on its own, too ("what does this chart show?"). Or type **@AI** in any comment or note — including its first message — to summon the AI right there; once a thread has an AI reply, further replies continue the conversation. |
 | **Generate alt text** | Right-click an image | Writes an alt-text description and inserts it under the image; offers to keep or regenerate if the image already has alt text. |
 | **Generate table from image** | Right-click an image | Extracts a real, editable table from a picture of one. |
@@ -956,14 +990,18 @@ the original meaning above all, but its output isn't deterministic —
 re-running can reword slightly. Keep that in mind in leagues or circuits
 where translated evidence needs a paper trail or reproducibility.
 
-**Clod mode.** A bit of fun, off by default (Settings → Comments & AI →
-**Enable Clod mode**). While the AI is composing a reply, the
+### Clod mode
+
+A bit of fun, off by default (Settings → Comments & AI → **Enable Clod
+mode**). While the AI is composing a reply, the
 "Thinking…" placeholder is replaced by a friendlier persona — "Clod" —
 who cycles through time-of-day activities like "Clod is making toast…" or
 "Clod is reading by candlelight…". The persona's name, pronouns, and
 activity lists are all customizable.
 
-### Send to Verbatim Flow
+---
+
+## 12. Send to Verbatim Flow
 
 **(Windows only. Experimental.)** With Excel open and a workbook whose name
 contains "Flow", CardMirror can push your work straight into Verbatim
@@ -991,7 +1029,7 @@ Keyboard shortcuts**. They appear only on Windows.
 
 ---
 
-## 12. Voice control
+## 13. Voice control
 
 **(Desktop only. Experimental.)** Press **Ctrl-Shift-V** to start a
 hands-free editing session and work a card by voice — read text aloud to
@@ -1074,7 +1112,7 @@ dictation errors (it doesn't change command recognition).
 
 ---
 
-## 13. Saving and file formats
+## 14. Saving and file formats
 
 ### Two formats
 
@@ -1132,7 +1170,7 @@ time.
 
 ---
 
-## 14. Settings reference
+## 15. Settings reference
 
 Open settings with the **gear** icon. Settings are grouped into tabs.
 
@@ -1209,7 +1247,7 @@ Workflow and document behavior.
 ### Appearance
 
 How things look. None of these change the file — only your view (see
-[Appearance and accessibility](#15-appearance-and-accessibility)).
+[Appearance and accessibility](#16-appearance-and-accessibility)).
 
 - **Theme** — light, dark, or follow the system.
 - **Apply theme to the document area** — off by default, so dark mode
@@ -1291,7 +1329,7 @@ Behavior of the cutting and condense commands (see [Cutting and formatting cards
 Rebind any command: search for it, click **+** to add a binding, **×** to
 remove one, **↺** to restore its default. A few window-level shortcuts
 (like Mod-W) are handled by the OS and can't be overridden (see
-[Keyboard shortcuts](#16-keyboard-shortcuts)).
+[Keyboard shortcuts](#17-keyboard-shortcuts)).
 
 ### Comments & AI
 
@@ -1330,7 +1368,7 @@ remove one, **↺** to restore its default. A few window-level shortcuts
 
 ---
 
-## 15. Appearance and accessibility
+## 16. Appearance and accessibility
 
 Everything visual in CardMirror is customizable, and — importantly — your
 display choices **never change the file**. The way you like to see Tags is
@@ -1358,7 +1396,7 @@ everyone, apply direct formatting in the document itself).
 
 ---
 
-## 16. Keyboard shortcuts
+## 17. Keyboard shortcuts
 
 All defaults; rebind any of them in **Settings → Keyboard shortcuts**.
 **Mod** = Ctrl (Windows/Linux) or ⌘ (macOS).
@@ -1440,7 +1478,7 @@ The full, current list is always in the app: press **📖** in the ribbon.
 
 ---
 
-## 17. What's not here yet
+## 18. What's not here yet
 
 CardMirror is in active development. Planned, but not built yet:
 
@@ -1449,7 +1487,7 @@ CardMirror is in active development. Planned, but not built yet:
   searches files by name and lets you dive into one at a time.
 - **Transclusion** — live references to a card that lives in another file.
 - **Real-time collaboration.**
-- **Numbered and bulleted lists**, and per-style display spacing.
+- **Numbered and bulleted lists**.
 - **Robust screen-reader support and more accessibility presets** —
   fuller keyboard/ARIA semantics, plus high-contrast and colorblind
   palettes on top of the customization already shipped.
@@ -1472,7 +1510,7 @@ revision metadata.
 
 ---
 
-## 18. Glossary
+## 19. Glossary
 
 - **Pocket / Hat / Block / Tag** — the four heading levels (Word Heading
   1–4).
