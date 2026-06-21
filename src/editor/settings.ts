@@ -2038,7 +2038,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     kind: 'toggle',
     category: 'pairing',
     electronOnly: true,
-    aliases: ['parrot', 'share', 'send card', 'partner', 'pairing'],
+    aliases: ['share', 'send card', 'partner', 'pairing'],
   },
   {
     key: 'pairingOwnCode',

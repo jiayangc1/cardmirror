@@ -8,7 +8,7 @@
  * Directed addressing: every message is stored under its `recipientCode`.
  * A device only ever GETs messages addressed to its own code and never
  * addresses a message to itself — so there is no self-echo and no delete
- * race (ParrotMirror's shared-channel `SELF_ID` guard is unnecessary).
+ * race, and no per-device self-id guard is needed.
  *
  * Zero dependencies (Node built-ins only) so it runs with `node server.js`
  * — no `npm install`. NOT part of any build or deploy.

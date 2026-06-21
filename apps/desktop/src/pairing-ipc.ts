@@ -37,9 +37,9 @@ import { createPairingKeystore, routingId, type PairingKeystore, type SealedBund
  *
  *  The URL is not secret and is baked in. The TOKEN is NOT hard-coded here:
  *  this is a PUBLIC repo, so the real relay token is injected at build/run
- *  time via PAIRING_TOKEN (a packaged installer is built with that env set,
- *  like ParrotMirror's token). It's only light gating anyway — the card
- *  payload is end-to-end encrypted, so the relay host can't read it.
+ *  time via PAIRING_TOKEN (a packaged installer is built with that env set).
+ *  It's only light gating anyway — the card payload is end-to-end encrypted,
+ *  so the relay host can't read it.
  *
  *  NOTE: a double-clicked packaged app does not inherit shell env, so a
  *  distributed build must have PAIRING_TOKEN present in its BUILD env to bake
