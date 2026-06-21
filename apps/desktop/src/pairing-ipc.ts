@@ -29,15 +29,23 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { createPairingKeystore, routingId, type PairingKeystore, type SealedBundle } from './pairing-crypto.js';
 
-/** Baked relay config. A packaged GUI app does NOT inherit shell env, so
- *  these compile in; env vars still override for dev (`desktop:dev` can
- *  point at a local mock or a staging relay).
+/** Relay endpoint config. Env vars override the baked defaults, so the app
+ *  talks to PRODUCTION by default but you can point it at the local mock
+ *  during development, e.g.:
+ *    PAIRING_RELAY_URL=http://127.0.0.1:3200 PAIRING_TOKEN=dev-pairing-token \
+ *      npm run desktop:dev
  *
- *  DEV DEFAULT points at the local mock relay (`dev/mock-relay`). Switch
- *  the default to the scouting-assistant URL — e.g.
- *  `https://scouting-assistant.up.railway.app/relay` — when that backend
- *  ships, and bake the real RELAY_TOKEN here. */
-const RELAY_URL = process.env.PAIRING_RELAY_URL || 'http://127.0.0.1:3200';
+ *  The URL is not secret and is baked in. The TOKEN is NOT hard-coded here:
+ *  this is a PUBLIC repo, so the real relay token is injected at build/run
+ *  time via PAIRING_TOKEN (a packaged installer is built with that env set,
+ *  like ParrotMirror's token). It's only light gating anyway — the card
+ *  payload is end-to-end encrypted, so the relay host can't read it.
+ *
+ *  NOTE: a double-clicked packaged app does not inherit shell env, so a
+ *  distributed build must have PAIRING_TOKEN present in its BUILD env to bake
+ *  the token into the artifact. For `desktop:dev` (launched from a shell) the
+ *  env var is read directly at runtime. */
+const RELAY_URL = process.env.PAIRING_RELAY_URL || 'https://scouting-assistant.up.railway.app/relay';
 const RELAY_TOKEN = process.env.PAIRING_TOKEN || 'dev-pairing-token';
 
 interface PairingConfig {
