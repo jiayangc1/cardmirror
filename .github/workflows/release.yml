@@ -176,6 +176,17 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: npm test
 
+      - name: Bake relay token into the build
+        # Cross-machine card sharing: a packaged app can't read shell env, so
+        # the relay bearer token has to be compiled in. This writes it from the
+        # PAIRING_TOKEN secret into the (otherwise empty) pairing-build.ts in
+        # this ephemeral checkout only — the token is never committed. Card
+        # payloads are end-to-end encrypted, so this token is only light
+        # gating. No-op (empty token) if the secret isn't set.
+        env:
+          PAIRING_TOKEN: ${{ secrets.PAIRING_TOKEN }}
+        run: node apps/desktop/scripts/inject-relay-token.cjs
+
       - name: Build and publish desktop installer
         env:
           # electron-builder reads GH_TOKEN (not GITHUB_TOKEN) for

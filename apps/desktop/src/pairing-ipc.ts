@@ -28,6 +28,7 @@ import { gzipSync } from 'node:zlib';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { createPairingKeystore, routingId, type PairingKeystore, type SealedBundle } from './pairing-crypto.js';
+import { BUILT_IN_RELAY_TOKEN } from './pairing-build.js';
 
 /** Relay endpoint config. Env vars override the baked defaults, so the app
  *  talks to PRODUCTION by default but you can point it at the local mock
@@ -46,7 +47,7 @@ import { createPairingKeystore, routingId, type PairingKeystore, type SealedBund
  *  the token into the artifact. For `desktop:dev` (launched from a shell) the
  *  env var is read directly at runtime. */
 const RELAY_URL = process.env.PAIRING_RELAY_URL || 'https://scouting-assistant.up.railway.app/relay';
-const RELAY_TOKEN = process.env.PAIRING_TOKEN || 'dev-pairing-token';
+const RELAY_TOKEN = process.env.PAIRING_TOKEN || BUILT_IN_RELAY_TOKEN || 'dev-pairing-token';
 
 interface PairingConfig {
   enabled: boolean;

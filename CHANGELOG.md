@@ -5,6 +5,21 @@ changes in each release, written for users of the editor. For
 in-depth rationale and implementation context behind each entry,
 see `DETAILED_CHANGELOG.md`.
 
+## 0.1.0-alpha.18 — 2026-06-21
+
+### Added
+
+- **Cross-machine card sharing (end-to-end encrypted).** Two new pills sit next
+  to the dropzone — **Send** and **Receive**. Drag a card onto Send and it
+  expands to the machines you've added (plus any groups); drop on one to send it
+  there. Cards others send you land in **Receive**, which shows who they're from
+  and when, flashes on arrival, and tracks an unread count. Set it up in
+  **Settings → Card Sharing**: turn it on, share your code, add recipients by
+  their code (name them however you like), and optionally group several
+  recipients for one-drop sends. Everything is end-to-end encrypted — the relay
+  server only ever sees opaque ciphertext, never your cards, who sent them, or to
+  whom — and cards are deleted from the server after 3 hours. Desktop only.
+
 ## 0.1.0-alpha.17 — 2026-06-20
 
 ### Added
