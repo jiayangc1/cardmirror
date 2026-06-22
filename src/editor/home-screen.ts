@@ -38,6 +38,9 @@ export interface HomeScreenCallbacks {
   openRecent: (recent: RecentFile) => void;
   /** Open the Quick Cards manage overlay. */
   manageQuickCards: () => void;
+  /** Open the .docx style cleaner. Electron-only (recursive folder I/O +
+   *  write-to-path), like bulkConvert; omitted on the web edition. */
+  clean?: () => void;
   /** Open the bulk .docx↔.cmir converter. Omitted (undefined) on
    *  hosts that can't do recursive folder I/O (the web edition), in
    *  which case the button isn't shown. */
@@ -94,21 +97,23 @@ class HomeScreen {
     header.appendChild(tagline);
     inner.appendChild(header);
 
-    // Number-key actions. Order matters: index 0..7 map to the 1..8
+    // Number-key actions. Order matters: index 0..8 map to the 1..9
     // keyboard shortcuts (handled in onKeyDown), mirroring the number-key
     // panels elsewhere. Reading order down the page: 1-3 primary action
-    // cards, 4 Manage quick cards, 5 Bulk convert, 6 Bulk compress, 7
-    // Review all, 8 Manage flashcards (their cards are built further down).
-    // 5-8 guard on the same conditions that show their card, so a key only
-    // fires when its button is on screen (no bulk convert/compress off
-    // Electron; no Review all before any flashcards exist).
+    // cards, 4 Clean, 5 Bulk convert, 6 Bulk compress, 7 Manage quick
+    // cards, 8 Review all, 9 Manage flashcards (their cards are built
+    // further down). 4-6 guard on the same conditions that show their
+    // card, so a key only fires when its button is on screen (no clean /
+    // bulk convert / compress off Electron; no Review all before any
+    // flashcards exist).
     this.actionRunners = [
       () => this.callbacks?.newDoc(),
       () => this.callbacks?.newSpeechDoc(),
       () => this.callbacks?.open(),
-      () => this.callbacks?.manageQuickCards(),
+      () => this.callbacks?.clean?.(),
       () => this.callbacks?.bulkConvert?.(),
       () => this.callbacks?.bulkCompress?.(),
+      () => this.callbacks?.manageQuickCards(),
       () => {
         if (learnStore.totalCount({ kind: 'all' }) > 0) {
           openLearnSession({ kind: 'all' }, { title: 'Review — all' });
@@ -158,24 +163,29 @@ class HomeScreen {
     recentsSection.appendChild(this.recentsEl);
     inner.appendChild(recentsSection);
 
-    // Quick Cards + Convert — below Recent, above the (forthcoming)
-    // Learn section. Each is its own labeled group (heading + button)
-    // sitting side by side in a card-width grid.
+    // Utilities — below Recent, above the (forthcoming) Learn section.
+    // Each is its own labeled group (heading + button) sitting side by
+    // side in a card-width grid. Order: Clean, Convert, Compress, Quick
+    // Cards (matching the number-key order: Clean 4, Convert 5, Compress
+    // 6, Quick Cards 7).
     const qcSection = document.createElement('section');
     qcSection.className = 'pmd-home-qc-section';
     const qcGrid = document.createElement('div');
     qcGrid.className = 'pmd-home-qc-actions';
-    qcGrid.appendChild(
-      labeledGroup(
-        'Quick Cards',
-        this.actionCard(
-          'Manage quick cards',
-          'Browse, edit, import, and export your reusable snippets.',
-          () => this.callbacks?.manageQuickCards(),
+    // Clean — .docx style cleaner (Electron only).
+    if (callbacks.clean) {
+      qcGrid.appendChild(
+        labeledGroup(
+          'Clean',
+          this.actionCard(
+            'Clean styles',
+            'Clean a .docx file or folder’s styles to the Verbatim standard.',
+            () => this.callbacks?.clean?.(),
+          ),
         ),
-      ),
-    );
-    // Bulk convert — its own labeled group, to the right (Electron only).
+      );
+    }
+    // Bulk convert — its own labeled group (Electron only).
     if (callbacks.bulkConvert) {
       qcGrid.appendChild(
         labeledGroup(
@@ -201,6 +211,16 @@ class HomeScreen {
         ),
       );
     }
+    qcGrid.appendChild(
+      labeledGroup(
+        'Quick Cards',
+        this.actionCard(
+          'Manage quick cards',
+          'Browse, edit, import, and export your reusable snippets.',
+          () => this.callbacks?.manageQuickCards(),
+        ),
+      ),
+    );
     qcSection.appendChild(qcGrid);
     inner.appendChild(qcSection);
 
@@ -266,13 +286,13 @@ class HomeScreen {
       this.hide();
       return;
     }
-    // 1-8 trigger New / New speech / Open / Manage quick cards / Bulk
-    // convert / Bulk compress / Review all / Manage flashcards, mirroring
-    // the number-key button panels elsewhere. Bare keys only — the home
-    // screen has no text inputs to conflict with, but still ignore the
+    // 1-9 trigger New / New speech / Open / Clean / Bulk convert / Bulk
+    // compress / Manage quick cards / Review all / Manage flashcards,
+    // mirroring the number-key button panels elsewhere. Bare keys only — the
+    // home screen has no text inputs to conflict with, but still ignore the
     // chord variants so a stray modifier doesn't fire an action unexpectedly.
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const idx = { '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6, '8': 7 }[e.key];
+    const idx = { '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6, '8': 7, '9': 8 }[e.key];
     if (idx === undefined) return;
     const run = this.actionRunners[idx];
     if (run) {
