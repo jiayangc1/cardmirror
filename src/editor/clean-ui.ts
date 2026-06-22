@@ -280,7 +280,19 @@ class CleanModal {
         submit();
       }
     });
-    addRow.append(input, button('Add', submit), button('Add from template…', () => void this.addFromTemplate()));
+    // Compact +/template buttons matching the keyboard-macros editor.
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'pmd-keybinding-add';
+    addBtn.textContent = '+';
+    addBtn.title = 'Add';
+    addBtn.addEventListener('click', submit);
+    const tmplBtn = document.createElement('button');
+    tmplBtn.type = 'button';
+    tmplBtn.className = 'pmd-readers-add';
+    tmplBtn.textContent = '+ Add from template';
+    tmplBtn.addEventListener('click', () => void this.addFromTemplate());
+    addRow.append(input, addBtn, tmplBtn);
     addField.appendChild(addRow);
     body.appendChild(addField);
 
@@ -361,11 +373,15 @@ class CleanModal {
         next[i] = field.value;
         this.saveNames(next);
       });
-      const remove = button('Remove', () => {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'pmd-keybinding-chip-remove pmd-clean-prot-remove';
+      remove.title = 'Remove';
+      setIcon(remove, 'close');
+      remove.addEventListener('click', () => {
         const next = this.getProtectedNames().filter((_, j) => j !== i);
         this.saveNames(next);
       });
-      remove.classList.add('pmd-clean-prot-remove');
       row.append(field, remove);
       listEl.appendChild(row);
     });
