@@ -5,6 +5,33 @@ changes in each release, written for users of the editor. For
 in-depth rationale and implementation context behind each entry,
 see `DETAILED_CHANGELOG.md`.
 
+## 0.1.0-alpha.19 — 2026-06-22
+
+### Added
+
+- **Clean — a .docx style cleaner that cures "stylepox."** A new Home-screen
+  utility (desktop) that fixes the junk-style buildup debate files accumulate
+  from copy-pasting cards: it removes the redundant/malformed styles bloating the
+  file, converts stray direct formatting (manual bold/underline/highlight) back
+  into the right styles, restores Verbatim's style names and aliases so macros
+  work, and strips hyperlinks. Run it on a single file or a whole folder; leave
+  the destination blank to write each `cleaned_…` copy next to its original. A
+  progress bar tracks each file, and a gear lets you mark **protected styles**
+  Clean must never touch (by name; add them manually or pick from a template
+  `.docx`). It's the same idea as the
+  ["Curing Stylepox"](https://debate-decoded.ghost.io/leveling-up-your-debate-software-3-curing-stylepox/)
+  cleaner, but it runs inside CardMirror, so it's **much faster** (seconds, not
+  the overnight runs the worst files used to need) and has **far better handling
+  of old files** — it rebuilds pre-Verbatim style conventions (Tags/Cards/Cites/
+  Block Headings, Author-Date, Debate Underline, …) into the modern Verbatim
+  structure, adds the standard styles when a document is missing them, and
+  repairs `!!`-marked style names that trip up older cleaners.
+
+- **Old debate files open with their structure intact.** Opening a pre-Verbatim
+  `.docx` that uses the old Tags/Cards/Cites/Block Headings style family now
+  reconstructs proper cards, tags, cites, and headings instead of importing it
+  as flat, unstyled text.
+
 ## 0.1.0-alpha.18 — 2026-06-21
 
 ### Added

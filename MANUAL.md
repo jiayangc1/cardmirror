@@ -1128,6 +1128,41 @@ dictation errors (it doesn't change command recognition).
   CardMirror-only extras (private notes, AI notes, flashcards) are left
   out unless you opt in.
 
+### Cleaning .docx styles (curing "stylepox")
+
+**(Desktop only.)** As cards get copied between documents, junk styles
+hitchhike along — files end up with hundreds or thousands of redundant,
+malformed styles that bloat the file, slow Word to a crawl, can break
+Verbatim's macros, and eventually hit Word's hard cap of 4,085 styles.
+**Clean**, on the Home screen, cures this. For each document it:
+
+- removes the junk styles, keeping only the standard Verbatim set;
+- converts stray direct formatting (manual bold / underline / highlight) back
+  into the right styles;
+- restores Verbatim's style names and aliases so macros work; and
+- strips hyperlinks and other invisible cruft.
+
+Point it at a single file or a whole folder (it recurses) and a destination —
+or leave the destination blank to write each cleaned copy (`cleaned_…`) next
+to its original. A progress bar tracks the current file.
+
+The **gear** opens **Protected styles** — a list of styles Clean must never
+remove or reassign (matched by name, case-insensitively; their dependencies
+are kept too). Add them by name, or upload a template `.docx` and pick from
+its styles.
+
+This is the same idea as the **"Curing Stylepox"** cleaner described on
+[Debate Decoded](https://debate-decoded.ghost.io/leveling-up-your-debate-software-3-curing-stylepox/),
+but it runs entirely inside CardMirror — so it's **much faster** (seconds, not
+the overnight runs the worst files used to need) and has **much better handling
+of old files**. It understands pre-Verbatim style conventions
+(`Tags` / `Cards` / `Cites` / `Block Headings`, `Author-Date`, `Debate
+Underline`, …) and rebuilds them into the modern Verbatim structure, injects
+the standard styles when a document is missing them, and repairs `!!`-marked
+style names that older cleaners choke on. The same understanding applies when
+you simply **open** an old `.docx` in CardMirror — it reconstructs proper
+cards, tags, cites, and headings rather than importing the file as flat text.
+
 ### Saving
 
 - **Save (Mod-S)** / **Save As… (Mod-Shift-S)**.
