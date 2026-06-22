@@ -5,8 +5,7 @@
  *
  * The cleaner keeps only styles whose id appears in the combined map below,
  * renaming each to its canonical `name` and setting/removing its `alias`.
- * Everything else is removed. The pruner additionally treats every id in
- * `PROTECTED_STYLE_IDS` as un-prunable.
+ * Everything else is removed (unless it's a user-protected style).
  */
 
 export interface StyleSpec {
@@ -63,16 +62,3 @@ export const COMBINED_STYLE_MAP: Record<string, StyleSpec> = {
   ...STYLE_RENAME_MAP,
   ...TEMPLATE_STYLES,
 };
-
-/** Every style id defined in template_doc.docx (port of the template scan in
- *  `_get_template_protected_ids`). */
-const ALL_TEMPLATE_STYLE_IDS: string[] = [
-  ...Object.keys(STYLE_RENAME_MAP),
-  ...Object.keys(TEMPLATE_STYLES),
-];
-
-/** Port of `_get_all_protected()` — never prune these even if unreferenced. */
-export const PROTECTED_STYLE_IDS: Set<string> = new Set([
-  ...Object.keys(STYLE_RENAME_MAP),
-  ...ALL_TEMPLATE_STYLE_IDS,
-]);

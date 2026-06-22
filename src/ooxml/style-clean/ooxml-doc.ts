@@ -18,6 +18,7 @@
  */
 
 import { Docx } from '../docx.js';
+import { serializeXmlDoc } from './style-fixup.js';
 
 export const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -277,6 +278,28 @@ export class Paragraph {
     const n = parseInt(v, 10);
     return Number.isFinite(n) ? n : null;
   }
+  /** Outline level resolved through the paragraph style's basedOn chain —
+   *  direct paragraph outlineLvl wins, else the level inherited from its
+   *  style (e.g. a style based on Heading 4 inherits outline level 3). */
+  effectiveOutlineLevel(): number | null {
+    const direct = this.outlineLevel;
+    if (direct !== null) return direct;
+    return this.doc.styles.effectiveStyleFormat(this.style.styleId).outlineLevel;
+  }
+  /** Whether the paragraph's text is effectively bold — direct run bold,
+   *  else the run's character style, else the paragraph style (each resolved
+   *  through its basedOn chain). A direct bold-off on a run wins for that run. */
+  effectivelyBold(): boolean {
+    const pStyleBold = this.doc.styles.effectiveStyleFormat(this.style.styleId).bold;
+    for (const run of this.runs) {
+      const direct = run.bold;
+      if (direct === true) return true;
+      if (direct === false) continue;
+      const charBold = this.doc.styles.effectiveStyleFormat(run.style.styleId).bold;
+      if (charBold || pStyleBold) return true;
+    }
+    return false;
+  }
   /** paragraph.style — resolves pStyle, defaulting to the default paragraph
    *  style (never null), matching python-docx. */
   get style(): Style {
@@ -305,7 +328,9 @@ export class Paragraph {
 // ── Style ────────────────────────────────────────────────────────────
 
 export class Style {
-  constructor(public readonly el: Element) {}
+  /** `owner` is the Styles collection that cached this Style; mutations that
+   *  change the id/name index invalidate its cache. */
+  constructor(public readonly el: Element, private owner?: Styles) {}
   get styleId(): string | null {
     return getAttr(this.el, 'styleId');
   }
@@ -325,6 +350,7 @@ export class Style {
       return e;
     })();
     setAttr(nameEl, 'val', internal);
+    this.owner?.invalidate();
   }
   /** python-docx WD_STYLE_TYPE int: paragraph=1, character=2, table=3,
    *  numbering=4. Null if no w:type. */
@@ -357,6 +383,36 @@ export class Style {
     const rPr = directChild(this.el, 'rPr');
     return rPr !== null && directChild(rPr, 'bdr') !== null;
   }
+  /** This style's basedOn style id, or null. */
+  basedOnId(): string | null {
+    const b = directChild(this.el, 'basedOn');
+    return b ? getAttr(b, 'val') : null;
+  }
+  /** This style's linked (paragraph<->character) style id, or null. */
+  linkId(): string | null {
+    const l = directChild(this.el, 'link');
+    return l ? getAttr(l, 'val') : null;
+  }
+  /** This style's OWN pPr outline level (not inherited), or null. */
+  ownOutlineLevel(): number | null {
+    const pPr = directChild(this.el, 'pPr');
+    if (!pPr) return null;
+    const o = directChild(pPr, 'outlineLvl');
+    if (!o) return null;
+    const v = getAttr(o, 'val');
+    if (v === null) return null;
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? n : null;
+  }
+  /** This style's OWN rPr bold toggle as a tri-state (true/false/null) — null
+   *  means "not set here, inherit from basedOn". */
+  ownBoldState(): boolean | null {
+    const rPr = directChild(this.el, 'rPr');
+    if (!rPr) return null;
+    const b = directChild(rPr, 'b');
+    if (!b) return null;
+    return onOff(getAttr(b, 'val'));
+  }
   getAlias(): string | null {
     const a = directChild(this.el, 'aliases');
     return a ? getAttr(a, 'val') : null;
@@ -375,39 +431,100 @@ export class Style {
   }
   remove(): void {
     this.el.parentNode?.removeChild(this.el);
+    this.owner?.invalidate();
   }
 }
 
 // ── Styles collection ────────────────────────────────────────────────
 
+/** A style's effective formatting resolved through its basedOn chain. */
+export interface EffectiveFormat {
+  outlineLevel: number | null;
+  bold: boolean;
+}
+
 export class Styles {
+  // Lazily-built indexes. A document can have thousands of styles and the
+  // cleaner does a lookup per run, so a linear scan per call is O(styles ×
+  // runs) and times out on large docs. The cache is invalidated whenever a
+  // style is added / removed / renamed.
+  private cache: { all: Style[]; byId: Map<string, Style>; byName: Map<string, Style> } | null = null;
+  private effectiveMemo = new Map<string, EffectiveFormat>();
   constructor(private root: Element) {}
+
+  private index(): { all: Style[]; byId: Map<string, Style>; byName: Map<string, Style> } {
+    if (this.cache) return this.cache;
+    const all = directChildren(this.root, 'style').map((e) => new Style(e, this));
+    const byId = new Map<string, Style>();
+    const byName = new Map<string, Style>();
+    for (const s of all) {
+      const id = s.styleId;
+      if (id !== null && !byId.has(id)) byId.set(id, s); // keep first, like find()
+      const nm = s.name;
+      if (nm !== null && !byName.has(nm)) byName.set(nm, s);
+    }
+    this.cache = { all, byId, byName };
+    return this.cache;
+  }
+
+  /** Drop the cached indexes after a structural change. */
+  invalidate(): void {
+    this.cache = null;
+    this.effectiveMemo.clear();
+  }
+
+  /** Resolve a style's *effective* outline level + bold by walking its
+   *  basedOn chain (memoized, cycle-guarded). Lets header detection see
+   *  heading/bold formatting that lives on the style chain rather than as
+   *  direct paragraph/run formatting (e.g. a style based on Heading 4). */
+  effectiveStyleFormat(styleId: string | null): EffectiveFormat {
+    if (styleId === null) return { outlineLevel: null, bold: false };
+    return this.resolveEffective(styleId, new Set());
+  }
+  private resolveEffective(styleId: string, seen: Set<string>): EffectiveFormat {
+    const cached = this.effectiveMemo.get(styleId);
+    if (cached) return cached;
+    const style = this.byId(styleId);
+    if (!style || seen.has(styleId)) return { outlineLevel: null, bold: false };
+    seen.add(styleId);
+    const based = style.basedOnId();
+    const parent = based ? this.resolveEffective(based, seen) : { outlineLevel: null, bold: false };
+    const ownBold = style.ownBoldState();
+    const eff: EffectiveFormat = {
+      outlineLevel: style.ownOutlineLevel() ?? parent.outlineLevel,
+      bold: ownBold ?? parent.bold,
+    };
+    this.effectiveMemo.set(styleId, eff);
+    return eff;
+  }
+
   all(): Style[] {
-    return directChildren(this.root, 'style').map((e) => new Style(e));
+    return this.index().all;
   }
   byId(id: string): Style | null {
-    for (const s of this.all()) if (s.styleId === id) return s;
-    return null;
+    return this.index().byId.get(id) ?? null;
   }
   /** python-docx `styles[key]` — resolves by styleId (with a UI-name fallback). */
   get(key: string): Style {
-    const s = this.byId(key) ?? this.all().find((x) => x.name === key) ?? null;
+    const idx = this.index();
+    const s = idx.byId.get(key) ?? idx.byName.get(key) ?? null;
     if (!s) throw new Error(`no style with id or name '${key}'`);
     return s;
   }
   /** python-docx `key in styles` — matches by UI NAME only (not styleId). The
    *  cleaner's `_get_style_variation` relies on this name-based membership. */
   has(key: string): boolean {
-    return this.all().some((x) => x.name === key);
+    return this.index().byName.has(key);
   }
   defaultParagraphStyle(): Style {
-    const found = this.all().find((s) => s.type === 1 && s.isDefault);
+    const found = this.index().all.find((s) => s.type === 1 && s.isDefault);
     return found ?? this.synthetic('Normal');
   }
   defaultCharacterStyle(): Style {
+    const all = this.index().all;
     const found =
-      this.all().find((s) => s.type === 2 && s.isDefault) ??
-      this.all().find((s) => s.name === 'Default Paragraph Font');
+      all.find((s) => s.type === 2 && s.isDefault) ??
+      all.find((s) => s.name === 'Default Paragraph Font');
     return found ?? this.synthetic('Default Paragraph Font');
   }
   private syntheticEl: Map<string, Style> = new Map();
@@ -460,29 +577,10 @@ export class OoxmlDoc {
     return descendants(this.documentDoc.documentElement, 'hyperlink');
   }
 
-  /** Add every <w:style> from a canonical styles.xml whose styleId is not
-   *  already defined (by id), importing the full definition. Returns the ids
-   *  added. Used to inject the Verbatim styles the cleaner needs when a
-   *  document is missing them, rather than failing. */
-  injectMissingStyles(canonicalStylesXml: string): string[] {
-    const canon = new DOMParser().parseFromString(canonicalStylesXml, 'application/xml');
-    const root = this.stylesDoc.documentElement;
-    const existing = new Set(this.styles.all().map((s) => s.styleId).filter((id): id is string => id !== null));
-    const added: string[] = [];
-    for (const styleEl of Array.from(canon.getElementsByTagNameNS(W, 'style'))) {
-      const sid = getAttr(styleEl, 'styleId');
-      if (sid === null || existing.has(sid)) continue;
-      root.appendChild(this.stylesDoc.importNode(styleEl, true));
-      existing.add(sid);
-      added.push(sid);
-    }
-    return added;
-  }
-
   /** Serialize document.xml + styles.xml back into the docx and return bytes. */
   async save(): Promise<Uint8Array> {
-    this.docx.writeText('word/document.xml', new XMLSerializer().serializeToString(this.documentDoc));
-    this.docx.writeText('word/styles.xml', new XMLSerializer().serializeToString(this.stylesDoc));
+    this.docx.writeText('word/document.xml', serializeXmlDoc(this.documentDoc));
+    this.docx.writeText('word/styles.xml', serializeXmlDoc(this.stylesDoc));
     return this.docx.toBuffer();
   }
 }

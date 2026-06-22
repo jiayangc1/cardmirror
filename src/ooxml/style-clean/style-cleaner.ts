@@ -13,23 +13,13 @@
  */
 
 import { Docx } from '../docx.js';
-import { CANONICAL_STYLES_XML } from '../styles.js';
 import { OoxmlDoc, type Paragraph, type Run } from './ooxml-doc.js';
 import { COMBINED_STYLE_MAP } from './template-styles.js';
-import { pruneUnusedStyles, fixDanglingStyleRefs } from './style-pruner.js';
+import { fixDanglingStyleRefs } from './style-fixup.js';
 
-/** The style groups the cleaner requires (matched by name). When a document
- *  lacks any of these it can't classify formatting — historically it just
- *  failed. We instead inject the canonical Verbatim styles first. */
-const REQUIRED_STYLE_GROUPS: string[][] = [
-  ['Style13ptBold', 'Style 13 pt Bold'],
-  ['StyleUnderline', 'Style Underline'],
-  ['Emphasis'],
-];
-
-function requiredStylesMissing(doc: OoxmlDoc): boolean {
-  return REQUIRED_STYLE_GROUPS.some((variants) => !variants.some((v) => doc.styles.has(v)));
-}
+/** Yield to the event loop so the UI can repaint progress between chunks of
+ *  the otherwise-synchronous conversion pass. */
+const yieldToUi = (): Promise<void> => new Promise((resolve) => setTimeout(resolve));
 
 // ── normalize_style_definitions ──────────────────────────────────────
 
@@ -138,7 +128,7 @@ function findNumberSequence(paragraph: Paragraph): Run[] | null {
 
 // ── process_document_styles ──────────────────────────────────────────
 
-function processDocumentStyles(doc: OoxmlDoc): void {
+function processDocumentStyles(doc: OoxmlDoc, protectedIds: Set<string>): void {
   const toRemove: ReturnType<OoxmlDoc['styles']['all']> = [];
   for (const style of doc.styles.all()) {
     const sid = style.styleId;
@@ -149,6 +139,8 @@ function processDocumentStyles(doc: OoxmlDoc): void {
       if (name !== target.name) style.name = target.name;
       if (target.alias) style.setAlias(target.alias);
       else if (style.getAlias() !== null) style.removeAlias();
+    } else if (protectedIds.has(sid)) {
+      // Protected style (or a dependency of one) — keep its definition as-is.
     } else {
       toRemove.push(style);
     }
@@ -158,12 +150,19 @@ function processDocumentStyles(doc: OoxmlDoc): void {
 
 // ── attempt_text_conversion ──────────────────────────────────────────
 
-function attemptTextConversion(
+async function attemptTextConversion(
   doc: OoxmlDoc,
   convertAnalytics: boolean,
+  protectedNamesLower: Set<string>,
+  protectedIds: Set<string>,
   progressCallback?: (current: number, total: number) => void,
-): void {
+): Promise<void> {
   verifyStyleAvailability(doc);
+
+  // A paragraph/run carrying a protected style is left alone (its style isn't
+  // reassigned); the style itself is also exempt from removal below.
+  const isProtected = (name: string | null): boolean =>
+    name !== null && protectedNamesLower.has(name.toLowerCase());
 
   const citationStyle = getStyleVariation(doc, 'Style13ptBold');
   const underlineStyle = getStyleVariation(doc, 'StyleUnderline');
@@ -223,8 +222,18 @@ function attemptTextConversion(
   };
 
   // ----- First pass: header detection -----
+  // Local divergences from the original (deliberate improvements):
+  //  - outline level + the Tag bold check are resolved through the style's
+  //    basedOn chain (`effectiveOutlineLevel` / `effectivelyBold`), so a
+  //    paragraph that is a heading/tag only via its style (e.g. based on
+  //    Heading 4) is still caught — the original saw only direct formatting.
+  //  - the Analytic name match is case-insensitive, so "analytic real",
+  //    "analytics", etc. convert too (the original matched capital-A only).
+  const isAnalyticName = (nm: string | null): boolean =>
+    convertAnalytics && nm !== null && nm.toLowerCase().includes('analytic');
   for (const paragraph of doc.paragraphs) {
-    const outline = paragraph.outlineLevel;
+    if (isProtected(paragraph.style.name)) continue; // protected paragraph style — don't reassign
+    const outline = paragraph.effectiveOutlineLevel();
     if (outline === 0 && paragraph.runs.some((r) => r.bold === true && r.font.sizePt === 26)) {
       paragraph.style = doc.styles.get('Heading1');
     } else if (outline === 1 && paragraph.runs.some((r) => r.bold === true && r.font.sizePt === 22)) {
@@ -235,22 +244,17 @@ function attemptTextConversion(
     ) {
       paragraph.style = doc.styles.get('Heading3');
     } else if (outline === 3) {
-      const nm = paragraph.style.name;
-      if (convertAnalytics && nm !== null && nm.includes('Analytic')) {
+      if (isAnalyticName(paragraph.style.name)) {
         try {
           paragraph.style = doc.styles.get('Analytic');
         } catch {
           paragraph.style = doc.styles.get('Heading4');
         }
-      } else if (paragraph.runs.some((r) => r.bold === true)) {
-        // python: `r.bold and r.font.color` — font.color is always truthy.
+      } else if (paragraph.effectivelyBold()) {
+        // Effective bold (direct, or inherited from the style chain) → Tag.
         paragraph.style = doc.styles.get('Heading4');
       }
-    } else if (
-      convertAnalytics &&
-      paragraph.style.name !== null &&
-      paragraph.style.name.includes('Analytic')
-    ) {
+    } else if (isAnalyticName(paragraph.style.name)) {
       try {
         paragraph.style = doc.styles.get('Analytic');
       } catch {
@@ -263,6 +267,7 @@ function attemptTextConversion(
   const paraStylesToRemove = doc.styles.all().filter((style) => {
     if (style.type !== 2) return false;
     const sid = style.styleId;
+    if (sid !== null && protectedIds.has(sid)) return false; // protected — keep
     return sid === null || !Object.prototype.hasOwnProperty.call(COMBINED_STYLE_MAP, sid);
   });
   for (const style of paraStylesToRemove) style.remove();
@@ -312,8 +317,12 @@ function attemptTextConversion(
         runsProcessed++;
         if (runsProcessed % 200 === 0 || runsProcessed === totalRuns) {
           progressCallback(runsProcessed, totalRuns);
+          await yieldToUi();
         }
       }
+
+      // A run carrying a protected character style is left untouched.
+      if (isProtected(run.style.name)) continue;
 
       // Calibri Light / Title style → Underline
       const sn = run.style.name;
@@ -423,40 +432,56 @@ function attemptTextConversion(
 // ── Public API: clean_document_bytes ─────────────────────────────────
 
 export interface CleanOptions {
-  /** Strip unreferenced style definitions before and after cleaning. */
-  pruneUnused?: boolean;
+  /** Style names (matched case-insensitively) that must never be removed or
+   *  reassigned away from. Their basedOn/linked dependencies are kept too.
+   *  Paragraphs/runs that carry one are left as-is. */
+  protectedStyleNames?: string[];
   /** Called with (runsProcessed, totalRuns) during the conversion pass. */
   progressCallback?: (current: number, total: number) => void;
+}
+
+/** The set of style ids that are protected: the styles whose name matches
+ *  `protectedNamesLower`, plus their basedOn/linked dependency closure. */
+function computeProtectedClosure(doc: OoxmlDoc, protectedNamesLower: Set<string>): Set<string> {
+  const closure = new Set<string>();
+  if (protectedNamesLower.size === 0) return closure;
+  const queue: string[] = [];
+  for (const style of doc.styles.all()) {
+    const sid = style.styleId;
+    const nm = style.name;
+    if (sid !== null && nm !== null && protectedNamesLower.has(nm.toLowerCase()) && !closure.has(sid)) {
+      closure.add(sid);
+      queue.push(sid);
+    }
+  }
+  while (queue.length) {
+    const style = doc.styles.byId(queue.pop()!);
+    if (!style) continue;
+    for (const dep of [style.basedOnId(), style.linkId()]) {
+      if (dep && !closure.has(dep)) {
+        closure.add(dep);
+        queue.push(dep);
+      }
+    }
+  }
+  return closure;
 }
 
 export async function cleanDocumentBytes(
   fileBytes: Uint8Array,
   options: CleanOptions = {},
 ): Promise<Uint8Array> {
-  const pruneUnused = options.pruneUnused ?? false;
+  const protectedNamesLower = new Set((options.protectedStyleNames ?? []).map((n) => n.toLowerCase()));
 
-  let bytes = fileBytes;
-  if (pruneUnused) bytes = (await pruneUnusedStyles(bytes)).bytes;
-
-  const docx = await Docx.load(bytes);
+  const docx = await Docx.load(fileBytes);
   const doc = await OoxmlDoc.fromDocx(docx);
-
-  // If the document is missing the required Verbatim styles, inject the
-  // canonical style definitions (the same set the exporter writes) so the
-  // cleaner can classify and convert formatting instead of failing. Gated on
-  // a required style actually being absent, so documents that already have
-  // them are untouched.
-  if (requiredStylesMissing(doc)) {
-    doc.injectMissingStyles(CANONICAL_STYLES_XML);
-  }
+  const protectedIds = computeProtectedClosure(doc, protectedNamesLower);
 
   normalizeStyleDefinitions(doc);
-  attemptTextConversion(doc, true, options.progressCallback);
-  processDocumentStyles(doc);
+  await attemptTextConversion(doc, true, protectedNamesLower, protectedIds, options.progressCallback);
+  processDocumentStyles(doc, protectedIds);
 
-  let result = await doc.save();
-
-  if (pruneUnused) result = (await pruneUnusedStyles(result)).bytes;
-  result = (await fixDanglingStyleRefs(result)).bytes;
-  return result;
+  // processDocumentStyles already reduces to the canonical (+protected) style
+  // set, so there's nothing to prune; just repair any now-dangling references.
+  return (await fixDanglingStyleRefs(await doc.save())).bytes;
 }
