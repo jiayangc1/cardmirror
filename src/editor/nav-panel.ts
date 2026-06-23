@@ -1557,14 +1557,19 @@ export class NavigationPanel {
     // and scroll the real scroll container, not `#editor`.
     const editorEl = document.getElementById('editor');
     if (!editorEl) return;
-    const r = editorEl.getBoundingClientRect();
-    const overEditor =
-      clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
-    if (!overEditor) return;
+    const er = editorEl.getBoundingClientRect();
     const scroller = this.findEditorScrollGate(editorEl);
-    if (clientY < r.top + margin) {
+    // Edge test against the SCROLL VIEWPORT (the gate), not `#editor` — `#editor`
+    // is the full-height content element (it doesn't scroll; `#app` does), so
+    // its top/bottom sit off-screen once the doc is scrolled and the test never
+    // fired. `#editor`'s horizontal bounds still gate out the nav pane.
+    const sr = scroller.getBoundingClientRect();
+    const overEditor =
+      clientX >= er.left && clientX <= er.right && clientY >= sr.top && clientY <= sr.bottom;
+    if (!overEditor) return;
+    if (clientY < sr.top + margin) {
       scroller.scrollBy({ top: -10, behavior: 'auto' });
-    } else if (clientY > r.bottom - margin && !pointerOverPillTrayColumn(clientX)) {
+    } else if (clientY > sr.bottom - margin && !pointerOverPillTrayColumn(clientX)) {
       // Don't scroll down over the bottom-left dropzone / send / receive pills.
       scroller.scrollBy({ top: 10, behavior: 'auto' });
     }
