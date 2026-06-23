@@ -20,28 +20,10 @@ import type { EditorView } from 'prosemirror-view';
 import { newHeadingId } from '../schema/index.js';
 import { preciseScrollIntoView } from './precise-scroll.js';
 import { condenseBranchC } from './condense.js';
+import { SAMPLE_CARD } from './benchmark-sample.js';
 
-/**
- * A real, long, formatted card from the corpus (a cut Russia-arms-sales card) as
- * `[text, marks]` runs. Mark codes drive the card-cutting sweep — `u` underline,
- * `e` emphasis, `h` highlight. The body is inserted raw, then re-cut to exactly
- * this formatting, top→bottom, so the cutting demo is a real card, not nonsense.
- */
-const SAMPLE_CARD: [string, string][] = [
-  ['But Storey notes that ', ''],
-  ['Russia’s arms sales to Southeast Asia have ', 'u'],
-  ['declined sharply', 'e'],
-  [' over the past seven years, dropping ', 'u'],
-  ['from ', 'uh'],
-  ['$1.2 billion in 2014', 'eh'],
-  [' to just ', 'uh'],
-  ['$89 million in 2021', 'eh'],
-  ['. What explains the fall', 'u'],
-  [
-    '? He adduces four reasons: the Western sanctions and export controls imposed on Russia following its annexation of Crimea in 2014; the pausing of Vietnam’s military modernization due to “concerns over Moscow’s ability to fulfill orders” combined with the government’s ongoing anti-corruption drive; the U.S. government’s 2017 passage of the Countering America’s Adversaries Through Sanctions Act, which gives Washington the power to impose sanctions against any nation dealing with Russia’s military industrial complex; and the “growing competition from American and European defense corporations, as well as relative newcomers from countries such as China and South Korea.”',
-    '',
-  ],
-];
+/** The sample card's plain text (runs concatenated) — inserted raw, then re-cut
+ *  to the runs' formatting by the card-cutting sweep. */
 const SAMPLE_TEXT = SAMPLE_CARD.map((r) => r[0]).join('');
 
 const HEADING_NODES = new Set(['pocket', 'hat', 'block', 'tag']);
@@ -318,15 +300,17 @@ interface Range {
   to: number;
 }
 
-/** Content range of the last card_body in the card owning `tagId` (the pasted
- *  body). Mark sweeps don't change text length, so it stays valid across them. */
-function lastBodyRange(doc: ProseNode, tagId: string): Range | null {
+/** Content range of the card_body in the card owning `tagId` whose text is the
+ *  sample we inserted — matched by TEXT, so the cutting sweeps can only ever
+ *  touch our own body, never pre-existing document content. Mark sweeps don't
+ *  change text length, so it stays valid across them. */
+function findSampleBody(doc: ProseNode, tagId: string): Range | null {
   const found = cardOfTag(doc, tagId);
   if (!found) return null;
   const { card, cardPos } = found;
   let result: Range | null = null;
   card.forEach((child, offset) => {
-    if (child.type.name === 'card_body') {
+    if (child.type.name === 'card_body' && child.textContent === SAMPLE_TEXT) {
       const start = cardPos + 1 + offset;
       result = { from: start + 1, to: start + child.nodeSize - 1 };
     }
@@ -361,7 +345,7 @@ async function sweepMark(view: EditorView, ranges: Range[], mark: Mark): Promise
     view.dispatch(tr);
     await nextPaint();
     total += performance.now() - t0;
-    await sleep(45);
+    await sleep(18); // brisk visible top-to-bottom sweep (the card is long)
   }
   return round1(total);
 }
@@ -489,7 +473,7 @@ async function benchEdit(
   // Card-cutting: re-cut the real card's actual formatting — underline →
   // emphasis → highlight — each sweeping top→bottom across the body (positions
   // are stable across mark-only edits), then condense.
-  const body = lastBodyRange(view.state.doc, tagId);
+  const body = findSampleBody(view.state.doc, tagId);
   const bf = body ? body.from : -1;
   await measureSweep(
     'Underline (top→bottom)',
@@ -527,7 +511,7 @@ async function benchEdit(
   await measureStep(
     'Condense the card',
     () => {
-      const r = lastBodyRange(view.state.doc, tagId);
+      const r = findSampleBody(view.state.doc, tagId);
       if (r) {
         view.dispatch(
           view.state.tr.setSelection(TextSelection.create(view.state.doc, r.from)).scrollIntoView(),
