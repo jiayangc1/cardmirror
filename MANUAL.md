@@ -50,7 +50,7 @@ the [live web preview](https://ant981228.github.io/cardmirror/) in a
 browser. Full install instructions — including the one-time "unsigned
 app" prompts on Windows and macOS — are in the project README.
 
-CardMirror is alpha software. Save often and keep a Verbatim copy of
+CardMirror is beta software. Save often and keep a Verbatim copy of
 anything important until it has more miles on it.
 
 ### Desktop vs. web
@@ -211,18 +211,15 @@ shipped with its companion CP.
 
 ### Cards, analytics, and undertags
 
-- A **card** is a Tag plus the evidence beneath it: the cite line and the
-  body text. Tag (F7) creates one.
+- A **card** is a Tag plus the evidence beneath it: the cite and the
+  body text. Tag (F7) creates a card.
 - An **analytic** (**Mod-F7**) is standalone analysis — a claim with no
   card behind it. It behaves like a card structurally: the lines beneath
   it belong to it.
 - An **undertag** (**Mod-F8**) is a short annotation on a tag — a
   qualifier or sub-claim.
 
-Loose, unstyled paragraphs are first-class: they can sit anywhere, which
-is what makes bridge text and scratch regions just work. A paragraph
-typed right after a card is pulled into it as body text; start a new
-heading to break out.
+Loose, unstyled paragraphs are first-class can sit outside of a card, but will be absorbed into the card if they are directly beneath a tag.
 
 ### The navigation pane
 
@@ -235,7 +232,7 @@ mirrors Word's Navigation Pane, but does more:
 - **Level filter** — the **1 · 2 · 3 · 4** buttons at the top set how
   deep the outline shows. Click **2** to see only Pockets and Hats; **4**
   to see everything down through Tags.
-- **Multi-select** — Ctrl-click adds an entry to the selection,
+- **Multi-select** — Mod-click adds an entry to the selection,
   Shift-click selects a contiguous range.
 - **Reorder** — drag an entry (or a multi-selection) up or down. It
   carries the whole heading and its contents and drops it wherever the
@@ -314,12 +311,12 @@ everything to one block. As in Verbatim, when you cut a PDF that breaks
 every line, turn integrity off for that article so you don't get a
 pilcrow on every line, then turn it back on.
 
-The **headingMode** setting controls how a condense that spans headings
+The **Heading Mode** setting controls how a condense that spans headings
 behaves — `respect` (the default; leaves headings separate, merges only
 body runs), `strict` (refuses to touch a selection that includes
 structure), or `demolish` (flattens everything touched).
 
-### Repair paragraph integrity (workflow)
+### Repair paragraph integrity
 
 When a card's body has collapsed into one run — a PDF that lost its breaks,
 or text pasted as a single block — **Repair Paragraph Integrity** rebuilds
@@ -342,8 +339,7 @@ pending indents and leave the workflow.
 
 It only searches the card's body (not the tag), so you can't accidentally
 break a heading. The command ships without a default shortcut — assign one in
-Settings → Keybindings (it's also in the command bar as *Repair Paragraph
-Integrity*).
+Settings → Keybindings.
 
 ### Shrink (Mod-8)
 
@@ -359,9 +355,7 @@ at full size; you can turn that protection off in Settings.
 paragraph by paragraph: a paragraph with no underlining or emphasis at all
 — the long, fully-unread stretches — drops to **5pt**, while a paragraph
 that carries marks shrinks only its connective text to the standard
-**8pt**. Underlined and emphasized text is never touched. Unlike Shrink,
-it doesn't cycle: running it again changes nothing. It honors the same
-protections as Shrink (omission markers, integrity warnings, your custom
+**8pt**. Unlike Shrink, it doesn't cycle: running it again changes nothing. It honors the same protections as Shrink (omission markers, integrity warnings, your custom
 rules), and regular **Shrink (Mod-8)** and **Regrow (Mod-Shift-8)** still
 work on the result.
 
@@ -376,16 +370,18 @@ work on the result.
   [AI features](#11-ai-features)).
 - **Create Reference** copies a formatted reference for the current
   document to your clipboard.
-- **Lock Highlighting** converts highlighting to a light-gray background in
+- **Lock Highlighting** converts highlighting to light-gray shading in
   place, freeing the highlight layer so you can re-highlight from scratch.
   With nothing selected it locks the whole card your cursor is in; with a
   selection it locks just the selection. (With no selection and no card under
   the cursor it does nothing — it won't lock an entire pocket/hat/block.)
   Unlike Create Reference it edits the card directly, adds no heading, and
-  never grays the text — the card stays fully editable. (Any background you'd
+  does not turn the text gray — the card stays fully editable. (Any shading you'd
   already applied is left as-is.)
 
 ### Colors: highlight, background, and font color
+
+CardMirror directly supports both **highlighting** and **shading**. Highlighting and shading appear the same but operations affecting one don't affect the other, allowing you to perform bulk edits on your document that leave some things unaffected. As an example, you might want to recut an opponent's card and keep their highlighting, but in a different color from the color you'd normally read; you can do this by turning their highlighting into shading so it isn't affected by "standardize highlighting" in the future. 
 
 Each of the three color controls is a **split button**: the main button
 applies the active color, and the small arrow opens a 16-swatch picker
@@ -554,11 +550,7 @@ panes copies the content into the other document.
 
 Off by default — debate evidence (author names, jargon, citations) trips a
 lot of false positives. Turn it on under **Settings → General → Editor
-spellcheck**. Misspellings in the visible part of the document get a red
-underline, including text in files you've opened — not just words you're
-typing. **Right-click** a flagged word for spelling suggestions, **Add to
-Dictionary** (your personal dictionary persists across documents and
-sessions), or **Ignore** (for this session).
+spellcheck**. Misspellings get a red underline. **Right-click** a flagged word for spelling suggestions, **Add to Dictionary** (your personal dictionary persists across documents and sessions), or **Ignore** (for this session).
 
 Leaving spellcheck on slightly degrades editor performance, so if you
 notice typing or scrolling feeling less responsive on a large file, turning
@@ -575,10 +567,6 @@ it off may help.
 - **Find without category grouping (Alt-F)** orders matches by position
   rather than grouping them by structural type.
 
-Straight and curly quotes match interchangeably: a query typed with a
-straight `'` or `"` finds Word's smart quotes (`court's` finds `court’s`,
-`"clear"` finds `“clear”`), and vice versa.
-
 ### The Search Everything palette (Mod-Shift-Space)
 
 A single floating box that searches across everything CardMirror knows
@@ -587,9 +575,7 @@ your files — and acts on what you pick. It opens centered over the active
 pane with results listed above the bar; **↑/↓** move the selection,
 **Enter** activates it, and **Esc** closes.
 
-By default it searches **everything at once**: with nothing typed it just
-shows a hint, and as you type it blends matches from all the sources
-below. To narrow to one source, start your query with its **one-letter
+By default it searches **everything at once**: as you type it blends matches from all the sources below. To narrow to one source, start your query with its **one-letter
 prefix** followed by a space. With a prefix and no query, you *browse*
 that whole source.
 
@@ -628,11 +614,6 @@ list refreshes itself as files change on disk.
 tag filter (the same active-tag filter the ribbon's Tag Picker controls),
 so you can narrow cards by topic.
 
-This palette is the in-editor seed of full corpus search: it already
-reaches files that aren't open, but a persistent, library-wide *content*
-index is still [planned](#18-whats-not-here-yet) — for now, searching
-*inside* a file happens one file at a time, when you dive in.
-
 ---
 
 ## 6. Quick Cards
@@ -645,7 +626,7 @@ available from **any window**.
 - **Add** — select content and choose **Add** in the Quick Cards group
   (or run *Add Quick Card*). Give it a name and tags.
 - **Search and insert** — open the palette with **Mod-Shift-Space** and
-  the **`q`** prefix (or the **Search** button), filter by tag, and
+  the **`q`** prefix (or the **Search** ribbon button), filter by tag, and
   insert the match at your cursor.
 - **Manage** — the Manage button opens the full list to rename, retag, or
   delete.
@@ -656,8 +637,8 @@ available from **any window**.
 
 Verbatim shows you one document at a time. CardMirror can show **three
 editable panes side by side**, which makes assembling a speech,
-comparing files, and cutting against a block practical without juggling
-windows.
+comparing files, and working on something while keeping something up for reference 
+against a block practical without juggling windows.
 
 ### Turning it on
 
@@ -672,18 +653,16 @@ as you open more.
   document history.
 - **Mod-1 / Mod-2 / Mod-3** focus a slot; **Mod-Shift-1/2/3** move the
   active document into a slot.
-- Each slot keeps a **back/forward history** of the documents you've
-  opened in it, so hopping to a related file and back returns you exactly
-  where you were.
 - **Expand** a slot to full width with **Mod-Shift-F**, and restore it
   the same way.
+- When you have more than one document in a slot, jump between them using the drop-down in the document's title bar or by using **Ctrl-Tab**. 
 
 ### Layouts
 
 When all three slots are full, two layouts are available (pick in
 Settings → General): **Compact** shows all three side by side, and
 **Wide-scroll** shows two at a comfortable width with the edge of the
-third peeking — click the peek to snap to it.
+third peeking — click the peek or its nav pane, or use the focus shortcuts, to snap to it.
 
 ### Moving content between panes
 
@@ -705,15 +684,14 @@ two improvements:
   Analytics, and highlighted text** stay visible. Loose paragraphs,
   undertags, and un-highlighted body text disappear.
 - It **locks the keyboard**, so a stray key or trackpad twitch at the
-  podium can't edit your file. The one editing action it allows is dropping
-  a **reading-position marker** — red text like "Marked 7:32" at your
-  cursor (Verbatim's red-text convention), for when you stop mid-card. In
-  read mode it's deliberately effortless: **Space, Enter, or Mod-Shift-D**
-  all drop one; triggering it again on a marker removes it. (Red text stays
-  visible in read mode, so the marker shows.)
+  podium can't edit your file.
+
+Only two editing actions are allowed in read mode. First, you can drop a **reading-position marker** — red text like "Marked 7:32" at your cursor (Verbatim's red-text convention), for when you stop mid-card. In read mode it's deliberately effortless: **Space, Enter, or Mod-Shift-D** all drop one; triggering it again on a marker removes it. (Red text stays visible in read mode, so the marker shows.)
 
 You can also drop a marker while editing — **Mod-Shift-D** works any time
 (Space and Enter only stand in for it inside read mode).
+
+Second, you can perform **click-and drag** actions - move headers around in the document, add received cards to your document, or grab cards from the Dropzone.  
 
 Press the eye again to exit. In the
 [multi-doc workspace](#7-the-multi-doc-workspace), read mode is
@@ -1052,9 +1030,7 @@ no audio ever leaves it, with or without a network connection. The speech
 models ship inside the app, which is why the desktop installers are about
 130 MB larger.
 
-This is early, experimental software; expect rough edges, and keep the
-keyboard within reach. On macOS, voice currently requires an Apple
-Silicon Mac; Intel support is still pending.
+This is early, experimental software; expect rough edges, particularly pertaining to the voice recognition model, and keep the keyboard within reach. On macOS, voice requires Apple Silicon.
 
 ### Starting a session
 
@@ -1141,7 +1117,7 @@ dictation errors (it doesn't change command recognition).
   CardMirror-only extras (private notes, AI notes, flashcards) are left
   out unless you opt in.
 
-### Cleaning .docx styles (curing "stylepox")
+### Cleaning .docx styles ("stylepox")
 
 **(Desktop only.)** As cards get copied between documents, junk styles
 hitchhike along — files end up with hundreds or thousands of redundant,
@@ -1174,9 +1150,7 @@ its styles.
 
 This is the same idea as the **"Curing Stylepox"** cleaner described on
 [Debate Decoded](https://debate-decoded.ghost.io/leveling-up-your-debate-software-3-curing-stylepox/),
-but it runs entirely inside CardMirror — so it's **much faster** (seconds, not
-the overnight runs the worst files used to need) and has **much better handling
-of old files**. It recognizes the common pre-Verbatim style conventions
+but it runs entirely inside CardMirror. It's **much faster** and has **much better handling of old files**. It recognizes the common pre-Verbatim style conventions
 (`Tags` / `Cards` / `Cites` / `Block Headings`, `Author-Date`, `Debate
 Underline`, …) and rebuilds them into the modern Verbatim structure, injects
 the standard styles when a document is missing them, and repairs `!!`-marked
