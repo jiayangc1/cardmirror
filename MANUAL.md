@@ -219,7 +219,8 @@ shipped with its companion CP.
 - An **undertag** (**Mod-F8**) is a short annotation on a tag — a
   qualifier or sub-claim.
 
-Loose, unstyled paragraphs are first-class can sit outside of a card, but will be absorbed into the card if they are directly beneath a tag.
+Loose, unstyled paragraphs are first-class can sit outside of a card, but
+will be absorbed into the card if they are directly beneath a tag.
 
 ### The navigation pane
 
@@ -355,9 +356,10 @@ at full size; you can turn that protection off in Settings.
 paragraph by paragraph: a paragraph with no underlining or emphasis at all
 — the long, fully-unread stretches — drops to **5pt**, while a paragraph
 that carries marks shrinks only its connective text to the standard
-**8pt**. Unlike Shrink, it doesn't cycle: running it again changes nothing. It honors the same protections as Shrink (omission markers, integrity warnings, your custom
-rules), and regular **Shrink (Mod-8)** and **Regrow (Mod-Shift-8)** still
-work on the result.
+**8pt**. Unlike Shrink, it doesn't cycle: running it again changes nothing.
+It honors the same protections as Shrink (omission markers, integrity
+warnings, your custom rules), and regular **Shrink (Mod-8)** and **Regrow
+(Mod-Shift-8)** still work on the result.
 
 ### Citations
 
@@ -376,12 +378,19 @@ work on the result.
   selection it locks just the selection. (With no selection and no card under
   the cursor it does nothing — it won't lock an entire pocket/hat/block.)
   Unlike Create Reference it edits the card directly, adds no heading, and
-  does not turn the text gray — the card stays fully editable. (Any shading you'd
-  already applied is left as-is.)
+  does not turn the text gray — the card stays fully editable. (Any shading
+  you'd already applied is left as-is.)
 
 ### Colors: highlight, background, and font color
 
-CardMirror directly supports both **highlighting** and **shading**. Highlighting and shading appear the same but operations affecting one don't affect the other, allowing you to perform bulk edits on your document that leave some things unaffected. As an example, you might want to recut an opponent's card and keep their highlighting, but in a different color from the color you'd normally read; you can do this by turning their highlighting into shading so it isn't affected by "standardize highlighting" in the future. 
+CardMirror directly supports both **highlighting** and **shading**.
+Highlighting and shading appear the same but operations affecting one don't
+affect the other, allowing you to perform bulk edits on your document that
+leave some things unaffected. As an example, you might want to recut an
+opponent's card and keep their highlighting, but in a different color from
+the color you'd normally read; you can do this by turning their highlighting
+into shading so it isn't affected by "standardize highlighting" in the
+future.
 
 Each of the three color controls is a **split button**: the main button
 applies the active color, and the small arrow opens a 16-swatch picker
@@ -550,7 +559,10 @@ panes copies the content into the other document.
 
 Off by default — debate evidence (author names, jargon, citations) trips a
 lot of false positives. Turn it on under **Settings → General → Editor
-spellcheck**. Misspellings get a red underline. **Right-click** a flagged word for spelling suggestions, **Add to Dictionary** (your personal dictionary persists across documents and sessions), or **Ignore** (for this session).
+spellcheck**. Misspellings get a red underline. **Right-click** a flagged
+word for spelling suggestions, **Add to Dictionary** (your personal
+dictionary persists across documents and sessions), or **Ignore** (for this
+session).
 
 Leaving spellcheck on slightly degrades editor performance, so if you
 notice typing or scrolling feeling less responsive on a large file, turning
@@ -575,9 +587,10 @@ your files — and acts on what you pick. It opens centered over the active
 pane with results listed above the bar; **↑/↓** move the selection,
 **Enter** activates it, and **Esc** closes.
 
-By default it searches **everything at once**: as you type it blends matches from all the sources below. To narrow to one source, start your query with its **one-letter
-prefix** followed by a space. With a prefix and no query, you *browse*
-that whole source.
+By default it searches **everything at once**: as you type it blends matches
+from all the sources below. To narrow to one source, start your query with
+its **one-letter prefix** followed by a space. With a prefix and no query,
+you *browse* that whole source.
 
 | Prefix | Searches | Enter |
 |--------|----------|-------|
@@ -637,8 +650,8 @@ available from **any window**.
 
 Verbatim shows you one document at a time. CardMirror can show **three
 editable panes side by side**, which makes assembling a speech,
-comparing files, and working on something while keeping something up for reference 
-against a block practical without juggling windows.
+comparing files, and working on something while keeping something up for
+reference against a block practical without juggling windows.
 
 ### Turning it on
 
@@ -655,14 +668,16 @@ as you open more.
   active document into a slot.
 - **Expand** a slot to full width with **Mod-Shift-F**, and restore it
   the same way.
-- When you have more than one document in a slot, jump between them using the drop-down in the document's title bar or by using **Ctrl-Tab**. 
+- When you have more than one document in a slot, jump between them using
+  the drop-down in the document's title bar or by using **Ctrl-Tab**.
 
 ### Layouts
 
 When all three slots are full, two layouts are available (pick in
 Settings → General): **Compact** shows all three side by side, and
 **Wide-scroll** shows two at a comfortable width with the edge of the
-third peeking — click the peek or its nav pane, or use the focus shortcuts, to snap to it.
+third peeking — click the peek or its nav pane, or use the focus shortcuts,
+to snap to it.
 
 ### Moving content between panes
 
@@ -686,12 +701,19 @@ two improvements:
 - It **locks the keyboard**, so a stray key or trackpad twitch at the
   podium can't edit your file.
 
-Only two editing actions are allowed in read mode. First, you can drop a **reading-position marker** — red text like "Marked 7:32" at your cursor (Verbatim's red-text convention), for when you stop mid-card. In read mode it's deliberately effortless: **Space, Enter, or Mod-Shift-D** all drop one; triggering it again on a marker removes it. (Red text stays visible in read mode, so the marker shows.)
+Only two editing actions are allowed in read mode. First, you can drop a
+**reading-position marker** — red text like "Marked 7:32" at your cursor
+(Verbatim's red-text convention), for when you stop mid-card. In read mode
+it's deliberately effortless: **Space, Enter, or Mod-Shift-D** all drop one;
+triggering it again on a marker removes it. (Red text stays visible in read
+mode, so the marker shows.)
 
 You can also drop a marker while editing — **Mod-Shift-D** works any time
 (Space and Enter only stand in for it inside read mode).
 
-Second, you can perform **click-and drag** actions - move headers around in the document, add received cards to your document, or grab cards from the Dropzone.  
+Second, you can perform **click-and drag** actions - move headers around in
+the document, add received cards to your document, or grab cards from the
+Dropzone.
 
 Press the eye again to exit. In the
 [multi-doc workspace](#7-the-multi-doc-workspace), read mode is
@@ -1030,7 +1052,9 @@ no audio ever leaves it, with or without a network connection. The speech
 models ship inside the app, which is why the desktop installers are about
 130 MB larger.
 
-This is early, experimental software; expect rough edges, particularly pertaining to the voice recognition model, and keep the keyboard within reach. On macOS, voice requires Apple Silicon.
+This is early, experimental software; expect rough edges, particularly
+pertaining to the voice recognition model, and keep the keyboard within
+reach. On macOS, voice requires Apple Silicon.
 
 ### Starting a session
 
@@ -1150,7 +1174,9 @@ its styles.
 
 This is the same idea as the **"Curing Stylepox"** cleaner described on
 [Debate Decoded](https://debate-decoded.ghost.io/leveling-up-your-debate-software-3-curing-stylepox/),
-but it runs entirely inside CardMirror. It's **much faster** and has **much better handling of old files**. It recognizes the common pre-Verbatim style conventions
+but it runs entirely inside CardMirror. It's **much faster** and has **much
+better handling of old files**. It recognizes the common pre-Verbatim style
+conventions
 (`Tags` / `Cards` / `Cites` / `Block Headings`, `Author-Date`, `Debate
 Underline`, …) and rebuilds them into the modern Verbatim structure, injects
 the standard styles when a document is missing them, and repairs `!!`-marked
@@ -1215,12 +1241,14 @@ Workflow and document behavior.
 
 - **Readers for read-time estimates** — each reader is a name and a
   words-per-minute rate. The first two show live in the status bar; all
-  appear in the Word Count dialog (see [Read-time estimates](#read-time-estimates)).
+  appear in the Word Count dialog
+  (see [Read-time estimates](#read-time-estimates)).
 - **Live word count for the current selection** — off by default. When
   on, the status bar's count and read time follow your selection as you
   change it; leave it off on very large docs if you notice drag lag.
 - **Three-pane workspace** — switch between one document per window and a
-  single window with three panes (see [The multi-doc workspace](#7-the-multi-doc-workspace)).
+  single window with three panes
+  (see [The multi-doc workspace](#7-the-multi-doc-workspace)).
 - **Multi-doc layout** — with three docs open, show all three at once
   (compact) or two-and-a-bit with click-to-snap (wide). No effect with
   one or two docs.
@@ -1249,7 +1277,8 @@ Workflow and document behavior.
 - **Prefix preset saves with SEND_ / READ_** — when on, the Save As Send
   Doc / Read Doc presets prepend `SEND_` / `READ_` to the filename.
 - **Send Doc destination** *(desktop)* — whether Save Send Doc writes
-  beside the source file or into a fixed folder (see [Saving a send doc](#saving-a-send-doc)).
+  beside the source file or into a fixed folder
+  (see [Saving a send doc](#saving-a-send-doc)).
 - **Send Doc folder** *(desktop)* — the fixed folder used when the
   destination above is "Fixed folder."
 - **Seed new speech docs with a Pocket heading** — when on, New Speech
@@ -1315,7 +1344,8 @@ How things look. None of these change the file — only your view (see
 - **Formatting panel** — how the Pocket / Hat / Block / Tag / Analytic
   buttons read: labels, shortcuts, both, or hidden.
 - **Show dropzone shelf** — show or hide the dropzone pill; the shelf
-  still works when hidden (see [Send-to-speech and the dropzone](#send-to-speech-and-the-dropzone)).
+  still works when hidden
+  (see [Send-to-speech and the dropzone](#send-to-speech-and-the-dropzone)).
 - **Preview styles in formatting panel** — make the formatting buttons
   preview the look of the style they apply.
 - **Show character styles** — show the cite / underline / emphasis
@@ -1323,7 +1353,8 @@ How things look. None of these change the file — only your view (see
 
 ### Editing
 
-Behavior of the cutting and condense commands (see [Cutting and formatting cards](#3-cutting-and-formatting-cards)).
+Behavior of the cutting and condense commands
+(see [Cutting and formatting cards](#3-cutting-and-formatting-cards)).
 
 - **F3 condense: preserve paragraph integrity** — keep paragraphs
   separate (on) or merge collapsible runs (off).
