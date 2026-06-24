@@ -54,6 +54,12 @@ see `DETAILED_CHANGELOG.md`.
   now use the same border and right-aligned layout as every other number box in
   settings.
 
+- **Deleting your last note or flashcard clears its anchor highlight.** Deleting
+  the last private note, flashcard, or AI thread in a document used to leave the
+  blue highlight marking where it was anchored painted on the text until you
+  toggled the comments pane off. It now disappears immediately with the
+  annotation, like it already did when other annotations remained.
+
 ## 0.1.0-alpha.19 — 2026-06-22
 
 ### Added

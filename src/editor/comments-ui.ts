@@ -57,6 +57,7 @@ import {
   flashcardRanges,
   flashcardRangeMap,
   flashcardDropCount,
+  learnHighlightKey,
   type FlashcardRange,
 } from './learn-highlight-plugin.js';
 import type { CardAnchor, AiThread, Note, LocalComment } from './learn-store.js';
@@ -650,6 +651,25 @@ export class CommentsColumn {
       empty.textContent = 'No comments yet.';
       this.content.appendChild(empty);
       this.root.style.minHeight = '';
+      // The active-emphasis sync at the end of render() is skipped by this
+      // early bail, so clear any lingering active highlight here too —
+      // otherwise deleting the LAST decoration-anchored annotation (note /
+      // flashcard / AI thread) leaves its blue emphasis painted until the
+      // column is toggled off. (Comments instead clear via the highlight
+      // plugin's position-mapping when their mark is edited away.)
+      // The active-emphasis sync at the end of render() is skipped by this
+      // early bail, so clear any lingering active highlight here too —
+      // otherwise deleting the LAST decoration-anchored annotation (note /
+      // flashcard / AI thread) leaves its blue emphasis painted until the
+      // column is toggled off. Guard on the PLUGIN's own active range, not
+      // `lastActiveRangeKey`: the range-clear dispatch above triggers a
+      // re-entrant render whose `setActiveAnnotationRangeTr(null)` is dropped
+      // (re-entrant dispatches are ignored) yet still resets the key to '',
+      // so keying off the bookkeeping value would miss the still-live deco.
+      if (learnHighlightKey.getState(view.state)?.active) {
+        this.lastActiveRangeKey = '';
+        view.dispatch(setActiveAnnotationRangeTr(view.state, null));
+      }
       return;
     }
     this.root.classList.remove('pmd-comments-empty-state');
