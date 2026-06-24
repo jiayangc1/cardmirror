@@ -182,6 +182,7 @@ import {
   compileShrinkProtections,
   RIBBON_COMMAND_LABELS,
   RIBBON_COMMAND_IDS,
+  DEFAULT_RIBBON_KEYS,
   type StructuralRibbonCommandId,
   type RibbonContext,
   type RibbonCommandId,
@@ -2468,6 +2469,7 @@ settings.subscribe((s) => {
   refreshFlashcardDueDot(); // the due-dot setting may have toggled
   reapplyAllRibbonTooltips();
   pushNativeMenuBindings();
+  pushEditorAccelerators();
   document.documentElement.classList.toggle(
     'pmd-dropzone-pill-hidden',
     !s.showDropzonePill,
@@ -5633,6 +5635,34 @@ function pushNativeMenuBindings(): void {
     bindings[id] = key || null;
   }
   void electronHost.setMenuBindings(bindings);
+}
+
+/** A bare Alt chord — Alt with no Mod/Ctrl/Cmd. On Windows the native menu bar
+ *  swallows these (it treats Alt+<key> as a menu mnemonic), so an editor command
+ *  bound to one never reaches the keymap. */
+function isBareAltChord(key: string): boolean {
+  const parts = key.split('-');
+  return parts.includes('Alt') && !parts.includes('Mod');
+}
+
+/** Ship the (non-menu) editor commands that are bound to a bare-Alt chord to
+ *  main, which on Windows registers them as focus-scoped global accelerators so
+ *  the native menu doesn't eat them. Menu-bound commands already get a real menu
+ *  accelerator, so they're excluded. No-op outside Electron. */
+function pushEditorAccelerators(): void {
+  const electronHost = getElectronHost();
+  if (!electronHost?.setEditorAccelerators) return;
+  const overrides = settings.get('ribbonKeyOverrides');
+  const menuSet = new Set<string>(NATIVE_MENU_COMMANDS);
+  const out: Array<{ command: string; key: string }> = [];
+  for (const id of RIBBON_COMMAND_IDS) {
+    if (menuSet.has(id)) continue;
+    const spec = overrides[id] ?? DEFAULT_RIBBON_KEYS[id];
+    for (const key of Array.isArray(spec) ? spec : [spec]) {
+      if (key && isBareAltChord(key)) out.push({ command: id, key });
+    }
+  }
+  void electronHost.setEditorAccelerators(out);
 }
 {
   const electronHost = getElectronHost();

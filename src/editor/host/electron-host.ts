@@ -294,6 +294,9 @@ interface ElectronAPI {
    *  PM-keymap strings; pass `null` for commands with no current
    *  binding so the accelerator slot is left blank. */
   setMenuBindings(bindings: Record<string, string | null>): Promise<void>;
+  /** Editor commands bound to a bare-Alt chord; on Windows main registers each
+   *  as a focus-scoped global accelerator so the native menu bar doesn't eat it. */
+  setEditorAccelerators?(list: Array<{ command: string; key: string }>): Promise<void>;
   /** Run a manual auto-update check (mirrors Help → Check for
    *  Updates…). Resolves with a status the UI can render. */
   checkForUpdates(): Promise<{
@@ -819,6 +822,12 @@ export class ElectronHost implements Host {
    *  settings change; main de-dups by reassigning its store. */
   async setMenuBindings(bindings: Record<string, string | null>): Promise<void> {
     await api().setMenuBindings(bindings);
+  }
+
+  /** Register bare-Alt editor bindings as focus-scoped global accelerators on
+   *  Windows (no-op on an older preload that lacks the channel). */
+  async setEditorAccelerators(list: Array<{ command: string; key: string }>): Promise<void> {
+    await api().setEditorAccelerators?.(list);
   }
 
   async checkForUpdates(): Promise<{

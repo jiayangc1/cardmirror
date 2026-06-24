@@ -50,6 +50,12 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
+- **Alt-key shortcuts work on Windows.** On Windows the native menu bar reserves
+  `Alt`+letter for menus, so an editor command bound to a bare `Alt` chord (for
+  example `Alt+A`) did nothing — the menu swallowed it before the editor saw it.
+  Those bindings are now delivered to the editor while CardMirror is focused, so
+  `Alt`-key shortcuts (including ones you rebind yourself) work like the rest.
+
 - **Clean handles a whole messy library without choking.** Cleaning a large
   folder no longer trips over Word lock files (`~$…`), macOS `._…` sidecars, or
   `__MACOSX` folders — those aren't real documents, so they're skipped — nor over

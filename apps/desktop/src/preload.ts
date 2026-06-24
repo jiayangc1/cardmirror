@@ -577,6 +577,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setMenuBindings: (bindings: Record<string, string | null>) =>
     ipcRenderer.invoke('host:set-menu-bindings', bindings),
 
+  /** Editor commands bound to a bare-Alt chord (PM key form, e.g. `Alt-a`).
+   *  On Windows main registers each as a focus-scoped global accelerator so the
+   *  native menu bar's Alt handling doesn't swallow it before the editor sees
+   *  it; triggering one dispatches the usual `'menu-command'` event. */
+  setEditorAccelerators: (list: Array<{ command: string; key: string }>) =>
+    ipcRenderer.invoke('host:set-editor-accelerators', list),
+
   /** Subscribe to native-menu commands. Main process broadcasts
    *  `'menu-command'` events to the focused window's webContents
    *  whenever the user picks File → Open / Save / etc. The

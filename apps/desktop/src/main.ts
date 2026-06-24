@@ -23,6 +23,7 @@ import {
   clipboard,
   crashReporter,
   dialog,
+  globalShortcut,
   ipcMain,
   shell,
 } from 'electron';
@@ -1793,8 +1794,18 @@ app.on('browser-window-created', (_event, win) => {
   // we can correlate them with mode-switch / dedup timing.
   win.webContents.on('unresponsive', () => xlog('wc-unresponsive', { win: win.id }));
   win.webContents.on('responsive', () => xlog('wc-responsive', { win: win.id }));
-  win.on('blur', () => xlog('win-blur', { win: win.id }));
-  win.on('focus', () => xlog('win-focus', { win: win.id }));
+  win.on('blur', () => {
+    xlog('win-blur', { win: win.id });
+    // Release the Windows editor accelerators when focus leaves ALL our windows
+    // (deferred so focus moving between our own windows doesn't drop them).
+    setImmediate(() => {
+      if (!BrowserWindow.getFocusedWindow()) unregisterEditorShortcuts();
+    });
+  });
+  win.on('focus', () => {
+    xlog('win-focus', { win: win.id });
+    registerEditorShortcuts();
+  });
   win.on('hide', () => xlog('win-hide', { win: win.id }));
   win.on('show', () => xlog('win-show', { win: win.id }));
   win.on('closed', () => {
@@ -1845,6 +1856,43 @@ function dispatchMenuCommand(command: string): void {
   const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
   if (!win) return;
   win.webContents.send('menu-command', command);
+}
+
+// ── Editor accelerators (Windows) ────────────────────────────────────────────
+// On Windows the native menu bar reserves Alt+<key> for mnemonics, so an editor
+// command bound to a bare-Alt chord (e.g. "create analytic" on Alt+A) never
+// reaches the renderer — the menu eats it. The renderer reports those bindings
+// here; we register them as global accelerators ONLY while one of our windows is
+// focused (so they don't steal the chord system-wide), and route a hit through
+// the same `menu-command` path the native menu items use. macOS/Linux don't have
+// this problem, and registering there would double-fire with the in-editor
+// keymap, so this is Windows-only.
+let editorAccelerators = new Map<string, string>(); // Electron accelerator → command id
+let registeredEditorAccels: string[] = []; // exactly what we have registered now
+
+function registerEditorShortcuts(): void {
+  if (process.platform !== 'win32') return;
+  unregisterEditorShortcuts(); // clears whatever the previous set registered
+  for (const [accel, command] of editorAccelerators) {
+    try {
+      if (globalShortcut.register(accel, () => dispatchMenuCommand(command))) {
+        registeredEditorAccels.push(accel);
+      }
+    } catch {
+      // Some chords can't be registered as a global accelerator — skip it.
+    }
+  }
+}
+
+function unregisterEditorShortcuts(): void {
+  for (const accel of registeredEditorAccels) {
+    try {
+      globalShortcut.unregister(accel);
+    } catch {
+      /* ignore */
+    }
+  }
+  registeredEditorAccels = [];
 }
 
 /** Current renderer-reported keybinding for each menu-bound ribbon
@@ -2127,6 +2175,26 @@ ipcMain.handle(
     if (!bindings || typeof bindings !== 'object') return;
     menuBindings = { ...bindings };
     Menu.setApplicationMenu(buildMenu());
+  },
+);
+
+/** Editor commands bound to a bare-Alt chord — registered as focus-scoped global
+ *  accelerators on Windows so the native menu bar doesn't swallow them. */
+ipcMain.handle(
+  'host:set-editor-accelerators',
+  async (_event, list: Array<{ command: string; key: string }>) => {
+    const next = new Map<string, string>();
+    if (Array.isArray(list)) {
+      for (const item of list) {
+        if (!item || typeof item.command !== 'string' || typeof item.key !== 'string') continue;
+        const accel = pmKeyToAccelerator(item.key);
+        if (accel) next.set(accel, item.command);
+      }
+    }
+    editorAccelerators = next;
+    // Re-register against the new set if we currently hold focus.
+    if (BrowserWindow.getFocusedWindow()) registerEditorShortcuts();
+    else unregisterEditorShortcuts();
   },
 );
 

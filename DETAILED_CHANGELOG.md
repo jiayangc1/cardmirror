@@ -7,6 +7,22 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Bare-Alt editor shortcuts reach the editor on Windows** (`editor/index.ts`,
+  `editor/host/electron-host.ts`, `apps/desktop/src/preload.ts`,
+  `apps/desktop/src/main.ts`). On Windows the native menu bar reserves `Alt`+key
+  for mnemonics, so a non-menu editor command bound to a bare-Alt chord (Alt
+  without Mod) never reached the keymap — the menu consumed it. The renderer now
+  reports those bindings (`pushEditorAccelerators`, recomputed on every rebind),
+  and main — **win32 only** — registers each as a `globalShortcut` while one of
+  our windows is focused (registered on `focus`, released on `blur` once no
+  window holds focus, so the chord isn't stolen system-wide), routing a hit
+  through the existing `menu-command` → `onMenuCommand` → `runRibbon` path that
+  the native menu items use. Menu-bound commands are excluded (they already get a
+  real menu accelerator, which works on Windows), and the whole thing is gated
+  off macOS/Linux, where the menu doesn't eat Alt and registering would
+  double-fire with the in-editor keymap. Also fixes the default bare-Alt bindings
+  (e.g. `selectCurrentHeading`'s `Alt-A`) on Windows, not just user rebinds.
+
 - **Benchmark — an in-app, game-style performance suite** (`editor/benchmark.ts`,
   `editor/benchmark-ui.ts`, `editor/benchmark-sample.ts`; surfaced via
   `buildBenchmarkSection` in `editor/settings-ui.ts`; wired through
