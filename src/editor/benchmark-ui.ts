@@ -198,7 +198,7 @@ function showResults(r: BenchmarkResults, snapshot: EditorState | null): void {
 const FOOTNOTES: { label: string; text: string }[] = [
   {
     label: 'Score',
-    text: 'A 0–100 grade: frame-rate smoothness (weighted heaviest) plus the operation latencies, each scored against a fixed reference and blended. Higher is better — around 100 is a healthy, smooth machine. It no longer subtracts the suite’s own heavy work, so a slow machine degrades gradually instead of bottoming out at 0. Most reliable for comparing runs on the same machine and display.',
+    text: 'A 0–100 grade: frame-rate smoothness (weighted heaviest) plus the operation latencies, each scored against a fixed reference and blended. Higher is better — around 100 is a healthy, smooth machine. Most reliable for comparing runs on the same machine and display.',
   },
   {
     label: '1% low FPS',
