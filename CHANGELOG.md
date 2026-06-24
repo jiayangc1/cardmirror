@@ -49,6 +49,11 @@ see `DETAILED_CHANGELOG.md`.
   copy" duplicates) are now reported as **skipped (not a valid .docx)** rather
   than counted as failures, so the summary reflects what actually happened.
 
+- **Paragraph-spacing boxes match the other Appearance number fields.** Their
+  inputs were using the browser-default border with left-aligned numbers; they
+  now use the same border and right-aligned layout as every other number box in
+  settings.
+
 ## 0.1.0-alpha.19 — 2026-06-22
 
 ### Added

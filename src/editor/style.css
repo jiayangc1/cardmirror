@@ -4311,6 +4311,12 @@ html.pmd-nav-flat .pmd-nav-type-analytic:hover .pmd-nav-label {
 }
 .pmd-para-spacing-input {
   width: 3.4rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+  text-align: right;
 }
 .pmd-para-spacing-unit {
   font-size: 0.75rem;
