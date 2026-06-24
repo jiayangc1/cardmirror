@@ -219,8 +219,8 @@ shipped with its companion CP.
 - An **undertag** (**Mod-F8**) is a short annotation on a tag — a
   qualifier or sub-claim.
 
-Loose, unstyled paragraphs are first-class can sit outside of a card, but
-will be absorbed into the card if they are directly beneath a tag.
+Loose, unstyled paragraphs can sit outside of a card, but will be absorbed
+into the card if they are directly beneath a tag.
 
 ### The navigation pane
 
