@@ -4361,6 +4361,8 @@ export type RibbonCommandId =
   | 'sendToSpeechAtCursor'
   | 'sendToSpeechAtEnd'
   | 'sendToDropzone'
+  | 'insertReceivedAtCursor'
+  | 'insertReceivedAtEnd'
   // Select / copy the cursor's enclosing structure (the current card /
   // analytic_unit / heading + its subtree), reusing the send-to-*
   // bounds logic but keyed off the cursor — any active selection is
@@ -4519,6 +4521,8 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'sendToSpeechAtCursor',
   'sendToSpeechAtEnd',
   'sendToDropzone',
+  'insertReceivedAtCursor',
+  'insertReceivedAtEnd',
   'selectCurrentHeading',
   'deleteCurrentHeading',
   'copyCurrentHeading',
@@ -4653,6 +4657,8 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   sendToSpeechAtCursor: 'Send to Speech (At Cursor)',
   sendToSpeechAtEnd: 'Send to Speech (At End)',
   sendToDropzone: 'Send to Dropzone',
+  insertReceivedAtCursor: 'Insert Received Card (At Cursor)',
+  insertReceivedAtEnd: 'Insert Received Card (At End)',
   selectCurrentHeading: 'Select Current Heading',
   deleteCurrentHeading: 'Delete Current Heading',
   copyCurrentHeading: 'Copy Current Heading',
@@ -4859,6 +4865,8 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   sendToSpeechAtCursor: '`',
   sendToSpeechAtEnd: 'Alt-`',
   sendToDropzone: 'Mod-`',
+  insertReceivedAtCursor: 'Mod-p',
+  insertReceivedAtEnd: 'Mod-Alt-p',
   selectCurrentHeading: 'Alt-a',
   deleteCurrentHeading: '',
   copyCurrentHeading: '',
@@ -5044,6 +5052,10 @@ export interface RibbonContext {
   sendToSpeechAtCursor: () => void;
   sendToSpeechAtEnd: () => void;
   sendToDropzone: () => void;
+  /** Insert the most-recently-received card (from the receive pill) into the
+   *  active doc — at the cursor, or at the end of the doc. */
+  insertReceivedAtCursor: () => void;
+  insertReceivedAtEnd: () => void;
   /** Select / copy the cursor's enclosing structure (the current
    *  card / analytic_unit / heading + subtree). Keyed off the cursor;
    *  any active selection is ignored. */
@@ -5171,6 +5183,8 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   markActiveAsSpeech: () => {},
   sendToSpeechAtCursor: () => {},
   sendToDropzone: () => {},
+  insertReceivedAtCursor: () => {},
+  insertReceivedAtEnd: () => {},
   sendToSpeechAtEnd: () => {},
   selectCurrentHeading: () => {},
   deleteCurrentHeading: () => {},
@@ -5557,6 +5571,18 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
       return (_state, dispatch) => {
         if (!dispatch) return true;
         ctx.sendToDropzone();
+        return true;
+      };
+    case 'insertReceivedAtCursor':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.insertReceivedAtCursor();
+        return true;
+      };
+    case 'insertReceivedAtEnd':
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.insertReceivedAtEnd();
         return true;
       };
     case 'selectCurrentHeading':

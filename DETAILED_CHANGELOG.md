@@ -37,6 +37,22 @@ in each release, see `CHANGELOG.md`.
   which read mode locks). The fixture is auto-extracted into `benchmark-sample.ts`
   and guarded by `tests/editor/benchmark-sample.test.ts`.
 
+- **Keyboard shortcuts to insert the most-recently-received card**
+  (`editor/pairing/inbox-insert.ts` new; `editor/ribbon-commands.ts`,
+  `editor/ribbon-groups.ts`, `editor/index.ts`; `editor/pairing/receive-pill-ui.ts`
+  refactored). Two new rebindable ribbon commands — `insertReceivedAtCursor`
+  (default **Mod-P**) and `insertReceivedAtEnd` (default **Mod-Alt-P**) — grab the
+  last item in the inbox (`inboxStore.list().at(-1)`, which is newest-last) and
+  insert it at the selection head or at `doc.content.size`. The pill's click /
+  drag-out insert and the two shortcuts now share one helper,
+  `insertReceivedItem(view, item, atEnd)` in the new `inbox-insert.ts` (heading-id
+  rewrite so ids can't collide, read-mode-tagged dispatch, scroll-into-view; the
+  item is left in the inbox, since insertion isn't consumption). Registered
+  through the `RibbonCommandId` system, so they auto-appear in the keybindings
+  editor with automatic conflict detection; their keybindings group is merged
+  with the existing Send-to-Dropzone command under one section,
+  "Dropzone / Send and Receive Cards".
+
 - **Clean — robustness on a full-library bulk run** (`apps/desktop/src/main.ts`,
   `ooxml/style-clean/legacy-remap.ts`, `ooxml/style-clean/style-cleaner.ts`,
   `editor/clean-ui.ts`). Cleaning an entire file library surfaced three failure

@@ -39,8 +39,8 @@ export const RIBBON_GROUPS: RibbonGroup[] = [
     ],
   },
   {
-    title: 'Dropzone',
-    commands: ['sendToDropzone'],
+    title: 'Dropzone / Send and Receive Cards',
+    commands: ['sendToDropzone', 'insertReceivedAtCursor', 'insertReceivedAtEnd'],
   },
   {
     title: 'Quick Cards',

@@ -916,7 +916,7 @@ export interface Settings {
    *  inconsistent in human cuts and the highest garble risk). */
   cardCutterAcronymSplitting: 'off' | 'conservative' | 'aggressive';
   /** Card-cutter: word-internal morphology shaving ("regs", "Dems";
-   *  off by default — load-bearing but riskiest). */
+   *  off by default — useful but riskiest). */
   cardCutterMorphologyShaving: boolean;
   /** Card-cutter: when the model may pose a clarifying question. */
   cardCutterClarifyingQuestions: 'when-ambiguous' | 'always' | 'never';
@@ -2010,7 +2010,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     key: 'cardCutterMorphologyShaving',
     label: 'Word-shaving for spoken shorthand',
     description:
-      'Allow highlighting part of a word to produce spoken shorthand ("regulations" read as "regs", "Democrats" as "Dems"). Off by default — load-bearing but the riskiest transform.',
+      'Allow highlighting part of a word to produce spoken shorthand ("regulations" read as "regs", "Democrats" as "Dems"). Off by default — useful but the riskiest transform.',
     kind: 'toggle',
     category: 'comments-ai',
     searchHidden: true,

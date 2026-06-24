@@ -47,6 +47,7 @@ import { openSelectSpeechDocModal } from './select-speech-doc-ui.js';
 import { dropzoneStore, deriveDropzoneLabel } from './dropzone-store.js';
 import { DropzoneController } from './dropzone-ui.js';
 import { mountPairingPills, initPairingWiring } from './pairing/pairing-wiring.js';
+import { insertMostRecentReceived } from './pairing/inbox-insert.js';
 import { installExternalInsertHost } from './external-insert-host.js';
 import {
   decodeModeSwitchMarker,
@@ -1168,6 +1169,12 @@ const ribbonContext: RibbonContext = {
       return;
     }
     if (view) void sendViewToDropzone(view);
+  },
+  insertReceivedAtCursor: () => {
+    if (view) insertMostRecentReceived(view, false);
+  },
+  insertReceivedAtEnd: () => {
+    if (view) insertMostRecentReceived(view, true);
   },
   // Source-only operations on the focused view — no cross-doc
   // destination, so unlike send-to-* they need no multi-doc routing

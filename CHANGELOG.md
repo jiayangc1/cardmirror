@@ -21,6 +21,13 @@ see `DETAILED_CHANGELOG.md`.
   close the results, so it never touches your file — and it only runs when the
   document is editable (not in read mode).
 
+- **Keyboard shortcuts to drop in a received card.** Two new rebindable shortcuts
+  insert the most-recently-received card (from the **Receive** pill) without
+  reaching for the mouse: **Mod-P** places it at the cursor, and **Mod-Alt-P**
+  appends it at the end of the document. The card stays in the Receive pill, so
+  you can place it again. Rebind them under Settings → Keyboard shortcuts, in the
+  **Dropzone / Send and Receive Cards** group.
+
 ### Fixed
 
 - **Clean handles a whole messy library without choking.** Cleaning a large

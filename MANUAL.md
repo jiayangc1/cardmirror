@@ -786,7 +786,11 @@ send. Dropping on a group fans the card out to every member.
 **Receive cards.** Cards others send you land in the **Receive** pill, which
 flashes when one arrives and shows how many you haven't read. Open it to see
 each card with who sent it and when; from there a received card behaves just
-like a dropzone item — drag it into your document, or click to insert.
+like a dropzone item — drag it into your document, or click to insert. Two
+keyboard shortcuts drop in the **most recently received** card without opening
+the pill: **Mod-P** inserts it at the cursor, and **Mod-Alt-P** appends it at the
+end of the document. (Inserting leaves the card in the pill, so you can place it
+again; both shortcuts are rebindable in Settings → Keyboard shortcuts.)
 
 **Privacy.** Cards are end-to-end encrypted: only you and the recipient can
 read them. The relay server that passes them along sees only scrambled data —
@@ -1482,6 +1486,7 @@ these to extend the selection.
 |----------|--------|
 | `` ` `` / Alt-`` ` `` | Send to speech at cursor / at end |
 | Mod-`` ` `` | Send to dropzone |
+| Mod-P / Mod-Alt-P | Insert most recently received card at cursor / at end of doc |
 | Mod-Shift-N | Add note to selection |
 | Mod-Shift-Q | Ask AI about selection |
 | Mod-Shift-X | Format cite from selection |
