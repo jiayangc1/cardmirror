@@ -7879,6 +7879,50 @@ body.pmd-recovery-active.pmd-multi-doc #app {
   background: var(--pmd-c-surface, #fff);
   color: var(--pmd-c-text, inherit);
 }
+/* Clean: the "Prepend cleaned_" toggle row. */
+.pmd-clean-prepend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--pmd-c-text-muted);
+  cursor: pointer;
+}
+.pmd-clean-prepend-row input {
+  cursor: pointer;
+}
+/* Clean: in-place-overwrite warnings (output-path line + the confirm modal). */
+.pmd-clean-overwrite-hint,
+.pmd-clean-overwrite-warn {
+  color: var(--pmd-c-error);
+  font-weight: 500;
+}
+.pmd-clean-overwrite-dialog .pmd-clean-overwrite-confirm {
+  background: var(--pmd-c-danger);
+  border-color: var(--pmd-c-danger);
+  color: #fff;
+}
+.pmd-clean-overwrite-dialog .pmd-clean-overwrite-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* The phrase input reuses .pmd-clean-prot-input, whose `flex: 1 1 12rem` is sized
+   for a flex ROW; here the body is a flex COLUMN, so that basis becomes a 12rem
+   HEIGHT. Reset to a single-line field. */
+.pmd-clean-overwrite-dialog .pmd-clean-prot-input {
+  flex: 0 0 auto;
+}
+/* Two buttons here (Cancel + Confirm), unlike the one-button main modal — lay
+   them out in a row and undo the primary button's default full width. */
+.pmd-clean-overwrite-dialog .pmd-bulk-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.pmd-clean-overwrite-dialog .pmd-bulk-actions .pmd-bulk-btn-primary {
+  width: auto;
+}
 /* Match the primary settings menu's button font (.pmd-settings-btn). */
 .pmd-clean-prot-dialog .pmd-bulk-btn {
   font-size: 0.85rem;

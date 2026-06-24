@@ -73,6 +73,27 @@ in each release, see `CHANGELOG.md`.
   hook for both single-doc and multi-pane, and grouped with the other send/receive
   commands in the keybindings editor.
 
+- **Clean — optional in-place overwrite, gated behind a typed confirmation**
+  (`editor/clean-ui.ts`, `editor/style.css`). Clean previously hard-coded a
+  `cleaned_` prefix on every output (single-file `cleaned_${name}`, bulk
+  `cleanedRel`). A new `prepend` toggle (a per-session field, on by default — so
+  the safe behavior is the default each time the modal opens) selects between the
+  `cleaned_` copy and the original filename. With `prepend` off and the
+  destination resolving to the source's own folder, the output path equals an
+  input path, i.e. an in-place overwrite. `wouldOverwriteInPlace()` detects this
+  — off **and** `normPath(outputDir ?? sourceRoot) === normPath(sourceRoot)`,
+  covering both the default (no destination) and an explicitly-chosen
+  same-as-source folder. The Clean button now routes through `onCleanClick`,
+  which, when an overwrite is staged, awaits `confirmOverwrite()` — a stacked
+  sub-modal (same `pushSubOverlay` mechanism as the protected-styles editor)
+  whose Confirm Overwrite button stays disabled until the user types the exact
+  phrase "I accept the risk"; Cancel / Escape / click-out resolve false and abort.
+  The output-path line shows a live red overwrite hint so the consequence is
+  visible before clicking. Prepending always writes new files; a different
+  destination writes copies — neither warns. (The phrase input and button row
+  reuse `.pmd-clean-prot-input` / `.pmd-bulk-actions`, scoped-overridden because
+  the dialog body is a flex column, not the row those classes assume.)
+
 - **Clean — robustness on a full-library bulk run** (`apps/desktop/src/main.ts`,
   `ooxml/style-clean/legacy-remap.ts`, `ooxml/style-clean/style-cleaner.ts`,
   `editor/clean-ui.ts`). Cleaning an entire file library surfaced three failure

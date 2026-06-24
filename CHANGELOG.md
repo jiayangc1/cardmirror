@@ -39,6 +39,15 @@ see `DETAILED_CHANGELOG.md`.
 - **Type "question" to find Ask AI.** The command bar now surfaces **Ask AI About
   Selection** when you search for "question".
 
+- **Clean can save over your originals (with a typed confirmation).** Clean used
+  to always write `cleaned_…` copies. A new **"Prepend 'cleaned_' to output
+  filenames"** toggle (on by default) lets you turn that off and save with the
+  original filenames instead — and when the destination is the originals' own
+  folder, that overwrites them in place. Because that's destructive and can't be
+  undone, hitting Clean in that mode first pops a warning you must confirm by
+  typing "I accept the risk". Prepending, or saving to a different folder, never
+  touches your originals and skips the warning.
+
 ### Fixed
 
 - **Clean handles a whole messy library without choking.** Cleaning a large

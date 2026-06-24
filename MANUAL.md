@@ -1156,8 +1156,16 @@ Verbatim's macros, and eventually hit Word's hard cap of 4,085 styles.
 - strips hyperlinks and other invisible cruft.
 
 Point it at a single file or a whole folder (it recurses) and a destination —
-or leave the destination blank to write each cleaned copy (`cleaned_…`) next
-to its original. A progress bar tracks the current file.
+or leave the destination blank to write each cleaned copy next to its original.
+A progress bar tracks the current file.
+
+By default Clean prepends **`cleaned_`** to every output filename, so it always
+writes new files and never touches your originals. Turn off **"Prepend
+'cleaned_' to output filenames"** to save with the original names instead. If you
+do that *and* the destination is the originals' own folder, Clean **overwrites
+them in place** — which can't be undone and can occasionally destroy some
+formatting, so it makes you confirm by typing "I accept the risk" before it runs.
+Prepending, or saving to a different folder, leaves your originals untouched.
 
 The **gear** opens **Protected styles** — a list of styles Clean must never
 remove or reassign (matched by name, case-insensitively; their dependencies

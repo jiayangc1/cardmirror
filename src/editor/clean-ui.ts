@@ -87,6 +87,11 @@ class CleanModal {
 
   private inputSel: InputSel | null = null;
   private outputDir: string | null = null;
+  /** Whether to prefix output filenames with `cleaned_`. On (default) always
+   *  writes NEW files; off writes the original name — which overwrites the
+   *  originals in place when the destination is their own folder (gated behind a
+   *  typed confirmation in `onCleanClick`). */
+  private prepend = true;
 
   constructor() {
     this.overlay = document.createElement('div');
@@ -187,12 +192,30 @@ class CleanModal {
     this.outputPathEl = document.createElement('div');
     this.outputPathEl.className = 'pmd-bulk-path';
     outField.appendChild(this.outputPathEl);
+
+    // Prepend toggle. On → `cleaned_…` copies (never touches the originals).
+    // Off → the original filename, which overwrites the originals when the
+    // destination is their own folder.
+    const prependRow = document.createElement('label');
+    prependRow.className = 'pmd-clean-prepend-row';
+    const prependCb = document.createElement('input');
+    prependCb.type = 'checkbox';
+    prependCb.checked = this.prepend;
+    prependCb.addEventListener('change', () => {
+      this.prepend = prependCb.checked;
+      this.refresh();
+    });
+    const prependLabel = document.createElement('span');
+    prependLabel.textContent = 'Prepend “cleaned_” to output filenames';
+    prependRow.append(prependCb, prependLabel);
+    outField.appendChild(prependRow);
+
     body.appendChild(outField);
 
     // Clean.
     const actions = document.createElement('div');
     actions.className = 'pmd-bulk-actions';
-    this.cleanBtn = button('Clean', () => void this.run());
+    this.cleanBtn = button('Clean', () => void this.onCleanClick());
     this.cleanBtn.classList.add('pmd-bulk-btn-primary');
     actions.appendChild(this.cleanBtn);
     body.appendChild(actions);
@@ -475,10 +498,14 @@ class CleanModal {
       ? `${this.inputSel.kind === 'folder' ? 'Folder' : 'File'}: ${this.inputSel.path}`
       : 'None selected';
     this.inputPathEl.classList.toggle('pmd-bulk-path-set', !!this.inputSel);
-    this.outputPathEl.textContent = this.outputDir
+    const overwrite = this.wouldOverwriteInPlace();
+    this.outputPathEl.textContent = overwrite
+      ? '⚠ Overwrites the originals in place — not reversible'
+      : this.outputDir
       ? this.outputDir
       : 'Same location as the original (default)';
-    this.outputPathEl.classList.toggle('pmd-bulk-path-set', !!this.outputDir);
+    this.outputPathEl.classList.toggle('pmd-bulk-path-set', !!this.outputDir && !overwrite);
+    this.outputPathEl.classList.toggle('pmd-clean-overwrite-hint', overwrite);
     this.cleanBtn.disabled = this.busy || !this.inputSel;
   }
 
@@ -521,6 +548,121 @@ class CleanModal {
     this.refresh();
   }
 
+  // ── Overwrite gating ──────────────────────────────────────────────
+
+  private static normPath(p: string): string {
+    return p.replace(/[\\/]+$/, '');
+  }
+
+  /** True when the current options would write over the source files: not
+   *  prepending `cleaned_`, and the destination is the originals' own folder
+   *  (the default, or a chosen folder equal to the source). Prepending always
+   *  writes new files; a different destination writes copies there. */
+  private wouldOverwriteInPlace(): boolean {
+    if (this.prepend || !this.inputSel) return false;
+    const sourceRoot =
+      this.inputSel.kind === 'file' ? dirName(this.inputSel.path) : this.inputSel.path;
+    const dest = this.outputDir ?? sourceRoot;
+    return CleanModal.normPath(dest) === CleanModal.normPath(sourceRoot);
+  }
+
+  /** Clean-button handler: gate an in-place overwrite behind a typed
+   *  confirmation; otherwise start cleaning straight away. */
+  private async onCleanClick(): Promise<void> {
+    if (this.busy || !this.inputSel) return;
+    if (this.wouldOverwriteInPlace() && !(await this.confirmOverwrite())) return;
+    void this.run();
+  }
+
+  /** Modal that requires the user to type the exact phrase before overwriting
+   *  the originals in place. Resolves true only when they confirm. */
+  private confirmOverwrite(): Promise<boolean> {
+    const PHRASE = 'I accept the risk';
+    return new Promise<boolean>((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'pmd-bulk-overlay';
+      const dialog = document.createElement('div');
+      dialog.className = 'pmd-bulk-dialog pmd-clean-overwrite-dialog';
+      overlay.appendChild(dialog);
+
+      let settled = false;
+      const finish = (ok: boolean): void => {
+        if (settled) return;
+        settled = true;
+        resolve(ok);
+        this.closeSubOverlay(overlay);
+      };
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) finish(false);
+      });
+
+      const header = document.createElement('header');
+      header.className = 'pmd-bulk-header';
+      const h = document.createElement('h2');
+      h.textContent = 'Overwrite files in place?';
+      header.appendChild(h);
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'pmd-bulk-close';
+      setIcon(close, 'close');
+      close.title = 'Cancel';
+      close.addEventListener('click', () => finish(false));
+      header.appendChild(close);
+      dialog.appendChild(header);
+
+      const bodyEl = document.createElement('div');
+      bodyEl.className = 'pmd-bulk-body';
+      const warn = document.createElement('p');
+      warn.className = 'pmd-bulk-blurb pmd-clean-overwrite-warn';
+      warn.textContent =
+        'You are about to overwrite the original files in place. This cannot be undone, ' +
+        'and there is a chance the cleaner destroys some of your formatting.';
+      bodyEl.appendChild(warn);
+
+      const prompt = document.createElement('label');
+      prompt.className = 'pmd-bulk-field-label';
+      prompt.textContent = `Type “${PHRASE}” to proceed:`;
+      bodyEl.appendChild(prompt);
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'pmd-clean-prot-input';
+      input.placeholder = PHRASE;
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      bodyEl.appendChild(input);
+
+      const actions = document.createElement('div');
+      actions.className = 'pmd-bulk-actions';
+      const cancel = button('Cancel', () => finish(false));
+      const confirm = button('Confirm Overwrite', () => {
+        if (input.value.trim() === PHRASE) finish(true);
+      });
+      confirm.classList.add('pmd-bulk-btn-primary', 'pmd-clean-overwrite-confirm');
+      confirm.disabled = true;
+      input.addEventListener('input', () => {
+        confirm.disabled = input.value.trim() !== PHRASE;
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && input.value.trim() === PHRASE) {
+          e.preventDefault();
+          finish(true);
+        }
+      });
+      actions.append(cancel, confirm);
+      bodyEl.appendChild(actions);
+
+      dialog.appendChild(bodyEl);
+      // Escape (closeTopSubOverlay) → onClose → treat as cancel.
+      this.pushSubOverlay(overlay, () => {
+        if (!settled) {
+          settled = true;
+          resolve(false);
+        }
+      });
+      input.focus();
+    });
+  }
+
   // ── Clean ─────────────────────────────────────────────────────────
 
   private async run(): Promise<void> {
@@ -547,7 +689,8 @@ class CleanModal {
           protectedStyleNames,
           progressCallback: (cur, tot) => runs(cur, tot, `Cleaning ${input.name}…`),
         });
-        await electron.writeFileAtPath(joinPath(destDir, `cleaned_${input.name}`), cleaned);
+        const outName = this.prepend ? `cleaned_${input.name}` : input.name;
+        await electron.writeFileAtPath(joinPath(destDir, outName), cleaned);
         this.setProgress(1, 1);
         this.setStatus(`Cleaned “${input.name}”.`);
       } else {
@@ -572,7 +715,8 @@ class CleanModal {
               progressCallback: (cur, tot) =>
                 runs(cur, tot, `Cleaning ${i + 1} / ${files.length}: ${baseName(f.relPath)}…`),
             });
-            await electron.writeFileAtPath(joinPath(destRoot, cleanedRel(f.relPath)), cleaned);
+            const outRel = this.prepend ? cleanedRel(f.relPath) : f.relPath;
+            await electron.writeFileAtPath(joinPath(destRoot, outRel), cleaned);
             ok++;
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
