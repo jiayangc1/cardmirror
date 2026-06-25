@@ -68,6 +68,24 @@ in each release, see `CHANGELOG.md`.
   from all four copies of the char-class and documented the allowlist so it isn't
   re-added. Regression tests (hyphen + em-dash) in `formatting-gaps.test.ts`.
 
+- **Importer promotes outline-leveled "Normal" paragraphs to their structural
+  node** (`import/importer.ts`). Tags/headings authored as plain Normal text with
+  only a direct `<w:outlineLvl>` (no Heading style) imported as flat paragraphs —
+  `resolveNodeType` keyed entirely off `pStyle`, so a style-less paragraph
+  short-circuited to `paragraph` and the outline level was never consulted. Added
+  `outlineHeadingNode`, a mirror of the style cleaner's first-pass header
+  detection (`ooxml/style-clean/style-cleaner.ts`): when style-based
+  classification yields `paragraph`, an effective outline level of 0–3 plus the
+  matching run formatting promotes it — `0`+bold+26pt → pocket, `1`+bold+22pt →
+  hat, `2`+bold+underline+16pt → block, `3`+bold → tag. The formatting conjuncts
+  are the cleaner's guardrails, so an ordinary outline-leveled Word doc isn't
+  mis-structured. Verified on real send docs (one went from 0 detected tags / 94
+  loose paragraphs to 11 tags + 7 blocks + 11 cards; another from 2 tags to 27).
+  Tests in `import/importer.test.ts`. Divergences from the cleaner (only relevant
+  to already-styled docs, which the cleaner itself handles): the tag bold test is
+  direct-run rather than `effectivelyBold`, and the outline level is direct or the
+  style's own rather than `basedOn`-resolved.
+
 ## 0.1.0-alpha.20 — 2026-06-23
 
 - **No native menu bar on Windows/Linux — Alt-key editor shortcuts now work**

@@ -46,6 +46,15 @@ see `DETAILED_CHANGELOG.md`.
   between them is now left as-is instead of being pulled into the formatting —
   matching how em-dashes, en-dashes, `=`, and `+` already behave.
 
+- **Docs whose tags are plain "Normal" text now import with their structure.**
+  Some Word docs mark tags and headings only with an *outline level* (Word's
+  h1–h4), not a heading style — so CardMirror imported them as flat body text and
+  the tags didn't show up. The importer now recognizes a Normal paragraph that
+  carries an outline level plus the matching heading formatting (e.g. a 13pt-bold
+  paragraph at outline level 4 → Tag), mirroring what the style cleaner already
+  does. The bold / size / underline checks gate it, so an ordinary non-debate doc
+  that merely uses outline levels is unaffected.
+
 ## 0.1.0-alpha.20 — 2026-06-23
 
 ### Added

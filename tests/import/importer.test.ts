@@ -70,6 +70,51 @@ describe('importer — paragraph kinds', () => {
   });
 });
 
+// A doc whose tags/headings are plain "Normal" + a direct outline level (no
+// heading style) — mirrors the style cleaner's outline-level header detection.
+describe('importer — outline-level heading promotion', () => {
+  it('promotes a Normal paragraph with outlineLvl 3 + bold to a tag', () => {
+    const xml = bodyXml(
+      `<w:p><w:pPr><w:outlineLvl w:val="3"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="26"/></w:rPr><w:t>The tag</w:t></w:r></w:p>` +
+        `<w:p><w:r><w:t>Body</w:t></w:r></w:p>`,
+    );
+    const card = importDoc(xml).firstChild!;
+    expect(card.type.name).toBe('card');
+    expect(card.firstChild!.type.name).toBe('tag');
+    expect(card.firstChild!.textContent).toBe('The tag');
+  });
+
+  it('leaves a Normal outlineLvl-3 paragraph that is NOT bold as a paragraph', () => {
+    const doc = importDoc(
+      bodyXml(`<w:p><w:pPr><w:outlineLvl w:val="3"/></w:pPr><w:r><w:t>Not bold</w:t></w:r></w:p>`),
+    );
+    expect(doc.firstChild!.type.name).toBe('paragraph');
+  });
+
+  it('promotes outlineLvl 0 + bold + 26pt to pocket, but not without the size', () => {
+    const pocket = importDoc(
+      bodyXml(
+        `<w:p><w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="52"/></w:rPr><w:t>P</w:t></w:r></w:p>`,
+      ),
+    );
+    expect(pocket.firstChild!.type.name).toBe('pocket');
+    // bold but no 26pt → the cleaner's size guardrail holds, stays a paragraph.
+    const notPocket = importDoc(
+      bodyXml(`<w:p><w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>P</w:t></w:r></w:p>`),
+    );
+    expect(notPocket.firstChild!.type.name).toBe('paragraph');
+  });
+
+  it('promotes outlineLvl 2 + bold + underline + 16pt to block', () => {
+    const doc = importDoc(
+      bodyXml(
+        `<w:p><w:pPr><w:outlineLvl w:val="2"/></w:pPr><w:r><w:rPr><w:b/><w:u w:val="single"/><w:sz w:val="32"/></w:rPr><w:t>B</w:t></w:r></w:p>`,
+      ),
+    );
+    expect(doc.firstChild!.type.name).toBe('block');
+  });
+});
+
 describe('importer — analytic style fallback', () => {
   // Build a minimal word/styles.xml declaring the given styles.
   // Each entry: { id, name?, type? } (type defaults to 'paragraph').

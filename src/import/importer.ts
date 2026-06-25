@@ -295,7 +295,15 @@ function parseParagraph(pNode: XmlNode, ctx: ImportContext): ParaInfo {
     collectInlines(c, ctx, inlines);
   }
 
-  const nodeType = resolveNodeType(pStyle, ctx, pPr);
+  let nodeType = resolveNodeType(pStyle, ctx, pPr);
+  // A style-less / non-structural paragraph that nonetheless carries an outline
+  // level + the matching Verbatim heading formatting (e.g. a tag typed as plain
+  // "Normal" with a direct <w:outlineLvl w:val="3"/> + 13pt bold) is promoted to
+  // its structural node — see `outlineHeadingNode`.
+  if (nodeType === 'paragraph') {
+    const promoted = outlineHeadingNode(pPr, pChildren, pStyle ? ctx.styles.get(pStyle) : undefined);
+    if (promoted) nodeType = promoted;
+  }
 
   return { nodeType, inlines, headingId, pStyle, indent, spacing };
 }
@@ -969,6 +977,67 @@ function paragraphOutline(pPr: XmlNode | null, info: StyleInfo | undefined): num
     }
   }
   return info?.outlineLevel ?? -1;
+}
+
+// ── Outline-level heading promotion ──────────────────────────────────────────
+// Mirror of the style cleaner's first-pass header detection
+// (`ooxml/style-clean/style-cleaner.ts`): a paragraph carrying an outline level
+// AND the matching Verbatim heading formatting is promoted to its structural
+// node, so a doc whose tags/headings are plain "Normal" + a direct
+// `<w:outlineLvl>` (no heading style) still imports its structure. The bold /
+// size / underline conjuncts are the cleaner's guardrails — they keep an
+// ordinary Word doc that merely uses outline levels from being mis-structured.
+
+/** Direct run bold (`<w:b/>` not turned off) — read from the raw `<w:rPr>`. */
+function runBold(rPr: XmlNode | null): boolean {
+  if (!rPr) return false;
+  const b = findChild(childrenOf(rPr, 'w:rPr'), 'w:b');
+  if (!b) return false;
+  const v = attrsOf(b)['w:val'];
+  return v !== '0' && v !== 'false';
+}
+/** Direct run size in points (`<w:sz>` is half-points), or null. */
+function runSizePt(rPr: XmlNode | null): number | null {
+  if (!rPr) return null;
+  const sz = findChild(childrenOf(rPr, 'w:rPr'), 'w:sz');
+  if (!sz) return null;
+  const n = parseInt(attrsOf(sz)['w:val'] ?? '', 10);
+  return Number.isFinite(n) ? n / 2 : null;
+}
+/** Direct run underline (`<w:u>` other than `none`). */
+function runUnderlined(rPr: XmlNode | null): boolean {
+  if (!rPr) return false;
+  const u = findChild(childrenOf(rPr, 'w:rPr'), 'w:u');
+  if (!u) return false;
+  return (attrsOf(u)['w:val'] ?? 'single') !== 'none';
+}
+
+/** The structural node a style-less paragraph's outline level + formatting imply,
+ *  or null to leave it a paragraph. Mirrors `style-cleaner.ts` levels 0–3 →
+ *  pocket / hat / block / tag with the same bold/size/underline guards. Only
+ *  consulted when style-based classification produced a plain `paragraph`.
+ *
+ *  Divergences (both only bite on docs that already carry custom styles, which
+ *  the cleaner handles): the tag's bold is direct-run only — the importer has no
+ *  `effectivelyBold` style resolution — and the outline level is direct or the
+ *  style's own, not resolved through `basedOn`. */
+function outlineHeadingNode(
+  pPr: XmlNode | null,
+  pChildren: XmlNode[],
+  info: StyleInfo | undefined,
+): string | null {
+  const outline = paragraphOutline(pPr, info);
+  if (outline < 0 || outline > 3) return null;
+  const rPrs = pChildren
+    .filter((c) => 'w:r' in c)
+    .map((r) => findChild(childrenOf(r, 'w:r'), 'w:rPr'));
+  const anyRun = (pred: (rPr: XmlNode | null) => boolean): boolean => rPrs.some(pred);
+  if (outline === 0) return anyRun((r) => runBold(r) && runSizePt(r) === 26) ? 'pocket' : null;
+  if (outline === 1) return anyRun((r) => runBold(r) && runSizePt(r) === 22) ? 'hat' : null;
+  if (outline === 2)
+    return anyRun((r) => runBold(r) && runUnderlined(r) && runSizePt(r) === 16) ? 'block' : null;
+  // outline === 3 → Tag, gated on bold (the cleaner's effectivelyBold).
+  return anyRun(runBold) ? 'tag' : null;
 }
 
 /** Decide how this document's legacy paragraph styles map to schema nodes.
