@@ -3513,7 +3513,7 @@ function buildCardCutterRadio(
 
 function buildMobileLayoutEditor(): HTMLElement {
   const wrap = document.createElement('div');
-  wrap.className = 'pmd-mobile-layout-editor';
+  wrap.className = 'pmd-heading-mode-editor';
   const options: { value: 'auto' | 'mobile' | 'desktop'; label: string }[] = [
     { value: 'auto', label: 'Auto — mobile layout on small touch screens (default)' },
     { value: 'mobile', label: 'Mobile — always the view-first layout' },
@@ -3522,7 +3522,7 @@ function buildMobileLayoutEditor(): HTMLElement {
   const groupName = `pmd-mobile-layout-${Math.random().toString(36).slice(2, 8)}`;
   for (const o of options) {
     const row = document.createElement('label');
-    row.className = 'pmd-mobile-layout-row';
+    row.className = 'pmd-heading-mode-row';
     const input = document.createElement('input');
     input.type = 'radio';
     input.name = groupName;
@@ -3539,7 +3539,7 @@ function buildMobileLayoutEditor(): HTMLElement {
     });
     row.appendChild(input);
     const labelText = document.createElement('span');
-    labelText.className = 'pmd-mobile-layout-row-label';
+    labelText.className = 'pmd-heading-mode-row-label';
     labelText.textContent = o.label;
     row.appendChild(labelText);
     wrap.appendChild(row);
