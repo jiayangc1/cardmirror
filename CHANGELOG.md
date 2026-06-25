@@ -7,6 +7,13 @@ see `DETAILED_CHANGELOG.md`.
 
 ## Unreleased
 
+### Changed
+
+- **Cmd-R no longer reloads the desktop app by accident.** A stray Cmd-R mid-edit
+  used to reload the whole window, which felt like a crash. Reload now lives only
+  in the View menu; the Cmd-Shift-R force-reload shortcut — far harder to hit by
+  accident — still works.
+
 ### Fixed
 
 - **The "Layout on this device" setting (web edition) now matches the others.**

@@ -7,6 +7,17 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Plain reload keeps its menu item but drops the Cmd/Ctrl+R accelerator**
+  (`apps/desktop/src/main.ts`). `buildMenu`'s View menu used `{ role: 'reload' }`,
+  which auto-binds CmdOrCtrl+R — a stray Cmd-R mid-edit reloaded the renderer and
+  read like a crash / data loss. Replaced it with a plain
+  `{ label: 'Reload', click: () => BrowserWindow.getFocusedWindow()?.webContents.reload() }`
+  (no accelerator), so the menu entry stays but the hotkey is gone;
+  `{ role: 'forceReload' }` (Cmd-Shift-R) is untouched. The menu is the only
+  source of the reload accelerator (Windows/Linux already run menu-less, so Ctrl+R
+  was unbound there), so dropping it from the role is sufficient — no
+  `before-input-event` needed.
+
 - **Web "Layout on this device" options use the shared radio styling**
   (`editor/settings-ui.ts`). `buildMobileLayoutEditor` set
   `pmd-mobile-layout-{editor,row,row-label}` classes that were never defined in

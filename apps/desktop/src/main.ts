@@ -1969,7 +1969,11 @@ function buildMenu(): Menu {
   const viewMenu: MenuItemConstructorOptions = {
     label: 'View',
     submenu: [
-      { role: 'reload' },
+      // Plain reload keeps its menu entry but DROPS the Cmd/Ctrl+R accelerator:
+      // a stray Cmd+R mid-edit reloaded the renderer and read like a crash/data
+      // loss. Intentional reloads go via this click or Force Reload (Cmd+Shift+R),
+      // which is unlikely to be hit by accident.
+      { label: 'Reload', click: () => BrowserWindow.getFocusedWindow()?.webContents.reload() },
       { role: 'forceReload' },
       { role: 'toggleDevTools' },
       { type: 'separator' },
