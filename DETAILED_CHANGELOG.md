@@ -5,7 +5,7 @@ behavior, rationale, and (where useful) the implementation context
 behind a change. For a shorter, jargon-free summary of what's new
 in each release, see `CHANGELOG.md`.
 
-## Unreleased
+## 0.1.0-beta.1 — 2026-06-24
 
 - **Right-click a file search result dives in instead of pinning**
   (`editor/quick-card-search-ui.ts`). In the Search Everything palette, a
