@@ -4315,10 +4315,62 @@ function formatFromFilename(name: string | null | undefined): 'cmir' | 'docx' | 
  *  recognized" or the first filter; users can swap to "Word only"
  *  if they want to narrow). */
 const OPEN_FILE_FILTERS = [
-  { name: 'CardMirror or Word documents', extensions: ['cmir', 'docx'] },
+  { name: 'CardMirror, Word, or recovery journal', extensions: ['cmir', 'cmir-journal', 'docx'] },
   { name: 'CardMirror native (.cmir)', extensions: ['cmir'] },
+  { name: 'CardMirror recovery journal (.cmir-journal)', extensions: ['cmir-journal'] },
   { name: 'Microsoft Word (.docx)', extensions: ['docx'] },
 ];
+
+/** Resolve an opened file to the doc payload to mount. A `.cmir-journal` is a
+ *  JSON envelope wrapping the real doc bytes (the same bytes a `.cmir` holds)
+ *  plus an explicit format; decode it and open the wrapped doc as a RECOVERED,
+ *  unsaved copy — `handle = null` (so Save can't silently overwrite the original
+ *  `.cmir`, which may be newer or live on another machine) and `recovered: true`
+ *  (so it mounts dirty and prompts before closing). Non-journal files pass
+ *  through with their format inferred from the extension. Returns `'corrupt'`
+ *  for an unreadable journal envelope. */
+function resolveOpenedFile(
+  opened: OpenedFile,
+):
+  | { name: string; bytes: Uint8Array; handle: string | null; format: 'cmir' | 'docx'; recovered: boolean }
+  | 'corrupt' {
+  if (opened.name.toLowerCase().endsWith('.cmir-journal')) {
+    try {
+      const env = JSON.parse(new TextDecoder().decode(opened.bytes)) as {
+        bytesB64?: unknown;
+        format?: unknown;
+        filename?: unknown;
+      };
+      if (typeof env.bytesB64 !== 'string') return 'corrupt';
+      const bin = atob(env.bytesB64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const format: 'cmir' | 'docx' =
+        env.format === 'docx'
+          ? 'docx'
+          : env.format === 'cmir'
+            ? 'cmir'
+            : formatFromFilename(typeof env.filename === 'string' ? env.filename : null) ?? 'cmir';
+      let name =
+        typeof env.filename === 'string' && env.filename
+          ? env.filename
+          : opened.name.replace(/\.cmir-journal$/i, '');
+      // Carry the format's extension on the name so every downstream path (incl.
+      // multi-pane, which re-derives format from the name) agrees on the format.
+      if (formatFromFilename(name) !== format) name = `${name}.${format}`;
+      return { name, bytes, handle: null, format, recovered: true };
+    } catch {
+      return 'corrupt';
+    }
+  }
+  return {
+    name: opened.name,
+    bytes: opened.bytes,
+    handle: typeof opened.handle === 'string' ? opened.handle : null,
+    format: formatFromFilename(opened.name) ?? 'docx',
+    recovered: false,
+  };
+}
 
 /** Save-As filter — only the chosen format's extension. Built per
  *  save call so the dialog drops to a single option matching the
@@ -4353,20 +4405,27 @@ async function runOpenFlow(): Promise<void> {
  *  dialog and the command-palette file search, so file search opens in
  *  a new window / the slot picker rather than replacing the current doc. */
 async function routeOpenedFile(opened: OpenedFile): Promise<void> {
+  // Decode a .cmir-journal into its wrapped doc (recovered, unsaved); a plain
+  // .cmir/.docx passes through unchanged.
+  const src = resolveOpenedFile(opened);
+  if (src === 'corrupt') {
+    alert('That .cmir-journal file is corrupt or could not be read.');
+    return;
+  }
   // Cross-window duplicate-open guard (Electron): if any other
   // window already has this path open, main focuses that window
   // and we abort. Runs BEFORE the multi-doc / spawn-window /
   // mount branches so the same check applies whether this
   // window is single-doc or multi-pane and whether we're about
   // to mount here or spawn a fresh window. Path-only — never-
-  // saved docs (handle == null) have no identity yet so they're
-  // not deduped.
-  if (typeof opened.handle === 'string' && opened.handle) {
+  // saved docs (handle == null, incl. a recovered journal) have
+  // no identity yet so they're not deduped.
+  if (typeof src.handle === 'string' && src.handle) {
     const electron = getElectronHost();
     if (electron) {
-      const { takenByOther } = await electron.openPathCheck(opened.handle);
+      const { takenByOther } = await electron.openPathCheck(src.handle);
       if (takenByOther) {
-        showToast(`"${opened.name}" is already open in another window.`);
+        showToast(`"${src.name}" is already open in another window.`);
         return;
       }
     }
@@ -4376,7 +4435,7 @@ async function routeOpenedFile(opened: OpenedFile): Promise<void> {
     // guard (checks every slot's stack) before showing the slot
     // picker.
     try {
-      await multiDocOnFileOpen(opened);
+      await multiDocOnFileOpen({ name: src.name, bytes: src.bytes, handle: src.handle });
     } catch (err) {
       console.error('Multi-doc open failed:', err);
       alert(`Failed to open: ${err instanceof Error ? err.message : err}`);
@@ -4385,11 +4444,11 @@ async function routeOpenedFile(opened: OpenedFile): Promise<void> {
   }
   // Single-doc within-window duplicate-open guard: if the file is
   // already the current doc, refuse and toast.
-  if (opened.handle != null && (await isSameOpenHandle(currentDocHandle, opened.handle))) {
-    showToast(`"${opened.name}" is already open.`);
+  if (src.handle != null && (await isSameOpenHandle(currentDocHandle, src.handle))) {
+    showToast(`"${src.name}" is already open.`);
     return;
   }
-  const format = formatFromFilename(opened.name) ?? 'docx';
+  const format = src.format;
   // Windows mode (single-doc + Electron + we have a non-pristine
   // doc in the current window): spawn a new window for the
   // opened file instead of replacing what's here.
@@ -4397,9 +4456,9 @@ async function routeOpenedFile(opened: OpenedFile): Promise<void> {
   if (host.canSpawnWindow && !isPristineStarter) {
     try {
       await host.spawnWindow({
-        filename: opened.name,
-        bytes: opened.bytes,
-        handle: typeof opened.handle === 'string' ? opened.handle : null,
+        filename: src.name,
+        bytes: src.bytes,
+        handle: src.handle,
         format,
         uid: null,
       });
@@ -4414,12 +4473,12 @@ async function routeOpenedFile(opened: OpenedFile): Promise<void> {
     let docThreads: Thread[] | undefined;
     let docId: string | null = null;
     if (format === 'cmir') {
-      const parsed = parseNative(opened.bytes);
+      const parsed = parseNative(src.bytes);
       docNode = parsed.doc;
       docThreads = parsed.threads.length > 0 ? parsed.threads : undefined;
       docId = parsed.docId;
     } else {
-      const result = await fromDocxFull(opened.bytes);
+      const result = await fromDocxFull(src.bytes);
       docNode = result.doc;
       docThreads = result.threads;
       docId = result.docId;
@@ -4428,24 +4487,27 @@ async function routeOpenedFile(opened: OpenedFile): Promise<void> {
     // mint a fresh uid for the new session.
     void clearCurrentJournal();
     mountView(docNode, docThreads);
-    currentDocFilename = opened.name;
-    setCurrentDocHandle(opened.handle ?? null);
+    currentDocFilename = src.name;
+    setCurrentDocHandle(src.handle ?? null);
     currentDocFormat = format;
     // Restore this file's remembered autosave toggle (off if unknown).
-    settings.set('autosaveEnabled', isAutosaveOnForPath(opened.handle));
+    settings.set('autosaveEnabled', isAutosaveOnForPath(src.handle));
     currentDocUid = newSessionDocUid();
-    adoptDocId(docId, opened.name, opened.handle ?? null, format);
-    markCurrentDocClean();
+    adoptDocId(docId, src.name, src.handle ?? null, format);
+    // A recovered journal mounts dirty (no on-disk file to be in sync with), so
+    // closing prompts to save; a normal open is clean.
+    if (src.recovered) markCurrentDocDirty();
+    else markCurrentDocClean();
     syncSingleDocSpeechRegistration();
     markNonPristineStarter();
     updateWindowTitle();
-    recordRecent({
-      handle: typeof opened.handle === 'string' ? opened.handle : null,
-      filename: opened.name,
-      format,
-    });
+    // A recovered journal has no path yet — don't record an unreopenable
+    // (handle-null) recent; the Save flow records it once it's written.
+    if (!src.recovered) {
+      recordRecent({ handle: src.handle, filename: src.name, format });
+    }
     homeScreen.hide();
-    console.log(`Loaded ${opened.name}: ${countSummary(docNode)}`);
+    console.log(`Loaded ${src.name}: ${countSummary(docNode)}`);
   } catch (err) {
     console.error('Failed to load doc:', err);
     alert(`Failed to load: ${err instanceof Error ? err.message : err}`);
@@ -4465,6 +4527,8 @@ async function loadFileInPlace(file: {
   bytes: Uint8Array;
   handle: string | null;
   format: 'cmir' | 'docx';
+  /** A recovered (.cmir-journal) doc: mount dirty, don't record a recent. */
+  recovered?: boolean;
 }): Promise<void> {
   let docNode: PMNode;
   let docThreads: Thread[] | undefined;
@@ -4489,7 +4553,8 @@ async function loadFileInPlace(file: {
   settings.set('autosaveEnabled', isAutosaveOnForPath(file.handle));
   currentDocUid = newSessionDocUid();
   adoptDocId(docId, file.filename, file.handle, file.format);
-  markCurrentDocClean();
+  if (file.recovered) markCurrentDocDirty();
+  else markCurrentDocClean();
   syncSingleDocSpeechRegistration();
   markNonPristineStarter();
   updateWindowTitle();
@@ -4497,7 +4562,9 @@ async function loadFileInPlace(file: {
     const electron = getElectronHost();
     if (electron) void electron.openPathRegister(file.handle);
   }
-  recordRecent({ handle: file.handle, filename: file.filename, format: file.format });
+  if (!file.recovered) {
+    recordRecent({ handle: file.handle, filename: file.filename, format: file.format });
+  }
   homeScreen.hide();
 }
 
@@ -4614,23 +4681,28 @@ async function pickAndLoadInPlace(): Promise<boolean> {
     return false;
   }
   if (!opened) return false;
-  if (typeof opened.handle === 'string' && opened.handle) {
+  const src = resolveOpenedFile(opened);
+  if (src === 'corrupt') {
+    alert('That .cmir-journal file is corrupt or could not be read.');
+    return false;
+  }
+  if (typeof src.handle === 'string' && src.handle) {
     const electron = getElectronHost();
     if (electron) {
-      const { takenByOther } = await electron.openPathCheck(opened.handle);
+      const { takenByOther } = await electron.openPathCheck(src.handle);
       if (takenByOther) {
-        showToast(`"${opened.name}" is already open in another window.`);
+        showToast(`"${src.name}" is already open in another window.`);
         return false;
       }
     }
   }
-  const format = formatFromFilename(opened.name) ?? 'docx';
   try {
     await loadFileInPlace({
-      filename: opened.name,
-      bytes: opened.bytes,
-      handle: typeof opened.handle === 'string' ? opened.handle : null,
-      format,
+      filename: src.name,
+      bytes: src.bytes,
+      handle: src.handle,
+      format: src.format,
+      recovered: src.recovered,
     });
     return true;
   } catch (err) {

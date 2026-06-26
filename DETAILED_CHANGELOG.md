@@ -7,6 +7,25 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Open `.cmir-journal` files directly via File → Open** (`editor/index.ts`). A
+  `.cmir-journal` is the crash-recovery envelope (`{ uid, filename, handle,
+  format, savedAt, bytesB64 }`) wrapping the same doc bytes a `.cmir` holds. Added
+  `cmir-journal` to `OPEN_FILE_FILTERS` and a shared `resolveOpenedFile(opened)`
+  that, for a `.cmir-journal`, JSON-parses the envelope, base64-decodes `bytesB64`
+  to the real doc bytes, and returns `{ name, bytes, handle: null, format,
+  recovered: true }` — opening the wrapped doc as a RECOVERED, unsaved copy:
+  `handle` is null so Save can't clobber the original (which may be newer or live
+  on another machine), it mounts dirty (`markCurrentDocDirty`), and it isn't
+  recorded as a recent (the Save flow records it once written). Format comes from
+  the envelope (`cmir`→`parseNative`, `docx`→`fromDocxFull`), not assumed `cmir`
+  like the crash-recovery path. Both `routeOpenedFile` (ribbon / Ctrl-O Open +
+  command-palette file search) and `pickAndLoadInPlace` (home-screen Open) route
+  through `resolveOpenedFile`, so the Open dialog, home-screen Open, and the web
+  build (same extension-based dispatch) all get it for free; the resolved name
+  carries the format's extension so multi-pane (which re-derives format from the
+  name) agrees. Plain `.cmir` / `.docx` pass through unchanged. Finder
+  double-click / OS file-association was intentionally left out of scope.
+
 - **Tooltips are custom-rendered instead of native `title`** (`editor/ribbon-tooltips.ts`,
   `editor/style.css`, `index.html`, `editor/nav-panel.ts`). The ribbon tooltip
   controller set `el.title = …`; Electron/Chromium on macOS renders native `title`

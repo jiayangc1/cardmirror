@@ -7,6 +7,14 @@ see `DETAILED_CHANGELOG.md`.
 
 ## Unreleased
 
+### Added
+
+- **Open recovery journals (`.cmir-journal`) directly.** File → Open now accepts
+  `.cmir-journal` files — it loads the document the journal was protecting, as a
+  recovered, *unsaved* copy (so saving won't overwrite the original; use Save As
+  to keep it somewhere). Handy for pulling a document out of a recovery journal
+  without waiting for the automatic crash-recovery prompt.
+
 ### Changed
 
 - **Cmd-R no longer reloads the desktop app by accident.** A stray Cmd-R mid-edit
