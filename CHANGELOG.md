@@ -46,6 +46,17 @@ see `DETAILED_CHANGELOG.md`.
   the card. **This was a severe bug, so anyone still on 0.1.0-beta.1 should update
   to this release.**
 
+- **Toggling three-pane mode no longer drops Word (.docx) documents.** Switching
+  in or out of three-pane mode reloads each open document from its recovered
+  in-memory content; for a document that came from a `.docx`, that content was
+  being handed to the Word importer and rejected ("Can't find end of central
+  directory"), so the document vanished on the toggle. Recovery content is always
+  kept in CardMirror's own lossless format regardless of a document's saved-as
+  type, so loading now detects the format from the content itself rather than
+  trusting the saved-as label — a docx document still *saves* back as docx. (The
+  same fix lets you open a `.cmir-journal` belonging to a docx-saved document, and
+  covers the three-pane slot loader. The crash-recovery prompt was never affected.)
+
 - **The "Layout on this device" setting (web edition) now matches the others.**
   Its Auto / Mobile / Desktop options were showing as a cramped, unstyled stack —
   their CSS classes had never been defined — so they now use the same tidy column

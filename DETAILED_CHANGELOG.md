@@ -7,6 +7,24 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Doc loading sniffs the bytes for the parser instead of trusting the `format`
+  field** (`editor/index.ts`, `editor/multi-pane-shell.ts`). A doc's `format`
+  (`'cmir'` / `'docx'`) is its SAVE format, but the in-memory + journal
+  serialization is ALWAYS `serializeNative` (native cmir) regardless of format —
+  so a docx-saved doc's journal / mode-switch payload carries native cmir bytes
+  stamped `format: 'docx'`. The paths that load already-obtained bytes
+  (`routeOpenedFile`, `loadFileInPlace`, `mountFromSpawnPayload`, and multi-pane
+  `loadOpenedIntoSlot`) branched on `format` to pick the parser, so those cmir
+  bytes were sent to `fromDocxFull` (JSZip) → "Can't find end of central
+  directory". This silently dropped docx-saved docs on every three-pane toggle
+  (the mode-switch respawns through `mountFromSpawnPayload`) and broke opening a
+  docx-saved doc's `.cmir-journal`. Fix: a `bytesLookLikeDocx` sniff (a `.docx`
+  is a `PK` zip — `0x50 0x4b`; native cmir is gzipped or raw JSON and never is)
+  chooses the parser at all four sites, while `format` still drives saving (a
+  docx doc re-saves as docx). The crash-recovery loaders (`applyRecovery`, the
+  auto-recovery paths, and the recovery reserializer) were already correct — they
+  hardcode `parseNative` on the always-cmir journal bytes — so they're unchanged.
+
 - **Open `.cmir-journal` files directly via File → Open** (`editor/index.ts`). A
   `.cmir-journal` is the crash-recovery envelope (`{ uid, filename, handle,
   format, savedAt, bytesB64 }`) wrapping the same doc bytes a `.cmir` holds. Added

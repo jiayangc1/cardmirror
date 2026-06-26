@@ -1909,7 +1909,13 @@ class MultiPaneShell {
     let doc: PMNode;
     let threads: Thread[];
     let docId: string | null;
-    if (format === 'cmir') {
+    // Pick the PARSER by sniffing the bytes, not the filename/format — a
+    // recovered .cmir-journal or a mode-switch respawn carries native cmir bytes
+    // under a docx name/format. A .docx is a 'PK' zip; cmir never is. (`format`
+    // above stays the SAVE format.)
+    const isDocxBytes =
+      opened.bytes.length >= 2 && opened.bytes[0] === 0x50 && opened.bytes[1] === 0x4b;
+    if (!isDocxBytes) {
       ({ doc, threads, docId } = parseNative(opened.bytes));
     } else {
       ({ doc, threads, docId } = await fromDocxFull(opened.bytes));

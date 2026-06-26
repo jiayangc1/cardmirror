@@ -4309,6 +4309,18 @@ function formatFromFilename(name: string | null | undefined): 'cmir' | 'docx' | 
   return null;
 }
 
+/** Choose the PARSER for already-loaded doc bytes by sniffing them, not by the
+ *  doc's `format` field. A `.docx` is a zip — its bytes start with `PK`
+ *  (0x50 0x4b); native cmir is gzipped or raw JSON and never does. The `format`
+ *  field is the SAVE format, NOT a reliable parser hint: in-memory and journal
+ *  serializations are ALWAYS native cmir even for docx-saved docs, so a
+ *  mode-switch respawn or an opened `.cmir-journal` carries cmir bytes stamped
+ *  `format: 'docx'`. Sniffing the bytes is authoritative; trusting `format` here
+ *  sends those cmir bytes to the Word importer, which throws "not a zip file". */
+function bytesLookLikeDocx(bytes: Uint8Array): boolean {
+  return bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b;
+}
+
 /** Combined open-file filter — accepts both formats by default so
  *  the user can pick either. The native option is listed first so
  *  it's the default filter selection (most apps default to "all
@@ -4472,7 +4484,7 @@ async function routeOpenedFile(opened: OpenedFile): Promise<void> {
     let docNode: PMNode;
     let docThreads: Thread[] | undefined;
     let docId: string | null = null;
-    if (format === 'cmir') {
+    if (!bytesLookLikeDocx(src.bytes)) {
       const parsed = parseNative(src.bytes);
       docNode = parsed.doc;
       docThreads = parsed.threads.length > 0 ? parsed.threads : undefined;
@@ -4533,7 +4545,7 @@ async function loadFileInPlace(file: {
   let docNode: PMNode;
   let docThreads: Thread[] | undefined;
   let docId: string | null = null;
-  if (file.format === 'cmir') {
+  if (!bytesLookLikeDocx(file.bytes)) {
     const parsed = parseNative(file.bytes);
     docNode = parsed.doc;
     docThreads = parsed.threads.length > 0 ? parsed.threads : undefined;
@@ -6271,7 +6283,7 @@ async function mountFromSpawnPayload(
     let docThreads: Thread[] | undefined;
     let docId: string | null;
     const format = payload.format ?? formatFromFilename(payload.filename) ?? 'docx';
-    if (format === 'cmir') {
+    if (!bytesLookLikeDocx(payload.bytes)) {
       const parsed = parseNative(payload.bytes);
       docNode = parsed.doc;
       docThreads = parsed.threads.length > 0 ? parsed.threads : undefined;
