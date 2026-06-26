@@ -5,7 +5,7 @@ behavior, rationale, and (where useful) the implementation context
 behind a change. For a shorter, jargon-free summary of what's new
 in each release, see `CHANGELOG.md`.
 
-## Unreleased
+## 0.1.0-beta.2 — 2026-06-25
 
 - **Rebindable single-press doc-cycle commands for three-pane mode**
   (`editor/ribbon-commands.ts`, `editor/ribbon-groups.ts`,
