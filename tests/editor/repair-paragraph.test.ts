@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { EditorState } from 'prosemirror-state';
+import { EditorState, TextSelection } from 'prosemirror-state';
 import { schema, newHeadingId } from '../../src/schema/index.js';
 import type { Node as PMNode } from 'prosemirror-model';
 import {
@@ -195,5 +195,45 @@ describe('Ctrl-Enter deferred indentation', () => {
       ['First here. ', INDENT_STEP_DXA],
       ['Second here.', 0],
     ]);
+  });
+});
+
+describe('exit indent stays inside the workflow card (M5)', () => {
+  const findText = (d: PMNode, t: string, off: number): number => {
+    let pos = -1;
+    d.descendants((n, p) => {
+      if (pos === -1 && n.isText && n.text === t) pos = p + off;
+      return pos === -1;
+    });
+    if (pos < 0) throw new Error(`not found: ${t}`);
+    return pos;
+  };
+
+  it('never indents a designated paragraph outside the workflow card', () => {
+    const d = doc(
+      card(tag('A'), cardBody('alpha body')),
+      card(tag('B'), cardBody('beta body')),
+    );
+    // Workflow opens on card A.
+    let state = workflowState(d, '');
+    // Simulate a designated position that has drifted into card B (outside the
+    // workflow's card) — record it via the afterSplit path.
+    const posInB = findText(state.doc, 'beta body', 2);
+    state = state.apply(
+      state.tr
+        .setSelection(TextSelection.create(state.doc, posInB))
+        .setMeta(repairParagraphKey, { type: 'afterSplit', designate: true }),
+    );
+    expect(designatedCount(state)).toBe(1);
+
+    // Exit: card B's body must be untouched — indent only ever lands inside the
+    // card the workflow opened on.
+    const after = state.apply(buildExitTransaction(state)).doc;
+    let cardB: PMNode | null = null;
+    after.forEach((n) => {
+      if (n.type.name === 'card' && n.firstChild?.textContent === 'B') cardB = n;
+    });
+    expect(cardB).not.toBeNull();
+    expect(Number(cardB!.child(1).attrs['indent'] ?? 0)).toBe(0);
   });
 });

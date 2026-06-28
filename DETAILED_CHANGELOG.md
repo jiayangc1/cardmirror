@@ -151,6 +151,16 @@ in each release, see `CHANGELOG.md`.
   `liftCardChild`, which downcasts cites — here there's no reason to strip the
   cite typing); `analytic` is still wrapped in an `analytic_unit`.
 
+- **Repair-paragraph indent-on-exit is clamped to the workflow's card**
+  (`editor/repair-paragraph-plugin.ts`, `tests/editor/repair-paragraph.test.ts`).
+  `buildExitTransaction` indents each designated paragraph; because designated
+  positions are mapped forward through every edit, one could in principle drift
+  across a card boundary and indent a paragraph in a neighboring card (indent
+  attr only — not a structural break). It now skips any designated textblock that
+  resolves outside the current `cardRange`, so the deferred indent can only ever
+  land inside the card the workflow opened on. Covered by a test that a
+  designated position planted in another card is left untouched on exit.
+
 ## 0.1.0-beta.2 — 2026-06-25
 
 - **Rebindable single-press doc-cycle commands for three-pane mode**

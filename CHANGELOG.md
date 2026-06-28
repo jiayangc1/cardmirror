@@ -62,6 +62,10 @@ see `DETAILED_CHANGELOG.md`.
   becomes a normal paragraph instead of keeping card-body styling with no card
   around it. (A cite stays a cite — it's a valid loose node.)
 
+- **Repair Paragraph's deferred indents stay inside the card you're working on.**
+  The Repair Paragraph workflow's indent-on-exit can now only ever apply inside
+  the card it was opened on, never spill into a neighboring card.
+
 ## 0.1.0-beta.2 — 2026-06-25
 
 ### Added
