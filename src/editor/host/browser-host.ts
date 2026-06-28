@@ -64,6 +64,17 @@ function filtersToAcceptAttribute(filters?: FileFilter[]): string {
   return Array.from(exts).join(',');
 }
 
+/** iOS / iPadOS. iOS's file picker maps a file input's `accept` to UTIs and
+ *  greys out every file whose extension it can't map — including our custom
+ *  `.cmir` / `.cmir-journal` (only `.docx`, which has a UTI, stays pickable).
+ *  Detect it so the open picker can drop `accept` there. iPadOS 13+ masquerades
+ *  as desktop Safari, so also catch a touch-capable "Mac". */
+function isIOS(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  if (/iP(hone|od|ad)/.test(navigator.userAgent)) return true;
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+}
+
 function filtersToSavePickerTypes(filters?: FileFilter[]): ShowSaveFilePickerOptions['types'] {
   if (!filters || filters.length === 0) return undefined;
   return filters.map((f) => {
@@ -146,8 +157,11 @@ export class BrowserHost implements Host {
     // every open — different call sites may want different filters
     // (the ribbon Open accepts both formats; a hypothetical
     // "import .docx only" command could pass just docx).
+    // On iOS a custom-extension `accept` greys out the very files we want
+    // (`.cmir`), so drop it there and let any file be picked — the format is
+    // validated downstream. Other browsers honor the extension filter fine.
     const accept = filtersToAcceptAttribute(opts.filters);
-    if (accept) input.setAttribute('accept', accept);
+    if (accept && !isIOS()) input.setAttribute('accept', accept);
     else input.removeAttribute('accept');
 
     return new Promise((resolve, reject) => {

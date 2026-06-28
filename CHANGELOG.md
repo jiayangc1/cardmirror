@@ -77,6 +77,12 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
+- **Open .cmir files on iPhone / iPad (web).** On iOS the file picker greyed out
+  `.cmir` / `.cmir-journal` files — the browser can't map their custom extension
+  to a recognized type — so you couldn't select them. The web open picker now
+  lets you choose any file on iOS (the format is still checked after you pick);
+  other browsers keep the type filter.
+
 - **Escape now exits the Repair Paragraph Integrity workflow from anywhere.**
   Escape previously only worked while the workflow's input box was focused — once
   you clicked back into the card there was no obvious way out. It now exits the

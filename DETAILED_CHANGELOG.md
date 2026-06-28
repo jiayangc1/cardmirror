@@ -7,6 +7,17 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **iOS web file-open: drop `accept` so custom extensions are selectable**
+  (`editor/host/browser-host.ts`). iOS's Files picker maps a file input's
+  `accept` to UTIs and greys out any extension with no UTI — our `.cmir` /
+  `.cmir-journal` (`.docx` has one, so it stayed pickable) — making them
+  unselectable; desktop browsers honor the raw extension list, so it only
+  reproduced on-device. Added `isIOS()` (UA `iP(hone|od|ad)`, plus a
+  touch-capable `MacIntel` for iPadOS-as-desktop-Safari) and, in `openOnce`,
+  skip setting `accept` on iOS so any file can be chosen; the format is validated
+  downstream. No behavior change off iOS. Not unit-tested (UA + iOS-picker
+  runtime behavior) — verify on a real device.
+
 - **Repair Paragraph Integrity: in-workflow undo (Mod-Z)**
   (`editor/repair-paragraph-plugin.ts`, `editor/repair-paragraph-ui.ts`,
   `tests/editor/repair-paragraph.test.ts`). The bar tracks a per-session action
