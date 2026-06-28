@@ -1193,9 +1193,9 @@ function resolveNodeType(pStyle: string | null, ctx: ImportContext, pPr: XmlNode
  *       Tag is treated as cite_paragraph for v0 always; cleaner heuristic
  *       can replace this later).
  *     - Zero or more card_body paragraphs (subsequent Normals).
- *     - An in-card `analytic` (if it appears between tag and body).
  *   - The card ends at the next heading-level paragraph (Tag, Pocket,
- *     Hat, Block, Analytic, Undertag) or end of document.
+ *     Hat, Block, Analytic) or end of document. An Analytic under a tag
+ *     therefore ends the card and starts its own analytic_unit.
  *
  * This mirrors the way real Verbatim docs are structured — the card
  * boundary is implicit in the paragraph sequence; we promote it to a
@@ -1271,7 +1271,7 @@ function assembleDoc(paragraphs: ParaInfo[]): PMNode {
     }
 
     if (para.nodeType === 'tag') {
-      // Start a card: tag + undertag* + (cite_paragraph | analytic)? + card_body*
+      // Start a card: tag + undertag* + cite_paragraph? + card_body*
       const tagNode = schema.nodes['tag']!.create(
         withIndent(attrsForHeading(para.headingId), para),
         para.inlines,
@@ -1288,15 +1288,11 @@ function assembleDoc(paragraphs: ParaInfo[]): PMNode {
         j++;
       }
 
-      // Optional in-card analytic (cite-slot alternative): immediately
-      // after the tag/undertags.
-      if (j < paragraphs.length && paragraphs[j]!.nodeType === 'analytic') {
-        const a = paragraphs[j]!;
-        cardChildren.push(
-          schema.nodes['analytic']!.create(withIndent(attrsForHeading(a.headingId), a), a.inlines),
-        );
-        j++;
-      }
+      // An analytic under the tag is NOT folded into the card — `analytic`
+      // anchors its own analytic_unit. The body loop below stops at it, the
+      // card ends here, and the next outer-loop iteration starts an
+      // analytic_unit from it (absorbing the bodies that follow). Same result
+      // as pasting an analytic into a card.
 
       // Body paragraphs: any Normal paragraph until we hit a heading-
       // level boundary. Classify each as cite_paragraph if its inline

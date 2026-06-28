@@ -31,6 +31,7 @@
 import type { Node as PMNode } from 'prosemirror-model';
 import { schema } from '../schema/index.js';
 import { stampMissingHeadingIds } from '../schema/ids.js';
+import { splitInCardAnalytics } from '../schema/migrate.js';
 import type { Thread } from '../editor/comments-plugin.js';
 import { gzip, gunzip, isGzip } from './codec.js';
 
@@ -160,7 +161,14 @@ export function parseNative(bytes: Uint8Array): ParseNativeResult {
   // mechanism). An id-less heading is invisible to the nav-pane
   // highlight + jump and to the level filter, so this stamps a
   // fresh id at load to repair the doc in place.
-  const doc = stampMissingHeadingIds(schema.nodeFromJSON(file.doc));
+  // Then split out any `analytic` that an older file stored INSIDE a card
+  // (`analytic` is no longer legal card content — it anchors its own
+  // analytic_unit). `nodeFromJSON` builds the now-invalid node without
+  // validating; this rewrites it into a trailing analytic_unit before the doc
+  // reaches the editor. See `schema/migrate.ts`.
+  const doc = splitInCardAnalytics(
+    stampMissingHeadingIds(schema.nodeFromJSON(file.doc)),
+  );
   return {
     doc,
     threads: Array.isArray(file.threads) ? file.threads : [],

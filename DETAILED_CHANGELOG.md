@@ -25,6 +25,32 @@ in each release, see `CHANGELOG.md`.
   logic, so it correctly starts a new card. Covered by 7 new range-selection
   tests in the card-paste matrix suite.
 
+- **`analytic` is no longer legal card content; in-card analytics split out into
+  their own `analytic_unit`** (`schema/nodes.ts`, `schema/migrate.ts` (new),
+  `native/index.ts`, `import/importer.ts`, `editor/paste-plugin.ts`, +tests).
+  The card content expression dropped `analytic` — it is now
+  `tag (card_body | undertag | cite_paragraph | table)*`. `analytic` was only
+  ever an in-card child as the original "cite-slot alternative" (in the schema
+  since the foundational commit, surfaced by the importer in the cite-handling
+  bundle); it was never a deliberate, documented feature, and it left the
+  Backspace/Delete/Enter guards in `tag-keymap.ts` (which key off "is the cursor
+  in the container's FIRST child") blind to it — a cite-slot analytic could fold
+  into the tag (id lost) or duplicate its id on Enter. An analytic that reaches a
+  card — a legacy `.cmir`, or a `.docx` whose author put an Analytic paragraph
+  under a tag — is now split out the same way pasting an analytic into a card
+  already did (`tryPasteSplitContainer`): the tag + pre-analytic children stay in
+  the card, and each analytic heads a trailing `analytic_unit` that absorbs the
+  children below it up to the next analytic. The new `splitInCardAnalytics` runs
+  in `parseNative` beside `stampMissingHeadingIds`, so every native load (open,
+  journal recovery, multi-pane spawn) repairs old files in place —
+  `nodeFromJSON` builds the now-invalid node without validating, then the walk
+  fixes it before the doc reaches the editor. The importer's "optional in-card
+  analytic" special-case was removed so an analytic naturally terminates the card
+  and starts its own unit; `fitForCard` coerces a stray analytic to `card_body`
+  defensively. Net effect: the cite-slot-analytic boundary bugs are now
+  structurally impossible. Covered by new migration tests plus updated
+  importer / schema / transform-for-export expectations.
+
 ## 0.1.0-beta.2 — 2026-06-25
 
 - **Rebindable single-press doc-cycle commands for three-pane mode**

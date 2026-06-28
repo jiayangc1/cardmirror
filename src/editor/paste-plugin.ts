@@ -140,12 +140,15 @@ const CARD_FITTABLE_PASTE = new Set<string>([
 ]);
 
 /** Fit an arbitrary body node into a `card`'s content rule
- *  (`card_body | undertag | cite_paragraph | analytic | table`). A bare
- *  `paragraph` (common from external HTML) becomes a `card_body`; the rest
- *  pass through. */
+ *  (`card_body | undertag | cite_paragraph | table`). A bare `paragraph`
+ *  (common from external HTML) — or a stray `analytic`, which is no longer
+ *  legal card content — becomes a `card_body`; the rest pass through.
+ *  (Structural-led pastes route analytics into their own analytic_unit via
+ *  `groupStructuralNodes`, so an analytic shouldn't reach here; the coercion is
+ *  defensive, keeping the card schema-valid either way.) */
 function fitForCard(child: PMNode): PMNode {
   const t = child.type.name;
-  if (t === 'card_body' || t === 'undertag' || t === 'cite_paragraph' || t === 'analytic' || t === 'table') {
+  if (t === 'card_body' || t === 'undertag' || t === 'cite_paragraph' || t === 'table') {
     return child;
   }
   return schema.nodes['card_body']!.create(null, child.content);

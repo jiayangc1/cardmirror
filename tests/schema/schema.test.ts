@@ -175,13 +175,14 @@ describe('node construction', () => {
     }).toThrow();
   });
 
-  it('allows an analytic inside a card (cite-position alternative)', () => {
-    const card = schema.nodes['card']!.createChecked(null, [
-      schema.nodes['tag']!.create({ id: newHeadingId() }, schema.text('Tag')),
-      schema.nodes['analytic']!.create({ id: newHeadingId() }, schema.text('In-card analytic')),
-      schema.nodes['card_body']!.create(null, schema.text('Body')),
-    ]);
-    expect(card.child(1).type.name).toBe('analytic');
+  it('rejects an analytic inside a card (analytics anchor their own analytic_unit)', () => {
+    expect(() => {
+      schema.nodes['card']!.createChecked(null, [
+        schema.nodes['tag']!.create({ id: newHeadingId() }, schema.text('Tag')),
+        schema.nodes['analytic']!.create({ id: newHeadingId() }, schema.text('In-card analytic')),
+        schema.nodes['card_body']!.create(null, schema.text('Body')),
+      ]);
+    }).toThrow();
   });
 
   it('image is an inline atom that fits inside body paragraphs', () => {

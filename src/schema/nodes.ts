@@ -319,15 +319,20 @@ export const nodes: { [name: string]: NodeSpec } = {
 
   /**
    * A card: required tag followed by any combination of supplementary
-   * paragraphs (undertags, cite, analytic, card body).
+   * paragraphs (undertags, cite, card body) plus inline tables.
    *
-   * The strict-order schema (`tag undertag* (cite|analytic)? card_body*`)
+   * Analytics are NOT card children: an analytic anchors its own
+   * `analytic_unit`. An analytic that ends up inside a card — a legacy
+   * `.cmir` file, or a `.docx` whose author put an Analytic paragraph
+   * under a tag — is split out into a trailing analytic_unit (that
+   * absorbs the content below it) on load (`schema/migrate.ts`'s
+   * `splitInCardAnalytics`) and on import, mirroring what pasting an
+   * analytic into a card already does.
+   *
+   * The strict-order schema (`tag undertag* cite_paragraph? card_body*`)
    * was loosened so editing operations can insert a card_body in any
    * position after the tag — e.g., Enter at end of tag drops a new
    * body directly under the tag, above any pre-existing cite/body.
-   * Importer still produces the strict order for documents loaded
-   * from .docx; round-trip is a no-op (the strict ordering is just one
-   * legal ordering among many).
    *
    * Undertags belong to the tag they follow — they don't mark a card
    * boundary.
@@ -341,7 +346,7 @@ export const nodes: { [name: string]: NodeSpec } = {
     // cite (or anywhere else inside a card) creates a normal body
     // paragraph — never an undertag. Undertag styling is reserved for
     // text the user explicitly opts into.
-    content: 'tag (card_body | undertag | cite_paragraph | analytic | table)*',
+    content: 'tag (card_body | undertag | cite_paragraph | table)*',
     defining: true,
     isolating: true,
     parseDOM: [{ tag: 'div.pmd-card' }],

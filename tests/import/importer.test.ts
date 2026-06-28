@@ -318,18 +318,23 @@ describe('importer — card grouping', () => {
     expect(card.child(3).type.name).toBe('card_body');
   });
 
-  it('handles in-card analytic between tag and body', () => {
+  it('an analytic under a tag ends the card and starts its own analytic_unit', () => {
     const xml = bodyXml(`
       <w:p><w:pPr><w:pStyle w:val="Heading4"/></w:pPr><w:r><w:t>Tag</w:t></w:r></w:p>
       <w:p><w:pPr><w:pStyle w:val="Analytic"/></w:pPr><w:r><w:t>An analytic</w:t></w:r></w:p>
       <w:p><w:r><w:t>Body</w:t></w:r></w:p>
     `);
     const doc = importDoc(xml);
-    expect(doc.firstChild!.type.name).toBe('card');
-    const card = doc.firstChild!;
+    expect(doc.childCount).toBe(2);
+    const card = doc.child(0);
+    expect(card.type.name).toBe('card');
+    expect(card.childCount).toBe(1);
     expect(card.child(0).type.name).toBe('tag');
-    expect(card.child(1).type.name).toBe('analytic');
-    expect(card.child(2).type.name).toBe('card_body');
+    const unit = doc.child(1);
+    expect(unit.type.name).toBe('analytic_unit');
+    expect(unit.child(0).type.name).toBe('analytic');
+    expect(unit.child(1).type.name).toBe('card_body');
+    expect(unit.child(1).textContent).toBe('Body');
   });
 
   it('absorbs a table that follows a tag into the card', () => {

@@ -83,18 +83,6 @@ describe('transformForExport — strip analytics', () => {
     expect(out.childCount).toBe(1);
     expect(out.firstChild!.type.name).toBe('card');
   });
-
-  it('drops in-card analytic paragraphs but keeps the card', () => {
-    const doc = makeDoc(
-      card(tag('T'), analytic('A in card'), cardBody(txt('body'))),
-    );
-    const out = transformForExport(doc, { ...ALL_ON, includeAnalytics: false });
-    const c = out.firstChild!;
-    expect(c.type.name).toBe('card');
-    expect(c.childCount).toBe(2);
-    expect(c.child(0).type.name).toBe('tag');
-    expect(c.child(1).type.name).toBe('card_body');
-  });
 });
 
 describe('transformForExport — strip undertags', () => {
@@ -175,16 +163,6 @@ describe('transformForExport — read mode', () => {
     const c = out.firstChild!;
     expect(c.childCount).toBe(1);
     expect(c.child(0).type.name).toBe('tag');
-  });
-
-  it('keeps in-card analytics whole even when they have no highlight', () => {
-    const doc = makeDoc(card(tag('T'), analytic('analytic copy'), cardBody(txt('plain'))));
-    const out = transformForExport(doc, RM);
-    const c = out.firstChild!;
-    expect(c.childCount).toBe(2);
-    expect(c.child(0).type.name).toBe('tag');
-    expect(c.child(1).type.name).toBe('analytic');
-    expect(c.child(1).textContent).toBe('analytic copy');
   });
 
   it('keeps standalone analytic_units; their bodies filter to highlighted text', () => {

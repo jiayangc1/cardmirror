@@ -16,6 +16,14 @@ see `DETAILED_CHANGELOG.md`.
   content into the card with its structure intact. Pasting a tag, analytic,
   heading, or whole card over a selection still starts a new card, as before.
 
+- **Analytics no longer sit inside cards.** An analytic that ended up tucked
+  inside a card — from an older document, or a Word file where an analytic line
+  was placed under a tag — now becomes its own analytic unit (taking the content
+  below it with it), exactly as pasting an analytic into a card already does.
+  This removes a class of glitches where editing around such an analytic (e.g.
+  backspacing at its start) could fold it into the tag or scramble the card.
+  Existing files are repaired automatically when opened.
+
 ## 0.1.0-beta.2 — 2026-06-25
 
 ### Added
