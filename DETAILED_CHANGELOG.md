@@ -141,6 +141,16 @@ in each release, see `CHANGELOG.md`.
   card, table doesn't break the zone, table after an analytic_unit, and the live
   plugin path.
 
+- **`liftSurvivorToDocLevel` downcasts a lifted `card_body` to `paragraph`**
+  (`editor/tag-keymap.ts`, `tests/editor/tag-keymap.test.ts`). When a blank-tag
+  card is dissolved (Backspace/Delete at the blank head) and its survivors lift
+  to doc level with no card before them, a `card_body` was lifted unchanged,
+  leaving card-body-styled text orphaned at the doc root. It now downcasts to a
+  plain `paragraph`. `cite_paragraph` / `undertag` are valid, meaningful
+  doc-level nodes and pass through unchanged (deliberately *not* matching
+  `liftCardChild`, which downcasts cites — here there's no reason to strip the
+  cite typing); `analytic` is still wrapped in an `analytic_unit`.
+
 ## 0.1.0-beta.2 — 2026-06-25
 
 - **Rebindable single-press doc-cycle commands for three-pane mode**

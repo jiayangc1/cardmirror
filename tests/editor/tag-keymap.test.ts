@@ -272,9 +272,10 @@ describe('backspaceAtTagStart', () => {
     const state = stateWithCursor(doc, findTagStart(doc));
     const next = apply(state, backspaceAtTagStart);
     expect(next).not.toBe(null);
-    // Empty tag and its card wrapper are gone; body lifts to doc level.
+    // Empty tag and its card wrapper are gone; body lifts to doc level and
+    // downcasts to a plain paragraph (no card_body styling outside a card).
     expect(next!.doc.childCount).toBe(1);
-    expect(next!.doc.child(0).type.name).toBe('card_body');
+    expect(next!.doc.child(0).type.name).toBe('paragraph');
     expect(next!.doc.child(0).textContent).toBe('body');
   });
 
@@ -401,7 +402,8 @@ describe('deleteAtTagEnd', () => {
     const next = apply(state, deleteAtTagEnd);
     expect(next).not.toBe(null);
     expect(next!.doc.childCount).toBe(1);
-    expect(next!.doc.child(0).type.name).toBe('card_body');
+    // Body lifts to doc level and downcasts to a plain paragraph.
+    expect(next!.doc.child(0).type.name).toBe('paragraph');
     expect(next!.doc.child(0).textContent).toBe('body');
   });
 
@@ -919,7 +921,8 @@ describe('backspaceAtFirstBodyStart', () => {
     const state = stateWithCursor(doc, startOfFirstBody(doc));
     const next = apply(state, backspaceAtFirstBodyStart);
     expect(next).not.toBe(null);
-    // Empty tag + its card wrapper gone; the cite_paragraph lifted to doc level.
+    // Empty tag + its card wrapper gone; the cite_paragraph lifts to doc level
+    // and stays a cite_paragraph (a valid, meaningful doc-level node).
     expect(next!.doc.childCount).toBe(1);
     expect(next!.doc.firstChild!.type.name).toBe('cite_paragraph');
     expect(next!.doc.firstChild!.textContent).toBe('Author 24');
@@ -1030,5 +1033,37 @@ describe('backspaceAtFirstBodyStart', () => {
     expect(types).toEqual(['tag', 'card_body']);
     expect(card.child(1).textContent).toBe('keep me');
     expect(next!.selection.$from.parent.type.name).toBe('tag');
+  });
+});
+
+describe('empty-head merge — lifting survivors to doc level (M3)', () => {
+  it('downcasts a lifted card_body to a paragraph (not card-body styling at doc level)', () => {
+    // Blank-tag card after a loose paragraph; Backspace at the tag start
+    // dissolves the card and lifts its body out. The body must become a plain
+    // paragraph, not a card_body floating at doc level.
+    const doc = makeDoc([
+      paragraph('preface'),
+      cardWith(tag(''), schema.nodes['card_body']!.create(null, schema.text('body text'))),
+    ]);
+    const state = stateWithCursor(doc, findTagStart(doc, 0));
+    const next = apply(state, backspaceAtTagStart);
+    expect(next).not.toBeNull();
+    const types: string[] = [];
+    next!.doc.forEach((c) => types.push(c.type.name));
+    expect(types).toEqual(['paragraph', 'paragraph']);
+    expect(next!.doc.child(1).type.name).toBe('paragraph');
+    expect(next!.doc.child(1).textContent).toBe('body text');
+  });
+
+  it('leaves a lifted cite_paragraph as a cite_paragraph (valid doc-level node)', () => {
+    const doc = makeDoc([
+      paragraph('preface'),
+      cardWith(tag(''), schema.nodes['cite_paragraph']!.create(null, schema.text('a cite'))),
+    ]);
+    const state = stateWithCursor(doc, findTagStart(doc, 0));
+    const next = apply(state, backspaceAtTagStart);
+    expect(next).not.toBeNull();
+    expect(next!.doc.child(1).type.name).toBe('cite_paragraph');
+    expect(next!.doc.child(1).textContent).toBe('a cite');
   });
 });

@@ -387,9 +387,17 @@ function toAnalyticUnitChild(child: PMNode): PMNode {
   return schema.nodes['card_body']!.create(null, child.content);
 }
 
-/** Coerce a card child to a node valid at doc level. */
+/** Coerce a card child to a node valid at doc level. A `card_body` downcasts to
+ *  a plain `paragraph` — left as-is it would render with card-body styling but
+ *  belong to no card. `cite_paragraph` / `undertag` are meaningful, valid
+ *  doc-level nodes and pass through unchanged; an `analytic` must be wrapped in
+ *  an `analytic_unit`. */
 function liftSurvivorToDocLevel(child: PMNode): PMNode {
-  if (child.type.name === 'analytic') {
+  const t = child.type.name;
+  if (t === 'card_body') {
+    return schema.nodes['paragraph']!.create(null, child.content);
+  }
+  if (t === 'analytic') {
     return schema.nodes['analytic_unit']!.create(null, [child]);
   }
   return child;

@@ -56,6 +56,12 @@ see `DETAILED_CHANGELOG.md`.
   after it stranded outside. Tables are now pulled into the card along with the
   rest, so the card covers the whole thing.
 
+- **Dissolving a blank-tag card no longer leaves card-body-styled text loose.**
+  In the edge case where a card with an empty tag is removed (Backspace at the
+  start of the blank tag) and its body moves out to the document, the body now
+  becomes a normal paragraph instead of keeping card-body styling with no card
+  around it. (A cite stays a cite — it's a valid loose node.)
+
 ## 0.1.0-beta.2 — 2026-06-25
 
 ### Added
