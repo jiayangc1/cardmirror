@@ -34,6 +34,12 @@ see `DETAILED_CHANGELOG.md`.
   matches how sending to the dropzone, a starred recipient, or the speech doc
   already works.
 
+- **Deleting a quick card now uses a two-click confirm instead of a popup.** The
+  Delete buttons in the Quick Cards manager (both per-card and bulk) arm on the
+  first click ("Delete?") and delete on a second click within a few seconds —
+  matching the flashcard manager, and replacing a confirmation dialog that didn't
+  fire reliably in the desktop app.
+
 ### Fixed
 
 - **Pasting over a selection inside a card no longer breaks the card.** Pasting a

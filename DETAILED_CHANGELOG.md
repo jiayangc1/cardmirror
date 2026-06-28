@@ -7,6 +7,16 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Quick-card delete: two-click confirm replacing native `confirm()`**
+  (`editor/quick-cards-manage-ui.ts`, `editor/style.css`). Added a `confirmButton`
+  helper mirroring the learn manager's two-click arm pattern (first click →
+  `"<label>?"` + `.is-armed`; a second click within 3s runs the action, else it
+  disarms). Both delete buttons — per-card (detail footer) and bulk (selection
+  bar) — now use it, and the native `confirm()` was removed from `deleteCard` /
+  `deleteChecked` (native confirm is disabled in Electron, so the delete
+  confirmation was unreliable there). Added a `.pmd-qc-manage-danger.is-armed`
+  rule (solid danger fill) matching the learn armed style.
+
 - **Quick-card creation routed through `takeSendSlice`** (`editor/index.ts`).
   `runAddQuickCard` previously took a raw `doc.slice(selection.from, selection.to)`
   after only a non-empty-selection check, so a partial/arbitrary selection

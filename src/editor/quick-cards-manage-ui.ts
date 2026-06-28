@@ -241,7 +241,7 @@ class QuickCardsManageUI {
       button('Export', () =>
         void this.doExport(this.cards.filter((c) => this.checked.has(c.id))),
       ),
-      button('Delete', () => void this.deleteChecked(), 'pmd-qc-manage-danger'),
+      confirmButton('Delete', () => void this.deleteChecked(), 'pmd-qc-manage-danger'),
     );
   }
 
@@ -440,7 +440,7 @@ class QuickCardsManageUI {
     const footer = document.createElement('div');
     footer.className = 'pmd-qc-manage-detail-footer';
     footer.append(
-      button('Delete', () => void this.deleteCard(card), 'pmd-qc-manage-danger'),
+      confirmButton('Delete', () => void this.deleteCard(card), 'pmd-qc-manage-danger'),
       button('Save', () => void this.saveCard(card), 'pmd-qc-manage-primary'),
     );
     this.detailEl.appendChild(footer);
@@ -516,7 +516,7 @@ class QuickCardsManageUI {
   }
 
   private async deleteCard(card: QuickCard): Promise<void> {
-    if (!confirm(`Delete quick card “${card.name}”? This can't be undone.`)) return;
+    // Confirmation is the Delete button's two-click arm (see confirmButton).
     this.contentDirty = false; // skip the dirty guard during re-render
     this.draftName = card.name;
     this.draftTags = [...card.tags];
@@ -527,9 +527,7 @@ class QuickCardsManageUI {
   private async deleteChecked(): Promise<void> {
     const n = this.checked.size;
     if (n === 0) return;
-    if (!confirm(`Delete ${n} quick card${n === 1 ? '' : 's'}? This can't be undone.`)) {
-      return;
-    }
+    // Confirmation is the Delete button's two-click arm (see confirmButton).
     const ids = [...this.checked];
     this.checked.clear();
     // Drop the dirty guard if the open card is among the deleted.
@@ -605,6 +603,41 @@ function button(label: string, onClick: () => void, extraClass = ''): HTMLButton
   b.className = `pmd-qc-manage-btn ${extraClass}`.trim();
   b.textContent = label;
   b.addEventListener('click', onClick);
+  return b;
+}
+
+/** A two-click confirm button: the first click arms it (label → "<label>?"),
+ *  a second click within 3s runs `onConfirm`; otherwise it disarms. Mirrors the
+ *  learn manager's two-click delete — avoids the native confirm(), which
+ *  Electron disables. */
+function confirmButton(
+  label: string,
+  onConfirm: () => void,
+  extraClass = '',
+): HTMLButtonElement {
+  const b = button(label, () => {}, extraClass);
+  let armed = false;
+  let armTimer: number | null = null;
+  const disarm = (): void => {
+    armed = false;
+    b.textContent = label;
+    b.classList.remove('is-armed');
+    if (armTimer !== null) {
+      window.clearTimeout(armTimer);
+      armTimer = null;
+    }
+  };
+  b.addEventListener('click', () => {
+    if (!armed) {
+      armed = true;
+      b.textContent = `${label}?`;
+      b.classList.add('is-armed');
+      armTimer = window.setTimeout(disarm, 3000);
+      return;
+    }
+    disarm();
+    onConfirm();
+  });
   return b;
 }
 

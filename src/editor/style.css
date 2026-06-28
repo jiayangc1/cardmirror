@@ -7976,6 +7976,13 @@ body.pmd-recovery-active.pmd-multi-doc #app {
 }
 .pmd-qc-manage-primary:hover { background: var(--pmd-c-accent-hover); }
 .pmd-qc-manage-danger { color: var(--pmd-c-danger, #c0392b); }
+/* Armed state of the two-click delete (confirmButton): solid danger fill,
+   mirroring the learn manager's armed Delete. */
+.pmd-qc-manage-danger.is-armed {
+  color: var(--pmd-c-text-on-accent);
+  background: var(--pmd-c-danger, #c0392b);
+  border-color: var(--pmd-c-danger, #c0392b);
+}
 .pmd-qc-manage-empty {
   color: var(--pmd-c-text-muted);
   font-size: 0.85rem;
