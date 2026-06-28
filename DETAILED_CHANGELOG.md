@@ -60,12 +60,16 @@ in each release, see `CHANGELOG.md`.
   split the enclosing card to fit it, spawning a phantom blank-tag (`id: null`)
   card for the orphaned tail. New `nearestValidInsertPos(doc, pos, content)`
   mirrors drag-and-drop, where what counts as a drop target depends on what's
-  being dropped: it walks outward from the caret to the innermost ancestor that
-  legally accepts `content` (via `Node.canReplace`) and snaps to the nearer
-  surrounding gap there. So inline text stays at the caret, card content (a
-  cite / body / undertag / table) drops INSIDE the enclosing card, and a whole
-  card / heading drops at a doc-level gap — none of them split the card the caret
-  is in. `dropzone-ui`'s `insertItem` and `speech-doc-send`'s `insertSpeechSlice`
+  being dropped. Inline text stays at the caret and card content (a cite / body /
+  undertag / table) drops INSIDE the enclosing card — both found by walking
+  outward to the innermost ancestor that accepts `content` (via
+  `Node.canReplace`) and snapping to the nearer surrounding gap. A doc-level
+  structural object (`card` / `analytic_unit` / `pocket` / `hat` / `block`)
+  instead snaps to the nearest OUTLINE slot for its level, reusing the drag
+  surface's own logic (`collectHeadings` + `headingInsertPos` + the same
+  `entry.level <= draggedLevel` filter, plus the doc-end slot): a card lands
+  between cards, a block between blocks, a hat between hats. None of them split
+  the card the caret is in. `dropzone-ui`'s `insertItem` and `speech-doc-send`'s `insertSpeechSlice`
   pass the slice's content to it for a non-blank collapsed caret (an empty
   placeholder line is still filled in place; a range selection still inserts at
   its start). The `insertSpeechSlice` mid-text `window.confirm` and the

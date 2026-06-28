@@ -15,6 +15,7 @@ const tag = (t: string) => schema.nodes['tag']!.create({ id: newHeadingId() }, s
 const body = (t: string) => schema.nodes['card_body']!.create(null, t ? schema.text(t) : []);
 const cite = (t: string) => schema.nodes['cite_paragraph']!.create(null, t ? schema.text(t) : []);
 const para = (t: string) => schema.nodes['paragraph']!.create(null, t ? schema.text(t) : []);
+const block = (t: string) => schema.nodes['block']!.create({ id: newHeadingId() }, schema.text(t));
 const card = (...k: PMNode[]) => schema.nodes['card']!.create(null, Fragment.fromArray(k));
 const makeDoc = (...k: PMNode[]) => schema.nodes['doc']!.create(null, Fragment.fromArray(k));
 
@@ -119,5 +120,35 @@ describe('nearestValidInsertPos — content-aware snapping', () => {
     const st = EditorState.create({ doc });
     const after = st.apply(st.tr.insert(caret, card(tag('NEW'), body('n')))).doc;
     expect(nullIdTags(after)).toBeGreaterThan(0);
+  });
+});
+
+// Doc-level structural objects snap to OUTLINE slots for their level, exactly
+// like the drag surface: a card lands between cards, a block between blocks.
+describe('nearestValidInsertPos — outline-level snapping for doc-level objects', () => {
+  // block B1 { card A, card B }  block B2 { card C }
+  const b1 = block('B1');
+  const cA = card(tag('A'), body('aaa'));
+  const cB = card(tag('B'), body('bbb'));
+  const b2 = block('B2');
+  const cC = card(tag('C'), body('ccc'));
+  const doc = makeDoc(b1, cA, cB, b2, cC);
+  const posB1 = 0;
+  const posCA = b1.nodeSize; // before card A (a tag-level-only slot)
+  const posCB = posCA + cA.nodeSize; // before card B (a tag-level-only slot)
+  const posB2 = posCB + cB.nodeSize; // before block B2 (a block-level slot)
+  const docEnd = doc.content.size;
+  const caretInA = findText(doc, 'aaa', 3); // end of card A's body, under block B1
+
+  it('a block snaps to a block-level slot, never between two cards', () => {
+    const snap = nearestValidInsertPos(doc, caretInA, Fragment.from(block('NEW')));
+    expect([posB1, posB2, docEnd]).toContain(snap);
+    expect(snap).not.toBe(posCA);
+    expect(snap).not.toBe(posCB);
+  });
+
+  it('a card at the same caret DOES snap between cards (tag-level slot)', () => {
+    const snap = nearestValidInsertPos(doc, caretInA, Fragment.from(card(tag('N'), body('n'))));
+    expect(snap).toBe(posCB); // between card A and card B — a slot the block could not use
   });
 });
