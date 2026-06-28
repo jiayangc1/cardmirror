@@ -52,6 +52,7 @@ import { lockHighlighting } from './create-reference.js';
 import { showToast } from './toast.js';
 import { getElectronHost, getHost } from './host/index.js';
 import { classifyChar, isWordChar } from './word-break.js';
+import { settings } from './settings.js';
 import {
   selectSimilar,
   getOperatingRanges,
@@ -1260,22 +1261,49 @@ export function highlightAcronym(activeColor: () => string): Command {
 }
 
 /**
- * Word-to-word gap regex (Verbatim's FixFormattingGaps, widened): a left
- * bookend (one word char incl. straight/curly quotes) + 1+ gap chars +
- * a lookahead at the right bookend. The lookahead keeps `/g`'s lastIndex
- * from eating a single-char interior word that's the right bookend of one
- * gap and the left bookend of the next.
+ * Word-to-word gap matcher (Verbatim's FixFormattingGaps, widened): a left
+ * bookend (one word char incl. straight/curly quotes) + 1+ gap chars + a
+ * lookahead at the right bookend. The lookahead keeps `/g`'s lastIndex from
+ * eating a single-char interior word that's the right bookend of one gap and
+ * the left bookend of the next.
  *
- * Gap chars are a deliberate ALLOWLIST — `. , ; : ? ( ) !` and space. Dashes
- * (hyphen `-`, em-dash `—`, en-dash `–`) and operators like `=` / `+` are NOT
- * in it: they join words (`well-known`, `A—B`, `x=y`), so a dash/operator
- * between two formatted words is a real seam the user chose — never auto-bridged
- * or stripped. Keep `GAP_CHAR_RE` and the duplicate in `fixFormattingGaps` in
- * sync with this class.
+ * The gap-char class is a deliberate ALLOWLIST driven by the `formattingGapClass`
+ * setting: `both` → `. , ; : ? ( ) !` and space; `whitespace` → space only.
+ * Dashes (hyphen `-`, em-dash `—`, en-dash `–`) and operators like `=` / `+` are
+ * never in it under either mode: they join words (`well-known`, `A—B`, `x=y`), so
+ * a dash/operator between two formatted words is a real seam the user chose —
+ * never auto-bridged or stripped. Both the auto-bridge (`withGapFix`) and the
+ * manual `fixFormattingGaps` read the same class via `makeGapRegex` / `isGapChar`.
  */
-const GAP_REGEX = /[A-Za-z0-9'"‘’“”][.,;:?()! ]+(?=[A-Za-z0-9'"‘’“”])/g;
-const GAP_CHAR_RE = /[.,;:?()! ]/;
-/** A gap "bookend" / word character — the class `GAP_REGEX` uses on both
+const GAP_WORD_CLASS = "A-Za-z0-9'\"‘’“”";
+const GAP_CHARS_BOTH = '.,;:?()! ';
+const GAP_CHARS_WHITESPACE = ' ';
+
+/** The active gap-char set, per the `formattingGapClass` setting. */
+function gapCharSet(): string {
+  return settings.get('formattingGapClass') === 'whitespace'
+    ? GAP_CHARS_WHITESPACE
+    : GAP_CHARS_BOTH;
+}
+/** A fresh word-to-word gap regex for the active gap class (own `lastIndex`). */
+function makeGapRegex(): RegExp {
+  return new RegExp(`[${GAP_WORD_CLASS}][${gapCharSet()}]+(?=[${GAP_WORD_CLASS}])`, 'g');
+}
+/** Whether `ch` is a single gap char under the active gap class. */
+function isGapChar(ch: string): boolean {
+  return ch.length === 1 && gapCharSet().includes(ch);
+}
+
+/** Structural textblocks where formatting NEVER bridges across gaps — a tag,
+ *  an analytic, the three heading levels, and undertags. Gaps inside these are
+ *  left exactly as a command set them, in both the auto and manual paths.
+ *  Judged per-textblock, so a selection spanning a structural block and a body
+ *  paragraph still bridges within the body paragraph. */
+const STRUCTURAL_NO_BRIDGE = new Set<string>([
+  'tag', 'analytic', 'pocket', 'hat', 'block', 'undertag',
+]);
+
+/** A gap "bookend" / word character — the class the gap regex uses on both
  *  sides of a gap. A changed range with NONE of these is pure gap content
  *  (whitespace and/or punctuation) the user selected deliberately. */
 const WORD_CHAR_RE = /[A-Za-z0-9'"‘’“”]/;
@@ -1301,6 +1329,9 @@ function forEachGap(
 ): void {
   doc.nodesBetween(from, to, (node, pos) => {
     if (!node.isTextblock) return true;
+    // Structural paragraphs never bridge — per-textblock, so a mixed selection
+    // still bridges in its body paragraphs.
+    if (STRUCTURAL_NO_BRIDGE.has(node.type.name)) return false;
     const tbFrom = Math.max(from, pos + 1);
     const tbTo = Math.min(to, pos + node.nodeSize - 1);
     if (tbFrom >= tbTo) return false;
@@ -1324,9 +1355,9 @@ function forEachGap(
       }
       inlineOffset += child.nodeSize;
     });
-    GAP_REGEX.lastIndex = 0;
+    const gapRegex = makeGapRegex();
     let m: RegExpExecArray | null;
-    while ((m = GAP_REGEX.exec(text)) !== null) {
+    while ((m = gapRegex.exec(text)) !== null) {
       const firstBookendIdx = m.index;
       const gapStartIdx = firstBookendIdx + 1;
       const gapEndIdx = firstBookendIdx + m[0].length - 1;
@@ -1355,7 +1386,7 @@ function expandToAdjacentBookends(
 ): { from: number; to: number } {
   const isGap = (pos: number): boolean => {
     const ch = doc.textBetween(pos, pos + 1);
-    return ch.length === 1 && GAP_CHAR_RE.test(ch);
+    return isGapChar(ch);
   };
   const tbStart = doc.resolve(from).start();
   let eFrom = from;
@@ -1582,6 +1613,12 @@ function withGapFix(
     const result = command(state, (tr) => { captured = tr; }, view);
     const tr = captured as Transaction | null;
     if (!tr) return result;
+    // The auto-bridge is opt-out: when off, run the command unchanged. The
+    // manual Fix Formatting Gaps command is unaffected (it never calls this).
+    if (!settings.get('autoBridgeFormattingGaps')) {
+      dispatch(tr);
+      return result;
+    }
     for (const r of opRanges) {
       // When the user formatted ONLY gap content — whitespace, punctuation,
       // or a punctuation/whitespace mix, i.e. no actual word character —
@@ -3477,7 +3514,8 @@ export function fixFormattingGaps(
     // (not a bookend char). With the lookahead, the consumed match
     // is "...d " only; the next iteration can start at "a" and
     // match "a " for the second gap.
-    const gapRegex = /[A-Za-z0-9'"‘’“”][.,;:?()! ]+(?=[A-Za-z0-9'"‘’“”])/g;
+    // Shared, setting-driven gap class (see `makeGapRegex` / `formattingGapClass`).
+    const gapRegex = makeGapRegex();
 
     type Add = {
       from: number;
@@ -3489,6 +3527,8 @@ export function fixFormattingGaps(
 
     state.doc.nodesBetween(from, to, (node, pos) => {
       if (!node.isTextblock) return true;
+      // Structural paragraphs never bridge (per-textblock — see STRUCTURAL_NO_BRIDGE).
+      if (STRUCTURAL_NO_BRIDGE.has(node.type.name)) return false;
       const tbFrom = Math.max(from, pos + 1);
       const tbTo = Math.min(to, pos + node.nodeSize - 1);
       if (tbFrom >= tbTo) return false;

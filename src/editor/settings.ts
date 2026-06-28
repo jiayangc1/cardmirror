@@ -713,6 +713,14 @@ export interface Settings {
    * `usePilcrows` / `headingMode`).
    */
   condenseOnPaste: boolean;
+  /** Which gaps the formatting-gap bridge treats as bridgeable: 'both'
+   *  (whitespace and punctuation) or 'whitespace' (whitespace only). Feeds both
+   *  the auto-bridge and the manual Fix Formatting Gaps command. */
+  formattingGapClass: FormattingGapClass;
+  /** When on (default), applying a formatting mark auto-bridges the gaps at the
+   *  edges of what changed to an adjacent same-formatted word. Off disables only
+   *  the auto-bridge — the manual Fix Formatting Gaps command still runs. */
+  autoBridgeFormattingGaps: boolean;
   /**
    * When true, removing a named-style mark (F8 Emphasis / F9 Underline /
    * F10 Cite) via the apply key ALSO strips direct formatting (font
@@ -986,6 +994,10 @@ export interface ShrinkProtection {
 export type HeadingMode = 'strict' | 'respect' | 'demolish';
 const HEADING_MODES: HeadingMode[] = ['strict', 'respect', 'demolish'];
 
+/** Which gaps the formatting-gap bridge treats as bridgeable. */
+export type FormattingGapClass = 'both' | 'whitespace';
+const FORMATTING_GAP_CLASSES: FormattingGapClass[] = ['both', 'whitespace'];
+
 export type FormattingPanelMode = 'labels' | 'shortcuts' | 'both' | 'hidden';
 const FORMATTING_PANEL_MODES: FormattingPanelMode[] = ['labels', 'shortcuts', 'both', 'hidden'];
 
@@ -1090,6 +1102,8 @@ const DEFAULTS: Settings = {
   extractUndertagInQuotes: false,
   headingMode: 'respect',
   condenseOnPaste: false,
+  formattingGapClass: 'both',
+  autoBridgeFormattingGaps: true,
   clearFormattingOnNamedStyleToggleOff: true,
   forReferenceUseGray50: false,
   shrinkRestoresOmissionsToNormal: false,
@@ -1209,6 +1223,7 @@ export interface SettingMeta {
     | 'fileSearchOutlineDepth'
     | 'speechDocFormat'
     | 'saveFormat'
+    | 'formattingGapClass'
     | 'sendDocDestination'
     | 'findCategoryOrder'
     | 'color'
@@ -1807,6 +1822,23 @@ export const SETTING_METADATA: SettingMeta[] = [
     description:
       'When on, text that you paste will be condensed using your default "condense" settings.',
     kind: 'toggle',
+    category: 'editing',
+  },
+
+  {
+    key: 'autoBridgeFormattingGaps',
+    label: 'Bridge formatting across gaps automatically',
+    description:
+      'When on, applying highlight / underline / etc. next to an already-formatted word extends it across the small gap between them. Off disables this automatic bridging; the manual "Fix Formatting Gaps" command still works.',
+    kind: 'toggle',
+    category: 'editing',
+  },
+  {
+    key: 'formattingGapClass',
+    label: 'Bridge formatting across',
+    description:
+      'Which gaps between two formatted words get bridged — both the automatic bridge and the manual "Fix Formatting Gaps" command.',
+    kind: 'formattingGapClass',
     category: 'editing',
   },
 
@@ -2442,6 +2474,15 @@ function sanitize(s: Settings): Settings {
       s.condenseOnPaste === undefined
         ? DEFAULTS.condenseOnPaste
         : !!s.condenseOnPaste,
+    formattingGapClass: FORMATTING_GAP_CLASSES.includes(
+      s.formattingGapClass as FormattingGapClass,
+    )
+      ? (s.formattingGapClass as FormattingGapClass)
+      : DEFAULTS.formattingGapClass,
+    autoBridgeFormattingGaps:
+      s.autoBridgeFormattingGaps === undefined
+        ? DEFAULTS.autoBridgeFormattingGaps
+        : !!s.autoBridgeFormattingGaps,
     clearFormattingOnNamedStyleToggleOff:
       s.clearFormattingOnNamedStyleToggleOff === undefined
         ? DEFAULTS.clearFormattingOnNamedStyleToggleOff

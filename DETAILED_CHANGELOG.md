@@ -7,6 +7,26 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Formatting-gap bridging: structural-paragraph exemption + two settings**
+  (`editor/ribbon-commands.ts`, `editor/settings.ts`, `editor/settings-ui.ts`,
+  `tests/editor/formatting-gaps.test.ts`). The gap-fill/bookend bridge — both the
+  per-apply `withGapFix` wrapper (8 formatting commands) and the manual
+  `fixFormattingGaps` command — now: (1) **skips structural textblocks**
+  (`STRUCTURAL_NO_BRIDGE` = tag / analytic / pocket / hat / block / undertag),
+  gated **per-textblock** inside `forEachGap` and the manual walk, so a selection
+  spanning a structural block and a body paragraph still bridges the body
+  paragraph (bridges never cross a paragraph break, so the boundary is never a
+  gap); and (2) reads two new **Editing** settings. `formattingGapClass`
+  (`'both'` default / `'whitespace'`) drives the gap-char class — `both` →
+  `[.,;:?()! ]`, `whitespace` → `[ ]` — consumed by both paths via the
+  consolidated `gapCharSet`/`makeGapRegex`/`isGapChar` helpers (this also removes
+  the duplicated gap regex that lived in `fixFormattingGaps`). `autoBridgeFormatting`
+  Gaps (default true) short-circuits only `withGapFix`; the manual command ignores
+  it. UI: a toggle plus a two-option radio labeled "Whitespace and punctuation" /
+  "Whitespace only" (`buildFormattingGapClassEditor`, modeled on the saveFormat
+  radio). Two existing tests that asserted in-tag bridging were updated to the new
+  no-bridge behavior; added per-textblock, gap-class, and auto-toggle coverage.
+
 - **Pasting card content over a range selection no longer breaks the card**
   (`editor/paste-plugin.ts`, `tests/editor/paste-cite-tag-disconnect.test.ts`).
   `tryPasteCardContent` previously bailed on any non-collapsed selection

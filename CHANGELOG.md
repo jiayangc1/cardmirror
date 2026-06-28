@@ -7,6 +7,18 @@ see `DETAILED_CHANGELOG.md`.
 
 ## Unreleased
 
+### Added
+
+- **Controls for formatting-gap bridging.** When you format a word next to an
+  already-formatted word, the editor bridges the small gap between them so the
+  styling is continuous. Two new Editing settings govern this: a toggle to turn
+  the automatic bridging on or off (the manual "Fix Formatting Gaps" command is
+  unaffected), and a choice of which gaps get bridged — **whitespace and
+  punctuation** (default) or **whitespace only**. Bridging also no longer happens
+  inside structural paragraphs (tags, analytics, headings, undertags) — only in
+  body text — so a selection spanning both bridges in its body paragraphs and
+  leaves its structural lines alone.
+
 ### Fixed
 
 - **Pasting over a selection inside a card no longer breaks the card.** Pasting a

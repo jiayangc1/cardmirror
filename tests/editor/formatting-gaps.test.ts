@@ -9,7 +9,7 @@
  * per location).
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { EditorState, TextSelection } from 'prosemirror-state';
 import type { Command } from 'prosemirror-state';
 import type { Mark, Node as PMNode } from 'prosemirror-model';
@@ -22,6 +22,7 @@ import {
   setFontSize,
   fixFormattingGaps,
 } from '../../src/editor/ribbon-commands.js';
+import { settings } from '../../src/editor/settings.js';
 
 // ---- builders ----
 
@@ -96,11 +97,14 @@ describe('withGapFix — bridging on apply', () => {
     expect(mask(next.doc, 'underline_mark')).toBe('      ____      ');
   });
 
-  it('bridges underline_direct inside a tag (structural block)', () => {
+  it('does NOT bridge inside a tag (structural — bridging off)', () => {
+    // "alpha"[UD] + a plain " beta " + "gamma"[UD]. In a body paragraph,
+    // underlining "beta" would bridge both gaps; inside a tag (structural) the
+    // flanking spaces must stay plain.
     const tagNode = schema.nodes['tag']!.create({ id: newHeadingId() }, [
-      schema.text('alpha ', [UD()]),
-      schema.text('beta'),
-      schema.text(' gamma', [UD()]),
+      schema.text('alpha', [UD()]),
+      schema.text(' beta '),
+      schema.text('gamma', [UD()]),
     ]);
     const doc = schema.nodes['doc']!.createChecked(null, [
       schema.nodes['card']!.createChecked(null, [tagNode]),
@@ -108,14 +112,14 @@ describe('withGapFix — bridging on apply', () => {
     let state = EditorState.create({ doc });
     let bpos = -1;
     doc.descendants((n, p) => {
-      if (n.isText && n.text === 'beta') bpos = p;
+      if (n.isText && n.text === ' beta ') bpos = p + 1; // skip the leading space
       return true;
     });
     state = state.apply(
       state.tr.setSelection(TextSelection.create(state.doc, bpos, bpos + 4)),
     );
     const next = apply(state, applyUnderline(() => false));
-    expect(mask(next.doc, 'underline_direct')).toBe('________________');
+    expect(mask(next.doc, 'underline_direct')).toBe('_____ ____ _____');
   });
 });
 
@@ -350,8 +354,8 @@ describe('withGapFix — font size', () => {
 
 // ---- manual Fix Formatting Gaps ----
 
-describe('fixFormattingGaps (manual) — underline_direct in tags', () => {
-  it('bridges direct underline across gaps inside a tag', () => {
+describe('fixFormattingGaps (manual) — structural skip + body bridging', () => {
+  it('does NOT bridge across a gap inside a tag (structural skip)', () => {
     const tagNode = schema.nodes['tag']!.create({ id: newHeadingId() }, [
       schema.text('alpha', [UD()]),
       schema.text(' '),
@@ -362,7 +366,77 @@ describe('fixFormattingGaps (manual) — underline_direct in tags', () => {
     ]);
     const state = EditorState.create({ doc }); // empty selection → whole doc
     const next = apply(state, fixFormattingGaps(() => 11));
-    expect(mask(next.doc, 'underline_direct')).toBe('__________'); // "alpha beta"
+    expect(mask(next.doc, 'underline_direct')).toBe('_____ ____'); // gap NOT bridged
+  });
+
+  it('still bridges across a gap in a body paragraph', () => {
+    const doc = docOf(['alpha', [U()]], [' '], ['beta', [U()]]);
+    const state = EditorState.create({ doc });
+    const next = apply(state, fixFormattingGaps(() => 11));
+    expect(mask(next.doc, 'underline_mark')).toBe('__________'); // bridged
+  });
+
+  it('in one pass: bridges the card body but leaves the tag gap (per-textblock)', () => {
+    const tagNode = schema.nodes['tag']!.create({ id: newHeadingId() }, [
+      schema.text('alpha', [UD()]),
+      schema.text(' '),
+      schema.text('beta', [UD()]),
+    ]);
+    const body = schema.nodes['card_body']!.create(null, [
+      schema.text('gamma', [U()]),
+      schema.text(' '),
+      schema.text('delta', [U()]),
+    ]);
+    const doc = schema.nodes['doc']!.createChecked(null, [
+      schema.nodes['card']!.createChecked(null, [tagNode, body]),
+    ]);
+    const next = apply(EditorState.create({ doc }), fixFormattingGaps(() => 11));
+    // tag (10 chars) gap stays plain; body (11 chars) has no direct underline.
+    expect(mask(next.doc, 'underline_direct')).toBe('_____ ____' + ' '.repeat(11));
+    // body bridged; tag has no underline_mark.
+    expect(mask(next.doc, 'underline_mark')).toBe(' '.repeat(10) + '___________');
+  });
+});
+
+describe('formattingGapClass / autoBridgeFormattingGaps settings', () => {
+  afterEach(() => {
+    settings.set('formattingGapClass', 'both');
+    settings.set('autoBridgeFormattingGaps', true);
+  });
+
+  it("'both' (default) bridges a punctuation+space gap", () => {
+    const doc = docOf(['alpha,', [U()]], [' beta']);
+    const next = run(doc, 'beta', applyUnderline(() => false));
+    expect(mask(next.doc, 'underline_mark')).toBe('___________'); // "alpha, beta"
+  });
+
+  it("'whitespace' does NOT bridge a gap containing punctuation", () => {
+    settings.set('formattingGapClass', 'whitespace');
+    const doc = docOf(['alpha,', [U()]], [' beta']);
+    const next = run(doc, 'beta', applyUnderline(() => false));
+    expect(mask(next.doc, 'underline_mark')).toBe('______ ____'); // comma gap stays
+  });
+
+  it("'whitespace' still bridges a pure-whitespace gap", () => {
+    settings.set('formattingGapClass', 'whitespace');
+    const doc = docOf(['alpha', [U()]], [' beta']);
+    const next = run(doc, 'beta', applyUnderline(() => false));
+    expect(mask(next.doc, 'underline_mark')).toBe('__________'); // "alpha beta"
+  });
+
+  it('auto-bridge OFF skips the auto-bridge on apply', () => {
+    settings.set('autoBridgeFormattingGaps', false);
+    const doc = docOf(['alpha', [U()]], [' beta '], ['gamma', [U()]]);
+    const next = run(doc, 'beta', applyUnderline(() => false));
+    expect(mask(next.doc, 'underline_mark')).toBe('_____ ____ _____'); // not bridged
+  });
+
+  it('auto-bridge OFF does NOT disable the manual Fix Formatting Gaps command', () => {
+    settings.set('autoBridgeFormattingGaps', false);
+    const doc = docOf(['alpha', [U()]], [' '], ['beta', [U()]]);
+    const state = EditorState.create({ doc });
+    const next = apply(state, fixFormattingGaps(() => 11));
+    expect(mask(next.doc, 'underline_mark')).toBe('__________'); // manual still bridges
   });
 });
 

@@ -732,6 +732,10 @@ class SettingsModal {
       row.appendChild(text);
       row.appendChild(buildSaveFormatEditor());
       return row;
+    } else if (meta.kind === 'formattingGapClass') {
+      row.appendChild(text);
+      row.appendChild(buildFormattingGapClassEditor());
+      return row;
     } else if (meta.kind === 'translationConfig') {
       row.appendChild(text);
       row.appendChild(buildTranslationEditor());
@@ -3265,6 +3269,35 @@ function buildSaveFormatEditor(): HTMLElement {
     input.checked = o.value === settings.get('defaultSaveFormat');
     input.addEventListener('change', () => {
       if (input.checked) settings.set('defaultSaveFormat', o.value);
+    });
+    row.appendChild(input);
+    const labelText = document.createElement('span');
+    labelText.className = 'pmd-multi-doc-layout-mode-row-label';
+    labelText.textContent = o.label;
+    row.appendChild(labelText);
+    wrap.appendChild(row);
+  }
+  return wrap;
+}
+
+function buildFormattingGapClassEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-multi-doc-layout-mode-editor';
+  const options: { value: 'both' | 'whitespace'; label: string }[] = [
+    { value: 'both', label: 'Whitespace and punctuation' },
+    { value: 'whitespace', label: 'Whitespace only' },
+  ];
+  const groupName = `pmd-formatting-gap-class-${Math.random().toString(36).slice(2, 8)}`;
+  for (const o of options) {
+    const row = document.createElement('label');
+    row.className = 'pmd-multi-doc-layout-mode-row';
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = groupName;
+    input.value = o.value;
+    input.checked = o.value === settings.get('formattingGapClass');
+    input.addEventListener('change', () => {
+      if (input.checked) settings.set('formattingGapClass', o.value);
     });
     row.appendChild(input);
     const labelText = document.createElement('span');
