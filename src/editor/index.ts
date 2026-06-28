@@ -43,6 +43,7 @@ import { promptForText } from './text-prompt.js';
 import { openDocMenu } from './doc-menu-ui.js';
 import { createReference } from './create-reference.js';
 import { showToast } from './toast.js';
+import { suppressGuiSelectAll } from './editable-target.js';
 import { openSelectSpeechDocModal } from './select-speech-doc-ui.js';
 import { dropzoneStore, deriveDropzoneLabel } from './dropzone-store.js';
 import { DropzoneController } from './dropzone-ui.js';
@@ -2820,6 +2821,12 @@ window.addEventListener('keydown', (e) => {
   const cmd = getRibbonCommand(cmdId, ribbonContext);
   cmd(view.state, view.dispatch.bind(view), view);
 });
+
+// Mod+A with nothing editable focused (e.g. just alt-tabbed back, no click yet)
+// would otherwise select the entire GUI. Capture phase so it runs before the
+// editor; a no-op when focus is in the editor or any input, where the native /
+// ProseMirror select-all still applies.
+document.addEventListener('keydown', suppressGuiSelectAll, true);
 
 /** Ribbon commands whose side effect doesn't read the doc / dispatch
  *  a transaction. Listed here so the global keydown handler can

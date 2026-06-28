@@ -7,6 +7,19 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Mod+A no longer selects the whole GUI when focus isn't in a text box**
+  (`editor/editable-target.ts` (new), `editor/index.ts`, `editor/home-screen.ts`,
+  `tests/editor/editable-target.test.ts`). With nothing editable focused (e.g.
+  just alt-tabbed back, no click yet), the browser's default Mod+A selected the
+  entire chrome. New shared `editable-target.ts` exports `isEditableTarget`
+  (input / textarea / select / contenteditable — `isContentEditable` with an
+  attribute fallback for jsdom) and `suppressGuiSelectAll`, registered as a
+  capture-phase keydown listener in `index.ts`: plain Mod/Ctrl+A (no Shift/Alt)
+  with a non-editable target → `preventDefault`; inside a text box it's a no-op,
+  so the ProseMirror editor's and a native input's select-all still apply.
+  `home-screen.ts` now imports the shared `isEditableTarget` (dropping its local
+  copy). Covered by a jsdom test (the prevent / don't-prevent matrix).
+
 - **Drag-and-drop file opening (desktop)** (`apps/desktop/src/preload.ts`,
   `editor/host/electron-host.ts`, `editor/index.ts`). New `installDragToOpen`
   registers capture-phase `dragover`/`drop` listeners (run in both single-doc and

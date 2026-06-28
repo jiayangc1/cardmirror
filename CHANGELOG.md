@@ -61,6 +61,12 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
+- **Ctrl/Cmd+A no longer selects the whole interface.** When CardMirror was
+  focused but you hadn't clicked into the document (e.g. just after alt-tabbing
+  back), Ctrl/Cmd+A selected the entire GUI. It now selects everything within
+  whatever text box you're in — the editor, a settings field — and does nothing
+  when focus isn't in a text box, rather than selecting the chrome.
+
 - **Pasting over a selection inside a card no longer breaks the card.** Pasting a
   cite, body, or undertag copied from inside a card on top of selected text in a
   card used to tear the card apart — detaching its tag and leaving a stray

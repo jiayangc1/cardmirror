@@ -29,15 +29,7 @@ import { openLearnSession } from './learn-session-ui.js';
 import { openLearnManage } from './learn-manage-ui.js';
 import type { Scope } from './learn-store.js';
 import { isAnyOverlayOpen } from './overlay-stack.js';
-
-/** True when focus is in a text-entry element, so a number key there is intended
- *  input — not a home shortcut. Covers the command bar's search field and any
- *  dialog input layered over the home screen. */
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
-}
+import { isEditableTarget } from './editable-target.js';
 
 export interface HomeScreenCallbacks {
   newDoc: () => void;
