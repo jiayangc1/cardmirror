@@ -83,6 +83,12 @@ see `DETAILED_CHANGELOG.md`.
   workflow regardless of focus, while still deferring to anything layered on top
   that should close first (a modal dialog, or the command bar).
 
+- **Repair Paragraph Integrity: Ctrl-Enter can mark an already-broken paragraph
+  for indent.** When the phrase already starts its paragraph, plain Enter still
+  does nothing (no break is needed), but Ctrl-Enter now marks that paragraph for
+  indent-on-exit — so a card's first body paragraph, which can't be split, can
+  still be marked to indent.
+
 - **The navigation pane now follows the cursor in three-pane mode.** Clicking or
   moving the cursor in a document highlights the heading it lands in in the nav
   pane — that already worked in single-pane view, and now works in each pane of

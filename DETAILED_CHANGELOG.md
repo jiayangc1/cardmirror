@@ -7,6 +7,20 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Repair Paragraph Integrity: Ctrl-Enter designates a paragraph that already
+  starts a line** (`editor/repair-paragraph-plugin.ts`,
+  `editor/repair-paragraph-ui.ts`, `tests/editor/repair-paragraph.test.ts`).
+  `buildSplitForSingleMatch` returned null when the single match was at
+  `parentOffset === 0` (the phrase already leads its paragraph). Now plain Enter
+  still returns null, but Ctrl-Enter returns a no-split transaction emitting a
+  new `{ type: 'designate', pos }` meta that records the paragraph for
+  indent-on-exit and clears the query — the only way to mark a card's
+  already-broken first body paragraph, which can't be split. `splitAtSingleMatch`
+  now returns `'split' | 'designated' | null`, and the bar's hint distinguishes
+  the two ("Marked for indent — it already starts a line." vs "Paragraph break
+  added…"). Test added: Ctrl-Enter at paragraph start leaves the doc unchanged,
+  bumps `designatedCount` to 1, and exit indents that paragraph.
+
 - **Repair Paragraph Integrity: Escape exits from anywhere**
   (`editor/repair-paragraph-ui.ts`). The Escape handler lived only on the bar's
   input, so once focus left the bar (e.g. clicking back into the card) there was

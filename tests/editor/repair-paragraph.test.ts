@@ -133,6 +133,22 @@ describe('buildSplitForSingleMatch', () => {
     const state = workflowState(d, 'absent');
     expect(buildSplitForSingleMatch(state)).toBeNull();
   });
+
+  it('Ctrl-Enter on a phrase already starting its paragraph marks it for indent, without splitting', () => {
+    const d = doc(card(tag('T'), cardBody('Even now the body continues here')));
+    let state = workflowState(d, 'Even now');
+    expect(getRepairParagraphState(state).matches.length).toBe(1);
+    const before = state.doc;
+    // Ctrl-Enter (designate) → no split, but the paragraph is designated and the
+    // query is cleared.
+    state = state.apply(buildSplitForSingleMatch(state, /* designate */ true)!);
+    expect(state.doc.eq(before)).toBe(true); // no break inserted
+    expect(designatedCount(state)).toBe(1);
+    expect(getRepairParagraphState(state).query).toBe('');
+    // Exit indents that first body paragraph by one step.
+    state = state.apply(buildExitTransaction(state));
+    expect(bodyIndents(state)).toEqual([['Even now the body continues here', INDENT_STEP_DXA]]);
+  });
 });
 
 /** Read each card_body's [text, indent] from the first card. */

@@ -183,21 +183,25 @@ export class RepairParagraphBar {
     const view = this.getView();
     if (!view) return;
     if (getRepairParagraphState(view.state).matches.length !== 1) return;
-    if (splitAtSingleMatch(view, designate)) {
-      // The split cleared the query; reset the box for the next phrase.
-      this.input.value = '';
-      this.root.classList.remove('pmd-repair-ok');
-      this.lastCount = 0;
-      const marked = designatedCount(view.state);
-      const markedNote =
-        marked > 0
-          ? ` (${marked} paragraph${marked === 1 ? '' : 's'} marked to indent on exit)`
-          : '';
-      this.hint.textContent = designate
-        ? `Paragraph break added and marked for indent.${markedNote} Esc to apply and exit.`
-        : `Paragraph break added.${markedNote} Type the next phrase, or Esc to exit.`;
-      this.input.focus();
+    const result = splitAtSingleMatch(view, designate);
+    if (!result) return; // plain Enter on a phrase already starting a line → no-op
+    // The action cleared the query; reset the box for the next phrase.
+    this.input.value = '';
+    this.root.classList.remove('pmd-repair-ok');
+    this.lastCount = 0;
+    const marked = designatedCount(view.state);
+    const markedNote =
+      marked > 0
+        ? ` (${marked} paragraph${marked === 1 ? '' : 's'} marked to indent on exit)`
+        : '';
+    if (result === 'designated') {
+      this.hint.textContent = `Marked for indent — it already starts a line.${markedNote} Esc to apply and exit.`;
+    } else if (designate) {
+      this.hint.textContent = `Paragraph break added and marked for indent.${markedNote} Esc to apply and exit.`;
+    } else {
+      this.hint.textContent = `Paragraph break added.${markedNote} Type the next phrase, or Esc to exit.`;
     }
+    this.input.focus();
   }
 
   private scrollSingleMatchIntoView(view: EditorView): void {
