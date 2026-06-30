@@ -5,7 +5,7 @@ behavior, rationale, and (where useful) the implementation context
 behind a change. For a shorter, jargon-free summary of what's new
 in each release, see `CHANGELOG.md`.
 
-## Unreleased
+## 0.1.0-beta.4 — 2026-06-29
 
 - **Discontinuous (Ctrl/Cmd) selection** (`editor/word-selection-plugin.ts`,
   `editor/similar-selection-plugin.ts`, `editor/style.css`,
