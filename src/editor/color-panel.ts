@@ -24,6 +24,7 @@ import { TextSelection, type Command, type Transaction } from 'prosemirror-state
 import { settings } from './settings.js';
 import {
   WORD_HIGHLIGHT_COLORS,
+  WORD_SHADING_COLORS,
   highlightRgbFor,
 } from './color-palette.js';
 import {
@@ -301,7 +302,7 @@ function buildShadingControl(): ColorControlSetup {
       grid.className = 'pmd-color-picker-grid';
       // Top-left: "No background color" strip swatch.
       grid.appendChild(buildStripSwatch('No background color', () => pick(null)));
-      for (const c of WORD_HIGHLIGHT_COLORS) {
+      for (const c of WORD_SHADING_COLORS) {
         grid.appendChild(buildColorSwatch(c.rgb, c.label, () => pick(c.rgb)));
       }
       return grid;

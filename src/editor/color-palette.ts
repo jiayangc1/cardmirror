@@ -41,6 +41,17 @@ export const WORD_HIGHLIGHT_COLORS: readonly WordColor[] = [
 ];
 
 /**
+ * Background ("shading") swatch palette. Identical to the highlight palette
+ * EXCEPT the dark-red slot, which is replaced with salmon. Shading is stored as
+ * a raw RGB hex (`<w:shd w:fill="…"/>`), so — unlike highlight, whose value must
+ * be one of Word's 15 named colors — it isn't constrained to the OOXML highlight
+ * names, and a softer salmon reads better as a background than dark red.
+ */
+export const WORD_SHADING_COLORS: readonly WordColor[] = WORD_HIGHLIGHT_COLORS.map(
+  (c) => (c.name === 'darkRed' ? { name: 'salmon', rgb: 'FA8072', label: 'Salmon' } : c),
+);
+
+/**
  * Note: Verbatim's `HighlightToBackgroundColor` macro produces shading
  * with RGB `D2D2D2`, which is *close to* but not identical to Word's
  * `lightGray` / "Gray 25%" at `C0C0C0`. New shading we apply uses the
@@ -79,6 +90,7 @@ for (const c of WORD_HIGHLIGHT_COLORS) {
   LABEL_BY_RGB.set(c.rgb.toUpperCase(), c.label);
 }
 LABEL_BY_RGB.set('D2D2D2', 'Protected Grey');
+LABEL_BY_RGB.set('FA8072', 'Salmon'); // background-shading-only swatch (replaces Dark Red)
 
 /** Human label for a stored highlight `color` attribute value
  *  (Word OOXML name like `yellow`). Falls back to the raw value
