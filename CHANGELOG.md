@@ -16,6 +16,10 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Changed
 
+- **Convert's .zip output is now compressed.** When bulk **Convert** is set
+  to produce a .zip, the archive is now deflate-compressed (it was
+  previously stored uncompressed), so the output is meaningfully smaller.
+
 - **Smaller desktop installer; voice model downloads on first use.** The
   speech recognition model no longer ships inside the installer (which drops
   its size by roughly 130 MB) — the first time you turn voice control on,
@@ -26,12 +30,13 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
-- **Performance improvements** throughout the editor: faster startup, smooth
-  typing with the Find bar open even in very large documents, no more brief
-  stalls after typing pauses in big files, opening Settings no longer leaves
-  the editor slightly slower for the rest of the session, and folder-wide
-  **Compress** no longer makes the rest of the app unresponsive while it
-  runs.
+- **Performance improvements** throughout the editor: the app itself loads
+  about 40% lighter than beta.5 (faster startup on every launch, and a
+  smaller download for the web edition), typing stays smooth with the Find
+  bar open even in very large documents, no more brief stalls after typing
+  pauses in big files, opening Settings no longer leaves the editor slightly
+  slower for the rest of the session, and folder-wide **Compress** no longer
+  makes the rest of the app unresponsive while it runs.
 - **Three-pane: picking a slot with the mouse no longer swallows the next
   typed 1, 2, or 3.** Using the "Open into…" picker with the mouse previously
   left a hidden key handler behind that ate the next digit typed into the

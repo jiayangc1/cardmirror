@@ -67,9 +67,10 @@ acceptance).
   ooxml/import/export/round-trip suites, plus `bin/round-trip` on a real
   Word-produced .docx with images — identical structure/mark counts, the
   fflate-written file re-imports as a byte-identical fixed point, and the
-  archive passes system `unzip -t`. Main chunk 1,263 → 1,168 KB; one zip
-  implementation and one fewer dependency (JSZip removed from
-  THIRD-PARTY-NOTICES).
+  archive passes system `unzip -t`. Both a fresh export and the image-bearing
+  round-trip file were then opened in Microsoft Word directly: clean open,
+  no repair prompt. Main chunk 1,263 → 1,168 KB; one zip implementation and
+  one fewer dependency (JSZip removed from THIRD-PARTY-NOTICES).
 
 - **Startup: Settings subtree lazy-loaded** (`src/editor/index.ts`,
   `quick-card-search-ui.ts`, `settings-ui.ts`, new `settings-categories.ts`
