@@ -121,8 +121,49 @@ function filtersToSavePickerTypes(filters?: FileFilter[]): ShowSaveFilePickerOpt
 let dbPromise: Promise<IDBDatabase> | null = null;
 
 const DB_NAME = 'cardmirror';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_JOURNALS = 'journals';
+const STORE_SPAWNS = 'spawns';
+
+/** The ?spawn=<id> handoff key for THIS window, captured at load before
+ *  `getInitialDoc` strips it from the URL. Non-null in a spawned window. */
+const SPAWN_ID: string | null =
+  typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('spawn')
+    : null;
+
+const PWA_INSTALLED_KEY = 'pmd-pwa-installed';
+
+/** True when THIS window is an installed / standalone PWA window. */
+function isStandaloneDisplayMode(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false;
+  const mm = window.matchMedia;
+  const standalone =
+    mm('(display-mode: standalone)').matches ||
+    mm('(display-mode: window-controls-overlay)').matches ||
+    mm('(display-mode: minimal-ui)').matches;
+  // iOS home-screen PWAs signal via navigator.standalone instead.
+  const ios = (navigator as unknown as { standalone?: boolean }).standalone === true;
+  return standalone || ios;
+}
+
+/** Whether this context can open new editor windows. True in a standalone PWA —
+ *  and STICKILY in any window of the same profile once the app has run standalone
+ *  (recorded in localStorage). That matters because `window.open` from an
+ *  installed PWA doesn't always yield another *standalone* window (Chrome may
+ *  open a plain tab); without the sticky bit, that spawned tab would read
+ *  `canSpawnWindow=false` and New Document would overwrite in place instead of
+ *  spawning, and New Speech Document would refuse. A plain browser that has never
+ *  run the app standalone stays false (three-pane is the answer there). */
+function detectCanSpawnWindow(): boolean {
+  const standalone = isStandaloneDisplayMode();
+  try {
+    if (standalone) localStorage.setItem(PWA_INSTALLED_KEY, '1');
+    return standalone || localStorage.getItem(PWA_INSTALLED_KEY) === '1';
+  } catch {
+    return standalone;
+  }
+}
 
 function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
@@ -136,6 +177,11 @@ function openDb(): Promise<IDBDatabase> {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE_JOURNALS)) {
         db.createObjectStore(STORE_JOURNALS, { keyPath: 'uid' });
+      }
+      // v2: one-shot spawn-window handoff — payload keyed by a generated id,
+      // read + deleted by the spawned window's getInitialDoc.
+      if (!db.objectStoreNames.contains(STORE_SPAWNS)) {
+        db.createObjectStore(STORE_SPAWNS);
       }
     };
     req.onsuccess = (): void => resolve(req.result);
@@ -164,7 +210,7 @@ async function requestPersistentStorage(): Promise<void> {
 export class BrowserHost implements Host {
   readonly kind = 'browser' as const;
   readonly journalsSupported = browserJournalsSupported();
-  readonly canSpawnWindow = false;
+  readonly canSpawnWindow = detectCanSpawnWindow();
 
   constructor() {
     // Ask the browser to keep our IndexedDB/localStorage (settings, the autosave
@@ -444,26 +490,67 @@ export class BrowserHost implements Host {
     }
   }
 
-  async spawnWindow(_payload: SpawnWindowPayload | null): Promise<void> {
-    // Web edition can't meaningfully spawn an editor window from
-    // JS. Callers should gate on `canSpawnWindow` before calling
-    // — we throw to make the misuse loud rather than silently
-    // failing.
-    throw new Error('BrowserHost: spawnWindow is not supported on the web edition.');
+  async spawnWindow(payload: SpawnWindowPayload | null): Promise<void> {
+    // Open a new app window. In a standalone PWA `window.open` yields a real app
+    // window (not a browser tab). A doc payload is handed off via IndexedDB,
+    // keyed by an id in the URL, which the new window reads back in
+    // `getInitialDoc`. Written BEFORE the open so the payload is present by the
+    // time the (slower-booting) new window looks for it.
+    let query = '';
+    if (payload) {
+      const id = crypto.randomUUID();
+      try {
+        const db = await openDb();
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction(STORE_SPAWNS, 'readwrite');
+          tx.objectStore(STORE_SPAWNS).put(payload, id);
+          tx.oncomplete = (): void => resolve();
+          tx.onerror = (): void => reject(tx.error ?? new Error('spawn write failed'));
+          tx.onabort = (): void => reject(tx.error ?? new Error('spawn write aborted'));
+        });
+        query = `?spawn=${id}`;
+      } catch (err) {
+        console.warn('BrowserHost: spawn handoff store failed', err);
+        // Fall through and open a blank window rather than nothing.
+      }
+    }
+    const url = window.location.origin + window.location.pathname + query;
+    if (!window.open(url, '_blank')) {
+      throw new Error('BrowserHost: the browser blocked opening a new window.');
+    }
   }
 
   async getInitialDoc(): Promise<SpawnWindowPayload | null> {
-    // No spawn handshake on the web edition — fresh tabs always
-    // boot blank.
-    return null;
+    if (!SPAWN_ID) return null;
+    // Strip the ?spawn param so a reload doesn't try to re-consume it.
+    try {
+      window.history.replaceState({}, '', window.location.pathname);
+    } catch {
+      /* ignore */
+    }
+    try {
+      const db = await openDb();
+      return await new Promise<SpawnWindowPayload | null>((resolve) => {
+        const tx = db.transaction(STORE_SPAWNS, 'readwrite');
+        const store = tx.objectStore(STORE_SPAWNS);
+        const req = store.get(SPAWN_ID);
+        req.onsuccess = (): void => {
+          const payload = (req.result as SpawnWindowPayload | undefined) ?? null;
+          store.delete(SPAWN_ID); // one-shot
+          resolve(payload);
+        };
+        req.onerror = (): void => resolve(null);
+      });
+    } catch {
+      return null;
+    }
   }
 
   async isFirstWindow(): Promise<boolean> {
-    // The web edition is single-tab from the editor's POV — there's
-    // no spawn mechanism so each tab boots fresh and IS the first
-    // window of its session. Returning true preserves the existing
-    // recovery prompt on every web load.
-    return true;
+    // A spawned window (carrying a ?spawn handoff) opened a specific doc — it's
+    // not the session's first window and shouldn't run the recovery prompt.
+    // Other web tabs each boot fresh and are "first" for their own recovery.
+    return !SPAWN_ID;
   }
 
   private ensureFileInput(): HTMLInputElement {

@@ -74,6 +74,28 @@ in each release, see `CHANGELOG.md`.
   gated on the browser host too), and the desktop-only "New Speech Document" error
   was rewritten to point users at the Three-pane workspace.
 
+- **Web edition: multi-window in the installed PWA** (`src/editor/host/browser-host.ts`,
+  `host/types.ts`, `src/editor/index.ts`). The browser host can now spawn editor
+  windows, so New Document / New Speech Document / opening a second file open a new
+  window (like the desktop editions) instead of replacing the current doc.
+  `spawnWindow` hands the doc payload to the new window through IndexedDB (a new
+  `spawns` object store, DB bumped to v2) keyed by an id in a `?spawn=` URL param; the
+  spawned window reads it back in `getInitialDoc` (one-shot — strips the param via
+  `replaceState` and deletes the record), and the existing `mountFromSpawnPayload`
+  boot path mounts it, reusing the same flow Electron uses so the `markAsSpeech`
+  designation carries across. `getInitialDoc` is now consulted at boot regardless of
+  the window's own `canSpawnWindow` (a spawned tab isn't itself standalone but must
+  still mount its payload). `canSpawnWindow` is gated to an installed PWA and made
+  STICKY via a `localStorage` flag once the app has run standalone, so a window Chrome
+  opens as a plain tab (rather than a standalone app window) still behaves as
+  multi-window — New Document spawns rather than overwriting, and New Speech Document
+  doesn't refuse. Whether the spawned window renders as a separate app window vs. a
+  browser window is Chrome's own navigation-capturing decision (in-scope `window.open`
+  → app window is Chrome 139+ and effectively HTTPS-only — a browser window on
+  `http://localhost`); the editor behaves identically either way. One current limit:
+  a file opened into a spawned window loses its `FileSystemFileHandle` (Save-As only),
+  since the handle isn't yet threaded through the spawn payload.
+
 ## 0.1.0-beta.4 — 2026-06-29
 
 - **Discontinuous (Ctrl/Cmd) selection** (`editor/word-selection-plugin.ts`,

@@ -33,6 +33,13 @@ see `DETAILED_CHANGELOG.md`.
   while Quick Cards persist. (Quick Cards also moved to roomier browser storage,
   so a large library no longer risks hitting the old size limit.)
 
+- **Multiple windows in the installed web app.** When CardMirror is installed as an
+  app (PWA), **New Document** and **New Speech Document** now open in a separate
+  window instead of replacing what's in the current one — so you can keep several
+  documents open at once and send a card to a speech document in another window, the
+  way the desktop editions work. (In an ordinary browser tab, use the Three-pane
+  workspace for multiple documents.)
+
 ## 0.1.0-beta.4 — 2026-06-29
 
 ### Added

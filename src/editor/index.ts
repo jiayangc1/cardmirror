@@ -5121,7 +5121,9 @@ function installDragToOpen(): void {
  *  window blank. Returns true if a payload was consumed. */
 async function routeInitialDocIntoWorkspace(): Promise<boolean> {
   const host = getHost();
-  if (!host.canSpawnWindow) return false;
+  // Check for a spawn payload regardless of this window's own canSpawnWindow — a
+  // web window spawned into a plain browser tab isn't standalone but still
+  // carries a doc. `getInitialDoc` returns null cheaply when there's none.
   let payload: Awaited<ReturnType<typeof host.getInitialDoc>>;
   try {
     payload = await host.getInitialDoc();
@@ -6535,18 +6537,19 @@ if (BOOT_MULTI_DOC_WORKSPACE) {
  *  If no payload, mount the starter and run normal recovery. */
 async function initSingleDocBoot(): Promise<void> {
   const host = getHost();
-  if (host.canSpawnWindow) {
-    let payload: Awaited<ReturnType<typeof host.getInitialDoc>>;
-    try {
-      payload = await host.getInitialDoc();
-    } catch (err) {
-      console.warn('getInitialDoc failed:', err);
-      payload = null;
-    }
-    if (payload) {
-      await mountFromSpawnPayload(payload);
-      return;
-    }
+  // A spawned window carries an initial-doc payload. Check regardless of THIS
+  // window's own `canSpawnWindow`: a web window spawned into a plain browser tab
+  // isn't itself standalone, but must still mount the doc it was opened with.
+  // `getInitialDoc` returns null cheaply when there's no pending payload.
+  let payload: Awaited<ReturnType<typeof host.getInitialDoc>> = null;
+  try {
+    payload = await host.getInitialDoc();
+  } catch (err) {
+    console.warn('getInitialDoc failed:', err);
+  }
+  if (payload) {
+    await mountFromSpawnPayload(payload);
+    return;
   }
   // No spawn payload — either this is the first window of an app
   // session or it's a blank window spawned later (e.g., the user
