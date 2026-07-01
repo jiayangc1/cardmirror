@@ -37,8 +37,15 @@ const FLOW_COMMANDS = new Set<RibbonCommandId>([
 export function isRibbonCommandAvailable(id: RibbonCommandId): boolean {
   if (FLOW_COMMANDS.has(id)) return isWindowsHost();
   if (id === 'toggleVoice') return getElectronHost() !== null;
-  // Reads the OS clipboard via the host — unreachable on the web build.
-  if (id === 'pasteCondensed') return getElectronHost() !== null;
+  // Reads the clipboard — Electron host IPC OR the browser's async Clipboard
+  // API (Chromium). The command self-guards and falls through where no read is
+  // available (e.g. Firefox/Safari), so hide it only where neither exists.
+  if (id === 'pasteCondensed') {
+    return (
+      getElectronHost() !== null ||
+      (typeof navigator !== 'undefined' && !!navigator.clipboard?.readText)
+    );
+  }
   if (id === 'openCardCutter') return settings.get('cardCutterEnabled') === true;
   return true;
 }

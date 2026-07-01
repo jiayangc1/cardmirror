@@ -3459,8 +3459,8 @@ async function runPlainPasteFromClipboard(
 }
 
 /**
- * Desktop-only: paste the clipboard's plain text, then DESTRUCTIVELY condense
- * just the pasted content WITHOUT preserving paragraph integrity — the net
+ * Paste the clipboard's plain text, then DESTRUCTIVELY condense just the pasted
+ * content WITHOUT preserving paragraph integrity — the net
  * effect of an F2 plain paste followed by Alt-F3 (Condense Without Paragraph
  * Integrity) over what you pasted. Reads the clipboard (Electron host IPC, or
  * the Chromium async Clipboard API — this keypress is the required gesture),
