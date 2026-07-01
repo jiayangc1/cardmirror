@@ -51,6 +51,21 @@ acceptance).
   doc), so the very largest docs keep a small synchronous blip per pause —
   the dominant ~70% (compression) is what moved off-thread.
 
+- **THIRD-PARTY-NOTICES.md: cover everything that actually ships**
+  (`THIRD-PARTY-NOTICES.md`). The file previously listed only ProseMirror
+  and the Untitled UI icons, while claiming to satisfy the project's
+  attribution obligations — but the bundle compiles in fast-xml-parser,
+  fflate, JSZip, nspell, and tinyld (renderer) and koffi + electron-updater
+  (main process), none of which ship a `node_modules/` whose notices could
+  be "preserved" (audit H-10). Added an MIT section reproducing the license
+  once with a per-library copyright table, cross-linked the existing
+  `src/editor/fonts/LICENSES.md` for the bundled fonts, added an entry for
+  the bundled Hunspell English spellcheck dictionary (SCOWL-derived), and an
+  entry for Vosk (`libvosk` + models, Apache-2.0) — noting the models are now
+  a runtime download (see the voice-model change) rather than installer
+  contents. JSZip is documented as used under MIT (its dual MIT/GPL offer);
+  it will drop off this list when P-9 (jszip → fflate) lands.
+
 - **Voice: base recognition model + Node runtime are first-use downloads,
   not bundled** (`apps/desktop/src/voice/ipc.ts`, `preload.ts`,
   `scripts/fetch-voice-assets.cjs`, `src/editor/voice/controller.ts`,
