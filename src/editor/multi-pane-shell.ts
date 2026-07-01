@@ -1920,6 +1920,10 @@ class MultiPaneShell {
    *  doc open. */
   private async surfaceDuplicateIfOpen(opened: OpenedFile): Promise<boolean> {
     const existing = await this.findOpenRecordByHandle(opened.handle ?? null);
+    console.log('[samefile] surfaceDuplicateIfOpen (within-window)', {
+      hasHandle: opened.handle != null,
+      found: !!existing,
+    });
     if (!existing) return false;
     existing.slot.showRecord(existing.record);
     this.focusSlot(existing.slot);

@@ -756,8 +756,18 @@ let multiDocGetOpenHandles: (() => unknown[]) | null = null;
 /** File handles open in THIS window right now, for the web same-file guard's
  *  query responder. */
 function getThisWindowOpenHandles(): unknown[] {
-  if (multiDocActive && multiDocGetOpenHandles) return multiDocGetOpenHandles();
-  return currentDocHandle != null ? [currentDocHandle] : [];
+  const result =
+    multiDocActive && multiDocGetOpenHandles
+      ? multiDocGetOpenHandles()
+      : currentDocHandle != null
+        ? [currentDocHandle]
+        : [];
+  console.log('[samefile] getOpenHandles', {
+    multiDocActive,
+    hasMultiCb: !!multiDocGetOpenHandles,
+    count: result.length,
+  });
+  return result;
 }
 /** Crash-recovery hook: load a recovered journal entry into the
  *  multi-pane workspace. The shell picks a slot (first empty, or

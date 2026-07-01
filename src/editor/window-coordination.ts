@@ -83,17 +83,21 @@ async function respondToFileQuery(
   getOpenHandles: () => unknown[],
   msg: Extract<CoordMsg, { kind: 'file-open:query' }>,
 ): Promise<void> {
-  for (const h of getOpenHandles()) {
+  const handles = getOpenHandles();
+  console.log('[samefile] respond: got query, my open handles =', handles.length);
+  for (const h of handles) {
     if (!hasIsSameEntry(h)) continue;
     try {
       if (await h.isSameEntry(msg.handle as FileSystemFileHandle)) {
+        console.log('[samefile] respond: MATCH → posting hit');
         ch.postMessage({ kind: 'file-open:hit', from: WINDOW_ID, nonce: msg.nonce } satisfies CoordMsg);
         return;
       }
-    } catch {
-      /* ignore a handle we can't compare */
+    } catch (err) {
+      console.log('[samefile] respond: isSameEntry threw', err);
     }
   }
+  console.log('[samefile] respond: no match');
 }
 
 async function handlePleaseClose(
@@ -213,6 +217,7 @@ export async function webCloseOtherWindowsForModeSwitch(): Promise<ModeSwitchDoc
  * is alone or the handle isn't comparable.
  */
 export async function webIsFileOpenElsewhere(handle: unknown): Promise<boolean> {
+  console.log('[samefile] query: comparable=', hasIsSameEntry(handle), 'peers=', livePeers.size);
   if (!hasIsSameEntry(handle) || !hasPeers()) return false;
   const channel = makeChannel();
   if (!channel) return false;
@@ -227,6 +232,7 @@ export async function webIsFileOpenElsewhere(handle: unknown): Promise<boolean> 
       settled = true;
       channel.removeEventListener('message', onMsg);
       channel.close();
+      console.log('[samefile] query: resolved', result);
       resolve(result);
     };
     const onMsg = (e: MessageEvent<CoordMsg>): void => {
