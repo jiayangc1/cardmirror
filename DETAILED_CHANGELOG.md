@@ -7,6 +7,26 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Web: suppress password-manager DOM crawl on palette / Find focus**
+  (`src/editor/autofill-ignore.ts` new, `quick-card-search-ui.ts`,
+  `find-replace-ui.ts`, `README.md`). A user-supplied Chrome performance trace
+  of a "slow to open" command palette showed ~2s per open spent entirely in
+  extension content scripts (1Password's `injected.js` `$t`/`findLabelText`,
+  a second autofill extension's `querySelectorAllIncludingWithinShadowRoots` /
+  `_collectTextSample`), driven by a full-document `TreeWalker` +
+  per-node `getBoundingClientRect` — triggered by the `focusin` that fires when
+  the palette focuses its search `<input>`. Our own code was 0.3% of the freeze;
+  it's O(DOM) so it scaled with doc size, and web-only because Electron loads no
+  extensions. `autocomplete="off"` was already present and (as expected) ignored
+  by the managers, so a new `autofill-ignore.ts` centralizes the vendor opt-out
+  hints (`data-1p-ignore`, `data-lpignore="true"`, `data-bwignore`,
+  `data-form-type="other"`) as both an attribute string (for `innerHTML`
+  templates) and a `suppressAutofill(el)` helper (for `createElement`). Applied
+  to the search palette input and both Find/Replace inputs. Best-effort — a
+  manager may still collect page details on load/mutation — so the README gains a
+  note pointing users to Chrome's per-site "run on click" extension access as the
+  guaranteed fix.
+
 - **Web edition: installable PWA + offline** (`vite.config.ts`, `public/` icons,
   `index.html`, `src/editor/host/browser-host.ts`). Added `vite-plugin-pwa`: a web
   app manifest (`display: standalone`, maskable icon, base-aware `start_url`/scope

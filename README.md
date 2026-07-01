@@ -114,6 +114,18 @@ editor but lack the File System Access API, so there Save falls back to a
 download. See **[Desktop vs. web](./MANUAL.md#desktop-vs-web)** in the manual for
 the full breakdown.
 
+> **Web feels slow on big documents? Check your extensions.** Some browser
+> extensions — password managers (1Password, LastPass, Bitwarden) and form
+> fillers especially — rescan the whole page every time you focus a text box,
+> which can freeze the editor for a second or more on a large file. The desktop
+> app never hits this because it loads no extensions. To confirm, open the app
+> in an Incognito window (extensions are off there) — if it's snappy, an
+> extension is the cause. To fix it without turning the extension off
+> everywhere, tell Chrome to run it only on this site by request: click the
+> **puzzle-piece (Extensions)** icon in the toolbar, click the **⋮** next to the
+> extension, and set **"This can read and change site data" → "When you click
+> the extension."**
+
 ### Updates
 
 **Help → Check for Updates…** checks manually: it tells you you're

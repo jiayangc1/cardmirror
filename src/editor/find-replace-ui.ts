@@ -20,6 +20,7 @@
  */
 
 import type { EditorView } from 'prosemirror-view';
+import { suppressAutofill } from './autofill-ignore.js';
 import {
   findReplaceKey,
   runReplace,
@@ -134,6 +135,8 @@ export class FindReplaceBar {
     this.findInput.type = 'text';
     this.findInput.placeholder = 'Find';
     this.findInput.className = 'pmd-find-input';
+    // Keep password-manager extensions from crawling the doc on focus (web).
+    suppressAutofill(this.findInput);
     findRow.appendChild(this.findInput);
 
     this.caseSensitiveCheckbox = this.buildToggle(
@@ -186,6 +189,7 @@ export class FindReplaceBar {
     this.replaceInput.type = 'text';
     this.replaceInput.placeholder = 'Replace';
     this.replaceInput.className = 'pmd-find-input pmd-find-replace-input';
+    suppressAutofill(this.replaceInput);
     this.replaceRow.appendChild(this.replaceInput);
     this.replaceBtn = document.createElement('button');
     this.replaceBtn.type = 'button';

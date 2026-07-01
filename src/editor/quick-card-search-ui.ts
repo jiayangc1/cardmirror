@@ -39,6 +39,7 @@ import { openSettings, CATEGORY_TABS, visibleCategoryTabs, type SettingsTarget }
 import { appVersion } from './install-info.js';
 import { getHost, getElectronHost, isWindowsHost } from './host/index.js';
 import { showToast } from './toast.js';
+import { AUTOFILL_IGNORE_ATTRS } from './autofill-ignore.js';
 import { insertSpeechSlice } from './speech-doc-send.js';
 import { quickCardsStore, distinctTags, normalizeTag } from './quick-cards-store.js';
 import { dropzoneStore } from './dropzone-store.js';
@@ -647,7 +648,7 @@ class QuickCardSearchUI {
     root.innerHTML = `
       <div class="pmd-qcs-results" role="listbox"></div>
       <div class="pmd-qcs-tagfilter" hidden></div>
-      <input class="pmd-qcs-input" type="text" spellcheck="false" autocomplete="off"
+      <input class="pmd-qcs-input" type="text" spellcheck="false" ${AUTOFILL_IGNORE_ATTRS}
              placeholder="${SEARCH_PLACEHOLDER}" aria-label="Search" />
       <div class="pmd-qcs-hints"></div>`;
     this.root = root;

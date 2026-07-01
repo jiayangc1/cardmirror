@@ -55,6 +55,18 @@ see `DETAILED_CHANGELOG.md`.
   back; press it again to hide them all. *Per-document outlines contributed by
   [@coralynnkc](https://github.com/coralynnkc).*
 
+### Fixed
+
+- **Web: less lag opening the command palette or Find bar when a password
+  manager is installed.** Some browser extensions (1Password and other autofill
+  tools) rescan the whole page whenever a text box gains focus, which could
+  freeze the web app for a second or more on large documents every time you
+  opened the search palette or Find bar. Those inputs now carry the standard
+  "ignore this field" hints, so the managers are more likely to skip the scan.
+  If it still lags, see the note in the
+  [README](./README.md#web-app-chromebook--browser) about running the extension
+  only on click. The desktop app is unaffected — it loads no extensions.
+
 ## 0.1.0-beta.4 — 2026-06-29
 
 ### Added
