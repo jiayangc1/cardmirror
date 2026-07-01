@@ -167,18 +167,36 @@ function scrollTabIntoView(tab: HTMLElement, container: HTMLElement): void {
 }
 
 /** Tab labels shown in the settings dialog, in display order. */
-export const CATEGORY_TABS: { id: SettingsCategory; label: string }[] = [
+export const CATEGORY_TABS: {
+  id: SettingsCategory;
+  label: string;
+  /** Desktop-only category — all its settings are `electronOnly`, so on web it
+   *  would render as an empty tab. Dropped off Electron (see
+   *  `visibleCategoryTabs`). */
+  electronOnly?: boolean;
+}[] = [
   { id: 'general', label: 'General' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'editing', label: 'Editing' },
   { id: 'shortcuts', label: 'Keyboard' },
   { id: 'comments-ai', label: 'Comments & AI' },
-  { id: 'pairing', label: 'Card Sharing' },
+  // Card Sharing (pairing) is desktop-only — the relay send/receive run in the
+  // Electron main process — so its settings are all electronOnly. Hide the whole
+  // tab on web rather than show it empty.
+  { id: 'pairing', label: 'Card Sharing', electronOnly: true },
   // Accessibility intentionally lives at the far right — its
   // override-anything panel is a "last-resort" customization
   // surface, separated from the everyday tabs.
   { id: 'accessibility', label: 'Accessibility' },
 ];
+
+/** The category tabs visible on the current host — `electronOnly` categories are
+ *  dropped off Electron so they don't surface as empty tabs (or empty command-
+ *  palette results). */
+export function visibleCategoryTabs(): { id: SettingsCategory; label: string }[] {
+  const hostKind = getHost().kind;
+  return CATEGORY_TABS.filter((t) => !t.electronOnly || hostKind === 'electron');
+}
 
 /** A deep-link into the settings dialog: open a tab and optionally
  *  scroll to / flash a specific setting, or a named non-setting section
@@ -253,8 +271,15 @@ class SettingsModal {
     this.settingsUnsubscribe = settings.subscribe(() => this.refreshDependents());
     this.refreshDependents();
     // Deep-link: jump to a tab and (optionally) scroll to one setting,
-    // e.g. when reached from the search palette's `s` shortcuts.
-    if (target?.category) this.setActiveCategory(target.category);
+    // e.g. when reached from the search palette's `s` shortcuts. Ignore a
+    // category that isn't visible on this host (e.g. a stale link to the
+    // desktop-only Card Sharing tab on web) so we don't strand a blank panel.
+    if (
+      target?.category &&
+      visibleCategoryTabs().some((t) => t.id === target.category)
+    ) {
+      this.setActiveCategory(target.category);
+    }
     if (target?.settingKey) this.revealSetting(target.settingKey);
     if (target?.anchor) this.revealAnchor(target.anchor);
   }
@@ -354,7 +379,7 @@ class SettingsModal {
     tabStrip.className = 'pmd-settings-tabs';
     tabStrip.setAttribute('role', 'tablist');
     const tabButtons: Partial<Record<SettingsCategory, HTMLButtonElement>> = {};
-    for (const { id, label } of CATEGORY_TABS) {
+    for (const { id, label } of visibleCategoryTabs()) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'pmd-settings-tab';
@@ -409,7 +434,7 @@ class SettingsModal {
     // refreshDependents pass can find rows under inactive tabs too.
     this.dependentRows.clear();
     const panels: Partial<Record<SettingsCategory, HTMLDivElement>> = {};
-    for (const { id } of CATEGORY_TABS) {
+    for (const { id } of visibleCategoryTabs()) {
       const panel = document.createElement('div');
       panel.className = 'pmd-settings-list pmd-settings-panel';
       panel.setAttribute('role', 'tabpanel');
@@ -455,7 +480,7 @@ class SettingsModal {
 
     // Wire tab selection logic.
     const applyActive = (): void => {
-      for (const { id } of CATEGORY_TABS) {
+      for (const { id } of visibleCategoryTabs()) {
         const isActive = id === this.activeCategory;
         const btn = tabButtons[id];
         const panel = panels[id];

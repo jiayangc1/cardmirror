@@ -44,6 +44,14 @@ in each release, see `CHANGELOG.md`.
   tooltip that switches to "Plain paste armed — press Ctrl/Cmd+V to paste as text"
   when the fallback arms.
 
+- **Web edition: hide the desktop-only Card Sharing settings tab**
+  (`src/editor/settings-ui.ts`, `quick-card-search-ui.ts`). Pairing is desktop-only,
+  so its settings are all `electronOnly` and its "Card Sharing" tab rendered empty on
+  web. Marked the category `electronOnly` and added `visibleCategoryTabs()`, which the
+  settings tab strip, panels, active-tab styling, deep-link guard, and command-palette
+  settings search all route through — so neither the tab nor a palette entry for it
+  appears on web.
+
 ## 0.1.0-beta.4 — 2026-06-29
 
 - **Discontinuous (Ctrl/Cmd) selection** (`editor/word-selection-plugin.ts`,

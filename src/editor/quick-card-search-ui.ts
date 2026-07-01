@@ -35,7 +35,7 @@ import { undo, redo } from 'prosemirror-history';
 import { icon } from './icons';
 import { schema } from '../schema/index.js';
 import { settings, SETTING_METADATA, type SettingsCategory } from './settings.js';
-import { openSettings, CATEGORY_TABS, type SettingsTarget } from './settings-ui.js';
+import { openSettings, CATEGORY_TABS, visibleCategoryTabs, type SettingsTarget } from './settings-ui.js';
 import { appVersion } from './install-info.js';
 import { getHost, getElectronHost, isWindowsHost } from './host/index.js';
 import { showToast } from './toast.js';
@@ -416,8 +416,9 @@ function searchSettingsSource(query: string): PaletteResult[] {
   const match = (label: string): boolean =>
     tokens.length === 0 || tokens.every((t) => label.toLowerCase().includes(t));
 
-  // Top-level tabs first.
-  const results: PaletteResult[] = CATEGORY_TABS.filter(({ label }) => match(label)).map(
+  // Top-level tabs first (host-visible only, so the desktop-only Card Sharing
+  // tab isn't offered on web).
+  const results: PaletteResult[] = visibleCategoryTabs().filter(({ label }) => match(label)).map(
     ({ id, label }) => ({
       source: 'settings' as const,
       name: label,
