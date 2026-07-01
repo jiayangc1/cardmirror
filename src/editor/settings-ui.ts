@@ -133,21 +133,41 @@ const DISPLAY_SIZE_LABELS: Record<keyof DisplaySizes, string> = {
   undertag: 'Undertag',
 };
 
-/** Run `callback` when `el` is no longer attached to the document.
- *  Replaces `el.addEventListener('DOMNodeRemoved', ...)` — the
- *  classic mutation event Chrome flagged as deprecated. Uses a
- *  MutationObserver on the document root and disconnects after
- *  firing. Returns a manual-cancel function in case the caller
- *  wants to tear down early. */
-function onDetached(el: Element, callback: () => void): () => void {
-  const obs = new MutationObserver(() => {
-    if (!el.isConnected) {
-      callback();
-      obs.disconnect();
+/** Cleanup callbacks for the settings modal's CURRENT DOM generation
+ *  (one per row/widget with a live settings subscription). Flushed by
+ *  `SettingsModal.close()` and at the top of every `render()`. */
+let rowCleanups: Array<() => void> = [];
+
+function flushRowCleanups(): void {
+  const list = rowCleanups;
+  rowCleanups = [];
+  for (const cb of list) {
+    try {
+      cb();
+    } catch {
+      // One row's cleanup must not block the rest.
     }
-  });
-  obs.observe(document.documentElement, { childList: true, subtree: true });
-  return () => obs.disconnect();
+  }
+}
+
+/** Register `callback` to run when the settings modal tears down its
+ *  current DOM generation (close, or the rebuild at the top of the
+ *  next render). This is the release point for the settings
+ *  subscription each row/widget creates. Replaces a per-element
+ *  document-wide MutationObserver ("run when detached") that never
+ *  fired while the modal was merely hidden, leaving ~60 observers +
+ *  subscriptions live for the rest of the session after one open.
+ *  NOTE: cleanup is tied to the MODAL lifecycle, not to `el` actually
+ *  detaching — an element removed mid-session (nothing does this
+ *  today) keeps its subscription until close; release it manually via
+ *  the returned cancel if that ever matters. `el` is accepted only to
+ *  document ownership at the call site. */
+function registerRowCleanup(_el: Element, callback: () => void): () => void {
+  rowCleanups.push(callback);
+  return () => {
+    const i = rowCleanups.indexOf(callback);
+    if (i >= 0) rowCleanups.splice(i, 1);
+  };
 }
 
 /** Nudge a tab into the visible band of its scrolling container.
@@ -334,6 +354,10 @@ class SettingsModal {
       this.tabsResizeObserver.disconnect();
       this.tabsResizeObserver = null;
     }
+    // Release every row/widget settings subscription registered during
+    // render() — the dialog DOM stays connected (just hidden), so
+    // nothing else would ever release them.
+    flushRowCleanups();
     this.overlay.style.display = 'none';
     if (this.overlayToken !== null) {
       popOverlay(this.overlayToken);
@@ -342,6 +366,9 @@ class SettingsModal {
   }
 
   private render(): void {
+    // Tear down the outgoing generation's subscriptions before its DOM
+    // is replaced (mirrors the old detach-time semantics).
+    flushRowCleanups();
     this.dialog.innerHTML = '';
 
     const header = document.createElement('header');
@@ -647,7 +674,7 @@ class SettingsModal {
         const cur = !!settings.get(meta.key);
         if (checkbox.checked !== cur) checkbox.checked = cur;
       });
-      onDetached(checkbox, () => unsub());
+      registerRowCleanup(checkbox, () => unsub());
       label.appendChild(checkbox);
     } else if (meta.kind === 'readers') {
       // Description above, list editor below — different shape from
@@ -1190,7 +1217,7 @@ function buildTypographyEditor(): HTMLElement {
     const hideCb = checkboxes[flagKeys.length];
     if (hideCb) hideCb.checked = !!settings.get('hideEmphasisBordersInReadMode');
   });
-  onDetached(wrap, () => unsubscribe());
+  registerRowCleanup(wrap, () => unsubscribe());
 
   return wrap;
 }
@@ -1256,7 +1283,7 @@ function buildColorsEditor(): HTMLElement {
   }
   refresh();
   const unsubscribe = settings.subscribe(refresh);
-  onDetached(wrap, () => unsubscribe());
+  registerRowCleanup(wrap, () => unsubscribe());
 
   return wrap;
 }
@@ -1503,7 +1530,7 @@ function buildBodyFontEditor(): HTMLElement {
   const unsubscribe = settings.subscribe(() => {
     if (select.value !== settings.get('bodyFont')) populate();
   });
-  onDetached(wrap, () => unsubscribe());
+  registerRowCleanup(wrap, () => unsubscribe());
 
   return wrap;
 }
@@ -1568,7 +1595,7 @@ function buildUiFontEditor(): HTMLElement {
   const unsubscribe = settings.subscribe(() => {
     if (select.value !== settings.get('uiFont')) populate();
   });
-  onDetached(wrap, () => unsubscribe());
+  registerRowCleanup(wrap, () => unsubscribe());
 
   return wrap;
 }
@@ -1686,7 +1713,7 @@ function buildParagraphSpacingEditor(): HTMLElement {
     }
   });
   render();
-  onDetached(wrap, () => unsubscribe());
+  registerRowCleanup(wrap, () => unsubscribe());
 
   return wrap;
 }
@@ -1766,7 +1793,7 @@ function buildLineHeightsEditor(): HTMLElement {
     }
   });
   render();
-  onDetached(wrap, () => unsubscribe());
+  registerRowCleanup(wrap, () => unsubscribe());
 
   return wrap;
 }
@@ -1823,7 +1850,7 @@ function buildDisplaySizesEditor(): HTMLElement {
   });
   render();
 
-  onDetached(wrap, () => unsubscribe());
+  registerRowCleanup(wrap, () => unsubscribe());
 
   return wrap;
 }
@@ -1956,7 +1983,7 @@ function buildReadersEditor(): HTMLElement {
   render();
 
   // Best-effort cleanup if the editor is detached (modal closes & rebuilds).
-  onDetached(wrap, () => unsubscribe());
+  registerRowCleanup(wrap, () => unsubscribe());
 
   return wrap;
 }
@@ -2020,7 +2047,7 @@ function buildPairingOwnCodeEditor(): HTMLElement {
   }
   refresh();
   const unsub = settings.subscribe(refresh);
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -2148,7 +2175,7 @@ function buildPairingPartnersEditor(): HTMLElement {
 
   render();
   const unsub = settings.subscribe(() => render());
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -2263,7 +2290,7 @@ function buildPairingGroupsEditor(): HTMLElement {
 
   render();
   const unsub = settings.subscribe(() => render());
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -2294,7 +2321,7 @@ function buildPairingReceiveFlashEditor(): HTMLElement {
   }
   refresh();
   const unsub = settings.subscribe(refresh);
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -2596,7 +2623,7 @@ function buildFileSearchFormatsEditor(): HTMLElement {
     const cur = settings.get('fileSearchFormats');
     for (const input of inputs) input.checked = input.value === cur;
   });
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -2721,7 +2748,7 @@ function buildThemeEditor(): HTMLElement {
   }
   refresh();
   const unsub = settings.subscribe(refresh);
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -2759,7 +2786,7 @@ function buildTimerProfileEditor(): HTMLElement {
   }
   refresh();
   const unsub = settings.subscribe(refresh);
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -2853,7 +2880,7 @@ function buildTimerProfileDurationsEditor(): HTMLElement {
     lastProfile = active;
     buildFields();
   });
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -2884,7 +2911,7 @@ function buildTimerPrepLabelEditor(): HTMLElement {
   }
   refresh();
   const unsub = settings.subscribe(refresh);
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -2914,7 +2941,7 @@ function buildIconSetEditor(): HTMLElement {
   }
   refresh();
   const unsub = settings.subscribe(refresh);
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -3021,7 +3048,7 @@ function buildAccessibilityRendererEditor(): HTMLElement {
 
   refresh();
   const unsub = settings.subscribe(refresh);
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -3052,7 +3079,7 @@ function buildReduceMotionEditor(): HTMLElement {
   }
   refresh();
   const unsub = settings.subscribe(refresh);
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -3137,7 +3164,7 @@ function buildColorSlotsEditor(key: keyof Settings): HTMLElement {
 
   render();
   const unsub = settings.subscribe(render);
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -3183,7 +3210,7 @@ function buildColorOverridesEditor(): HTMLElement {
   }
   refreshResetAll();
   const unsubResetAll = settings.subscribe(refreshResetAll);
-  onDetached(wrap, () => unsubResetAll());
+  registerRowCleanup(wrap, () => unsubResetAll());
 
   // Group tokens by their `group` field, preserving manifest order.
   const groups = new Map<string, typeof CUSTOMIZABLE_COLOR_TOKENS[number][]>();
@@ -3214,7 +3241,7 @@ function buildColorOverridesEditor(): HTMLElement {
   probe.style.cssText =
     'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none';
   document.body.appendChild(probe);
-  onDetached(wrap, () => probe.remove());
+  registerRowCleanup(wrap, () => probe.remove());
 
   function parseToRgbaParts(css: string): {
     r: number; g: number; b: number; a: number;
@@ -3387,7 +3414,7 @@ function buildColorOverridesEditor(): HTMLElement {
         refresh();
       }
     });
-    onDetached(row, () => unsub());
+    registerRowCleanup(row, () => unsub());
 
     return row;
   }
@@ -3944,7 +3971,7 @@ function buildFileSearchOutlineDepthEditor(): HTMLElement {
   }
   refresh();
   const unsub = settings.subscribe(refresh);
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -3984,7 +4011,7 @@ function buildFileObjectTypesEditor(): HTMLElement {
   };
   refresh();
   const unsub = settings.subscribe(refresh);
-  onDetached(wrap, () => unsub());
+  registerRowCleanup(wrap, () => unsub());
   return wrap;
 }
 
@@ -4122,7 +4149,7 @@ function buildShrinkProtectionsEditor(): HTMLElement {
     if (!isTextInputFocused) render();
   });
   render();
-  onDetached(wrap, () => unsubscribe());
+  registerRowCleanup(wrap, () => unsubscribe());
 
   return wrap;
 }

@@ -14,7 +14,7 @@ import { history } from 'prosemirror-history';
 import { baseKeymap } from 'prosemirror-commands';
 import { Node as PMNode, type Mark, DOMSerializer } from 'prosemirror-model';
 import { schema, newHeadingId } from '../schema/index.js';
-import { fromDocxFull, toDocx, serializeNative, parseNative, readDocIdFromBytes, stampDocId } from '../index.js';
+import { fromDocxFull, toDocx, serializeNative, serializeNativeAsync, parseNative, readDocIdFromBytes, stampDocId } from '../index.js';
 import { transformForExport, countMarkedCards } from '../export/transform-for-export.js';
 import type { Thread, Comment } from './comments-plugin.js';
 import type { LocalComment } from './learn-store.js';
@@ -5447,7 +5447,10 @@ async function serializeForSave(
   const allThreads = [...baseThreads, ...extraThreads];
   const threadsOpt = allThreads.length > 0 ? { threads: allThreads } : {};
   if (format === 'cmir') {
-    return serializeNative(exportDocNode, { ...threadsOpt, ...(docId ? { docId } : {}) });
+    // Async gzip: the DEFLATE runs off the main thread, so autosave's
+    // debounced firing doesn't stall typing (manual saves get the same
+    // benefit for free). Output bytes are identical to the sync path.
+    return serializeNativeAsync(exportDocNode, { ...threadsOpt, ...(docId ? { docId } : {}) });
   }
   return toDocx(exportDocNode, { ...threadsOpt, ...(docId ? { docId } : {}) });
 }
@@ -5863,6 +5866,12 @@ const AUTOSAVE_DELAY_MS = 5000;
 const JOURNAL_DELAY_MS = 3000;
 let autosaveTimer: number | null = null;
 let journalTimer: number | null = null;
+// Write chains: with the gzip step async, two debounce rounds could
+// otherwise overlap in flight and land out of order (older bytes
+// clobbering newer). Each round snapshots + writes strictly after the
+// previous one settles; the run functions never reject.
+let journalWriteChain: Promise<void> = Promise.resolve();
+let autosaveChain: Promise<void> = Promise.resolve();
 
 /** Called from every view's `dispatchTransaction` when `tx.docChanged`
  *  is true. Re-arms both the autosave debounce (when the setting is
@@ -5875,7 +5884,7 @@ export function notifyEditForAutosave(): void {
   if (autosaveTimer !== null) window.clearTimeout(autosaveTimer);
   autosaveTimer = window.setTimeout(() => {
     autosaveTimer = null;
-    void runAutosaveAttempt();
+    autosaveChain = autosaveChain.then(() => runAutosaveAttempt());
   }, AUTOSAVE_DELAY_MS);
 }
 
@@ -5889,7 +5898,7 @@ function scheduleJournalWrite(): void {
   if (journalTimer !== null) window.clearTimeout(journalTimer);
   journalTimer = window.setTimeout(() => {
     journalTimer = null;
-    void runJournalWrite();
+    journalWriteChain = journalWriteChain.then(() => runJournalWrite());
   }, JOURNAL_DELAY_MS);
 }
 
@@ -5898,7 +5907,7 @@ async function runJournalWrite(): Promise<void> {
   const host = getHost();
   if (!host.journalsSupported) return;
   try {
-    const bytes = serializeNative(view.state.doc, {
+    const bytes = await serializeNativeAsync(view.state.doc, {
       threads: Array.from(getCommentsState(view.state).threads.values()),
       ...(currentDocId ? { docId: currentDocId } : {}),
     });

@@ -7,12 +7,21 @@ see `DETAILED_CHANGELOG.md`.
 
 ## Unreleased
 
+### Added
+
+- **Search palette: more results on demand.** The palette now shows up to
+  100 results at once (up from 50), and when there are more, the last row
+  tells you — click **show more**, or just keep arrowing down past the end,
+  to reveal the next hundred.
+
 ### Fixed
 
 - **Performance improvements** throughout the editor: faster startup, smooth
   typing with the Find bar open even in very large documents, no more brief
-  stalls after typing pauses in big files, and folder-wide **Compress** no
-  longer makes the rest of the app unresponsive while it runs.
+  stalls after typing pauses in big files, opening Settings no longer leaves
+  the editor slightly slower for the rest of the session, and folder-wide
+  **Compress** no longer makes the rest of the app unresponsive while it
+  runs.
 - **Three-pane: picking a slot with the mouse no longer swallows the next
   typed 1, 2, or 3.** Using the "Open into…" picker with the mouse previously
   left a hidden key handler behind that ate the next digit typed into the

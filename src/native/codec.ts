@@ -19,7 +19,7 @@
  * throughput; both emit standard gzip and are fully interoperable.
  */
 
-import { gzipSync, gunzipSync } from 'fflate';
+import { gzipSync, gunzipSync, gzip as gzipWorker } from 'fflate';
 
 /** True when `bytes` is a gzip stream (magic 0x1F 0x8B). */
 export function isGzip(bytes: Uint8Array): boolean {
@@ -36,4 +36,33 @@ export function gzip(bytes: Uint8Array): Uint8Array {
 /** Inflate a gzip stream produced by `gzip` (or any standard gzip). */
 export function gunzip(bytes: Uint8Array): Uint8Array {
   return gunzipSync(bytes);
+}
+
+// One failed worker spawn means they'll all fail (no Worker global /
+// CSP restriction) — remember and stop paying the attempt.
+let gzipWorkerBroken = false;
+
+/** Async `gzip` — byte-identical output to `gzip()` (same level 6,
+ *  mtime 0), but the DEFLATE work runs on fflate's internal worker
+ *  thread so the caller's thread stays free. For the editor's debounced
+ *  journal/autosave paths, where the sync variant's compression stalls
+ *  typing on large docs. Falls back to the sync path where workers are
+ *  unavailable (unit tests, exotic CSP). */
+export function gzipAsync(bytes: Uint8Array): Promise<Uint8Array> {
+  if (gzipWorkerBroken) return Promise.resolve(gzip(bytes));
+  return new Promise((resolve) => {
+    try {
+      gzipWorker(bytes, { level: 6, mtime: 0 }, (err, out) => {
+        if (err || !out) {
+          gzipWorkerBroken = true;
+          resolve(gzip(bytes));
+        } else {
+          resolve(out);
+        }
+      });
+    } catch {
+      gzipWorkerBroken = true;
+      resolve(gzip(bytes));
+    }
+  });
 }

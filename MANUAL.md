@@ -671,6 +671,10 @@ you *browse* that whole source.
 Searching **version** (or "about this install") shows the running app
 version, and Enter jumps to the About this install section of Settings.
 
+Results show 100 at a time. When there are more, the last row says so —
+click **show more** (or just keep arrowing down past the end) to reveal
+the next hundred.
+
 **Inserting evidence.** Quick-card, dropzone, and in-file results drop in
 at your cursor (the same insertion the send-to-speech and Quick Card
 buttons use). If your cursor is in the middle of a paragraph, CardMirror

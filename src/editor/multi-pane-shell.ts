@@ -30,7 +30,7 @@ import { EditorState, TextSelection } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import { Node as PMNode } from 'prosemirror-model';
 import { schema, newHeadingId } from '../schema/index.js';
-import { fromDocxFull, parseNative, serializeNative, NATIVE_FILE_EXTENSION } from '../index.js';
+import { fromDocxFull, parseNative, serializeNativeAsync, NATIVE_FILE_EXTENSION } from '../index.js';
 import { settings } from './settings.js';
 import { getHost, getElectronHost, isSameOpenHandle, type OpenedFile } from './host/index.js';
 import { isFileOpenInAnotherWindow } from './window-coordination.js';
@@ -125,6 +125,13 @@ function pushPaneDocInfo(uid: string, filename: string | null): void {
 /** Debounce window for per-DocRecord journal writes. */
 const RECORD_JOURNAL_DELAY_MS = 3000;
 
+// Per-record write chains: with the gzip step async, two debounce
+// rounds for the SAME record could otherwise overlap in flight and
+// land out of order (older bytes clobbering newer). Rounds for
+// different records are independent (distinct uids / files).
+const recordJournalChains = new WeakMap<DocRecord, Promise<void>>();
+const recordAutosaveChains = new WeakMap<DocRecord, Promise<void>>();
+
 /** Re-arm the journal-write timer for `record` after a doc edit.
  *  No-op when the host doesn't support journaling. */
 function scheduleJournalForRecord(record: DocRecord): void {
@@ -133,7 +140,8 @@ function scheduleJournalForRecord(record: DocRecord): void {
   if (record.journalTimer !== null) window.clearTimeout(record.journalTimer);
   record.journalTimer = window.setTimeout(() => {
     record.journalTimer = null;
-    void runJournalForRecord(record);
+    const prev = recordJournalChains.get(record) ?? Promise.resolve();
+    recordJournalChains.set(record, prev.then(() => runJournalForRecord(record)));
   }, RECORD_JOURNAL_DELAY_MS);
 }
 
@@ -145,7 +153,7 @@ async function runJournalForRecord(record: DocRecord): Promise<void> {
   if (!host.journalsSupported) return;
   try {
     const state = record.view.state;
-    const bytes = serializeNative(state.doc, {
+    const bytes = await serializeNativeAsync(state.doc, {
       threads: Array.from(getCommentsState(state).threads.values()),
       ...(record.docId ? { docId: record.docId } : {}),
     });
@@ -194,7 +202,7 @@ async function runAutosaveForRecord(record: DocRecord): Promise<void> {
   try {
     const state = record.view.state;
     const threads = Array.from(getCommentsState(state).threads.values());
-    const bytes = serializeNative(state.doc, {
+    const bytes = await serializeNativeAsync(state.doc, {
       ...(threads.length ? { threads } : {}),
       ...(record.docId ? { docId: record.docId } : {}),
     });
@@ -221,7 +229,8 @@ function scheduleAutosaveForRecord(record: DocRecord): void {
   if (record.autosaveTimer !== null) window.clearTimeout(record.autosaveTimer);
   record.autosaveTimer = window.setTimeout(() => {
     record.autosaveTimer = null;
-    void runAutosaveForRecord(record);
+    const prev = recordAutosaveChains.get(record) ?? Promise.resolve();
+    recordAutosaveChains.set(record, prev.then(() => runAutosaveForRecord(record)));
   }, AUTOSAVE_DELAY_MS);
 }
 
@@ -1713,15 +1722,21 @@ class MultiPaneShell {
     slot.paneEl.classList.add('pmd-pane-focused');
     if (!wasSame) {
       setActiveView(slot.visible?.view ?? null);
+      // The shared comments column lives at the shell-row level, not
+      // inside any single pane — so re-resolve this doc's flashcard
+      // anchors (the focused doc changed) and re-render its cards, and
+      // re-point the scroll listener so cards relayout as the focused
+      // pane scrolls. `refreshFlashcardAnchors` re-renders for us (and is
+      // a no-op when the column is hidden, same as render()).
+      // Gated on the focus actually changing: a click inside the
+      // already-focused pane (i.e. every caret placement) would
+      // otherwise pay a full O(doc) re-resolution here, and the
+      // incremental paths (reconcileAnchors, highlight-range mapping,
+      // lastDropCount) already keep anchors current between focus
+      // changes.
+      commentsColumn?.refreshFlashcardAnchors();
+      this.attachFocusedScrollSync(slot);
     }
-    // The shared comments column lives at the shell-row level, not
-    // inside any single pane — so re-resolve this doc's flashcard
-    // anchors (the focused doc changed) and re-render its cards, and
-    // re-point the scroll listener so cards relayout as the focused
-    // pane scrolls. `refreshFlashcardAnchors` re-renders for us (and is
-    // a no-op when the column is hidden, same as render()).
-    commentsColumn?.refreshFlashcardAnchors();
-    this.attachFocusedScrollSync(slot);
     const activeCount = SLOT_IDS.filter((id) => this.slots[id].stack.length > 0).length;
     if (this.layoutMode === 'wide' && activeCount === 3) {
       // Compare the pane's box against the row's viewport. If any

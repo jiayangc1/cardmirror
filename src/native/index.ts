@@ -33,7 +33,7 @@ import { schema } from '../schema/index.js';
 import { stampMissingHeadingIds } from '../schema/ids.js';
 import { splitInCardAnalytics } from '../schema/migrate.js';
 import type { Thread } from '../editor/comments-plugin.js';
-import { gzip, gunzip, isGzip } from './codec.js';
+import { gzip, gzipAsync, gunzip, isGzip } from './codec.js';
 
 /** Magic identifier present in every CardMirror native file. Rejects
  *  arbitrary JSON files. */
@@ -76,12 +76,13 @@ export interface SerializeNativeOptions {
   docId?: string;
 }
 
-/** Serialize a ProseMirror doc + optional threads to bytes in the
- *  CardMirror native format. */
-export function serializeNative(
-  doc: PMNode,
-  opts: SerializeNativeOptions = {},
-): Uint8Array {
+/** Build the minified-JSON envelope both serialize variants gzip-wrap.
+ *  Minified because the pretty-print whitespace was only for human
+ *  inspection, which gzip defeats anyway (`gunzip file.cmir | jq`
+ *  restores it on demand). Compression yields ~10× smaller files; the
+ *  gzip magic (0x1F 0x8B) lets `parseNative` tell new files from legacy
+ *  plaintext ones (which begin with `{`). */
+function buildNativeEnvelope(doc: PMNode, opts: SerializeNativeOptions): Uint8Array {
   const file: NativeFile = {
     format: FORMAT_ID,
     formatVersion: FORMAT_VERSION,
@@ -95,13 +96,28 @@ export function serializeNative(
   if (opts.docId) {
     file.docId = opts.docId;
   }
-  // Minify, then gzip-wrap. The pretty-print whitespace was only for
-  // human inspection, which gzip defeats anyway (`gunzip file.cmir | jq`
-  // restores it on demand). Compression yields ~10× smaller files; the
-  // gzip magic (0x1F 0x8B) lets `parseNative` tell new files from legacy
-  // plaintext ones (which begin with `{`).
-  const json = JSON.stringify(file);
-  return gzip(new TextEncoder().encode(json));
+  return new TextEncoder().encode(JSON.stringify(file));
+}
+
+/** Serialize a ProseMirror doc + optional threads to bytes in the
+ *  CardMirror native format. */
+export function serializeNative(
+  doc: PMNode,
+  opts: SerializeNativeOptions = {},
+): Uint8Array {
+  return gzip(buildNativeEnvelope(doc, opts));
+}
+
+/** `serializeNative`, but the gzip DEFLATE runs off the main thread
+ *  (see `gzipAsync`) — same bytes for the same envelope. For the
+ *  editor's debounced journal/autosave paths, where the sync variant's
+ *  compression stalls typing on large docs. The JSON envelope build
+ *  (which must read the live doc) stays synchronous either way. */
+export function serializeNativeAsync(
+  doc: PMNode,
+  opts: SerializeNativeOptions = {},
+): Promise<Uint8Array> {
+  return gzipAsync(buildNativeEnvelope(doc, opts));
 }
 
 export interface ParseNativeResult {

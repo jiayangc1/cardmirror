@@ -536,6 +536,11 @@ function fileObjectResult(o: FileObject): PaletteResult {
 }
 
 /** Short left-aligned badge for a result row. */
+/** Results rendered per page: the initial window, and how many more each
+ *  "show more" click (or arrowing past the end) adds. Searches rank the
+ *  FULL list; this only bounds how much DOM is built at once. */
+const RESULT_PAGE_SIZE = 100;
+
 function badgeText(r: PaletteResult): string {
   switch (r.source) {
     case 'quickcard':
@@ -596,7 +601,16 @@ class QuickCardSearchUI {
   private openFilePath: (path: string, name: string) => void = () => {};
 
   private results: PaletteResult[] = [];
+  /** Full ranked list for the current query; `results` holds the rendered
+   *  window (its first `visibleCount` entries). Kept so "show more" can
+   *  extend the window without re-running the search. */
+  private fullResults: PaletteResult[] = [];
+  private visibleCount = RESULT_PAGE_SIZE;
   private selected = 0;
+  /** Row elements as last built by `renderResults`, index-aligned with
+   *  `results` — lets selection moves swap the active class in place
+   *  instead of rebuilding the list. */
+  private rowEls: HTMLElement[] = [];
   private emptyText = '';
 
   // ── File-search state (the `f` prefix) ──────────────────────────────
@@ -822,6 +836,9 @@ class QuickCardSearchUI {
         // Cites never appear here — they aren't headings — so the
         // overview isn't doubled; they surface once you type a query.
         this.results = this.buildOutlineResults();
+        // Outline browse stays deliberately un-paginated; keep the full
+        // list in sync so no "show more" row appears.
+        this.fullResults = this.results;
         this.emptyText = 'No headings in this file.';
         this.selected = 0;
         this.renderResults();
@@ -892,10 +909,22 @@ class QuickCardSearchUI {
     this.finishSearch();
   }
 
-  /** Clamp, reset selection, render — the shared tail of every search. */
+  /** Clamp to the first page, reset selection, render — the shared tail
+   *  of every search. */
   private finishSearch(): void {
-    this.results = this.results.slice(0, 50);
+    this.fullResults = this.results;
+    this.visibleCount = RESULT_PAGE_SIZE;
+    this.results = this.fullResults.slice(0, this.visibleCount);
     this.selected = 0;
+    this.renderResults();
+  }
+
+  /** Extend the rendered window by one page (the "show more" row, or
+   *  arrowing past the last rendered result). Selection is preserved —
+   *  the rebuilt rows re-read `this.selected`. */
+  private showMore(): void {
+    this.visibleCount += RESULT_PAGE_SIZE;
+    this.results = this.fullResults.slice(0, this.visibleCount);
     this.renderResults();
   }
 
@@ -958,10 +987,7 @@ class QuickCardSearchUI {
     toggleManualPin(path);
     this.runSearch(); // re-sort + refresh ★
     const at = this.results.findIndex((r) => r.filePath === path);
-    if (at >= 0) {
-      this.selected = at;
-      this.renderResults();
-    }
+    if (at >= 0) this.setSelected(at);
     void this.warmPins();
   }
 
@@ -1049,10 +1075,7 @@ class QuickCardSearchUI {
   private restoreSelection(key: string | null): void {
     if (!key) return;
     const at = this.results.findIndex((r) => resultKey(r) === key);
-    if (at > 0) {
-      this.selected = at;
-      this.renderResults();
-    }
+    if (at > 0) this.setSelected(at);
   }
 
   /** Tab from a selected file → enter in-file mode with the bar cleared.
@@ -1175,6 +1198,7 @@ class QuickCardSearchUI {
     if (set.has(outlineIndex)) set.delete(outlineIndex);
     else set.add(outlineIndex);
     this.results = this.buildOutlineResults();
+    this.fullResults = this.results;
     const at = this.results.findIndex((r) => r.outlineIndex === outlineIndex);
     this.selected = at >= 0 ? at : Math.min(this.selected, this.results.length - 1);
     this.renderResults();
@@ -1195,8 +1219,15 @@ class QuickCardSearchUI {
 
   private move(delta: number): void {
     if (this.results.length === 0) return;
-    this.selected = (this.selected + delta + this.results.length) % this.results.length;
-    this.renderResults();
+    const next = this.selected + delta;
+    // Arrowing past the last rendered row reveals the next page instead
+    // of wrapping, when there is one — the keyboard path to "show more".
+    if (next >= this.results.length && this.fullResults.length > this.results.length) {
+      this.showMore();
+      this.setSelected(Math.min(next, this.results.length - 1));
+      return;
+    }
+    this.setSelected((next + this.results.length) % this.results.length);
   }
 
   /** Bottom hint strip — reflects what Enter / Alt+Enter / Tab / Esc
@@ -1236,6 +1267,7 @@ class QuickCardSearchUI {
   private renderResults(): void {
     this.renderHints();
     this.resultsEl.innerHTML = '';
+    this.rowEls = [];
     if (this.results.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'pmd-qcs-empty';
@@ -1321,18 +1353,47 @@ class QuickCardSearchUI {
         row.appendChild(snip);
       }
       row.addEventListener('mousemove', () => {
-        if (this.selected !== i) {
-          this.selected = i;
-          this.renderResults();
-        }
+        if (this.selected !== i) this.setSelected(i);
       });
       row.addEventListener('click', () => {
         this.selected = i;
         this.activateSelected(false);
       });
       this.resultsEl.appendChild(row);
+      this.rowEls.push(row);
     });
+    // Overflow indicator + expander. A div (not a button) so clicking it
+    // can't steal focus from the search input, which owns the keyboard.
+    if (this.fullResults.length > this.results.length) {
+      const more = document.createElement('div');
+      more.className = 'pmd-qcs-more';
+      more.setAttribute('role', 'button');
+      more.textContent = `Showing ${this.results.length} of ${this.fullResults.length} — show more`;
+      more.addEventListener('click', () => this.showMore());
+      this.resultsEl.appendChild(more);
+    }
     this.resultsEl.querySelector('.pmd-qcs-row-active')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  /** Move the active-row highlight without rebuilding the list.
+   *  Selection changes (hover, arrow keys) only need the active class
+   *  swapped between two rows plus a hints refresh — a full rebuild
+   *  here is O(rows) per event (and outline browse is uncapped).
+   *  `renderResults` remains the path for changes to `results` itself. */
+  private setSelected(i: number): void {
+    const prev = this.rowEls[this.selected];
+    if (prev) {
+      prev.classList.remove('pmd-qcs-row-active');
+      prev.removeAttribute('aria-selected');
+    }
+    this.selected = i;
+    const next = this.rowEls[i];
+    if (next) {
+      next.classList.add('pmd-qcs-row-active');
+      next.setAttribute('aria-selected', 'true');
+      next.scrollIntoView({ block: 'nearest' });
+    }
+    this.renderHints();
   }
 
   // ── Insert ────────────────────────────────────────────────────────
@@ -1466,9 +1527,11 @@ function renderTagPicker(host: HTMLElement, onChange: () => void, onDismiss: () 
     selected = 0;
   };
 
+  const rowEls: HTMLElement[] = [];
   const renderList = (): void => {
     const active = activeTagSet();
     list.innerHTML = '';
+    rowEls.length = 0;
     if (all.length === 0) {
       const none = document.createElement('div');
       none.className = 'pmd-qctags-empty';
@@ -1489,14 +1552,25 @@ function renderTagPicker(host: HTMLElement, onChange: () => void, onDismiss: () 
       span.textContent = tag;
       row.append(cb, span);
       row.addEventListener('mousemove', () => {
-        if (selected !== i) {
-          selected = i;
-          renderList();
-        }
+        if (selected !== i) setSelected(i);
       });
       list.appendChild(row);
+      rowEls.push(row);
     });
     list.querySelector('.pmd-qctags-row-active')?.scrollIntoView({ block: 'nearest' });
+  };
+
+  // In-place active-row swap for selection moves (hover / arrows) —
+  // full renderList rebuilds are reserved for content changes
+  // (filter text, checkbox toggles).
+  const setSelected = (i: number): void => {
+    rowEls[selected]?.classList.remove('pmd-qctags-row-active');
+    selected = i;
+    const next = rowEls[i];
+    if (next) {
+      next.classList.add('pmd-qctags-row-active');
+      next.scrollIntoView({ block: 'nearest' });
+    }
   };
 
   const toggle = (tag: string): void => {
@@ -1527,17 +1601,11 @@ function renderTagPicker(host: HTMLElement, onChange: () => void, onDismiss: () 
         break;
       case 'ArrowDown':
         e.preventDefault();
-        if (shown.length) {
-          selected = (selected + 1) % shown.length;
-          renderList();
-        }
+        if (shown.length) setSelected((selected + 1) % shown.length);
         break;
       case 'ArrowUp':
         e.preventDefault();
-        if (shown.length) {
-          selected = (selected - 1 + shown.length) % shown.length;
-          renderList();
-        }
+        if (shown.length) setSelected((selected - 1 + shown.length) % shown.length);
         break;
       case 'Enter':
         e.preventDefault();

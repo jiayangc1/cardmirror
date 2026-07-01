@@ -26,6 +26,7 @@ export type { ExportResult, ExportOptions } from './export/index.js';
 
 export {
   serializeNative,
+  serializeNativeAsync,
   parseNative,
   looksLikeNative,
   NATIVE_FILE_EXTENSION,

@@ -12,6 +12,87 @@ First tier of fixes from a systematic performance & housecleaning audit
 process, and repo hygiene; every finding adversarially verified before
 acceptance).
 
+- **Settings dialog: per-row document-wide MutationObservers replaced with
+  explicit disposal** (`src/editor/settings-ui.ts`). The `onDetached(el, cb)`
+  helper ("run cleanup when the row leaves the DOM") created a NEW
+  MutationObserver on `document.documentElement` `{childList, subtree}` per
+  call — ~28 call sites per render (one per toggle row plus one per widget
+  editor), so one Settings open instantiated ~60 document-wide observers,
+  each pairing a `settings.subscribe()`. `close()` only hides the singleton
+  overlay, so nothing ever detached: after closing Settings once, every DOM
+  mutation for the rest of the session dispatched through all of them, and
+  every settings change kept rebuilding hidden widget DOM (the file's own
+  comment calls this subscriber class "the dominant settings lag on large
+  docs"). Now `registerRowCleanup` pushes the callback onto a disposer list
+  flushed by `close()` and at the top of `render()` — zero observers, and
+  subscriptions live only while the dialog is open. The narrowed contract
+  (cleanup at close/re-render, not at actual detach) is documented on the
+  helper; no current caller detaches elements mid-session.
+
+- **Journal + autosave: gzip moved off the main thread**
+  (`src/native/codec.ts`, `src/native/index.ts`, `src/editor/index.ts`,
+  `src/editor/multi-pane-shell.ts`, new `tests/native/serialize-async.test.ts`).
+  Every pause in typing arms the 3s journal write (always) and the 5s
+  autosave (opt-in, .cmir) — both ran `serializeNative`'s fflate `gzipSync`
+  level 6 synchronously on the renderer main thread, a 50–300ms freeze on
+  large docs landing right when typing resumes (doubled with autosave on;
+  duplicated per record in multi-pane). New `gzipAsync` in the codec uses
+  fflate's worker-backed async `gzip` with the same `{level: 6, mtime: 0}` —
+  byte-identical output (unit-tested), preserving the codec's determinism
+  guarantee — with a remembered fallback to sync where Workers are
+  unavailable. `serializeNativeAsync` shares the envelope builder with the
+  sync variant; the four debounced paths (single-doc journal + autosave via
+  `serializeForSave`, per-record journal + autosave) now use it, which also
+  makes MANUAL .cmir saves smoother for free. Journal/autosave rounds are
+  now chained per doc (module promise / per-record WeakMap) so two in-flight
+  writes can't land out of order — a pre-existing theoretical race the async
+  gzip would have widened. The JSON envelope build (`doc.toJSON` +
+  `JSON.stringify`) stays on the main thread by necessity (it reads the live
+  doc), so the very largest docs keep a small synchronous blip per pause —
+  the dominant ~70% (compression) is what moved off-thread.
+
+- **Search palette: paginated results (100 per page, "show more")**
+  (`src/editor/quick-card-search-ui.ts`, `style.css`, `MANUAL.md`). The
+  palette hard-capped every search at 50 rows with no indication anything
+  was cut off. Ranking always ran over the full source list; the cap only
+  bounded DOM construction — so `finishSearch` now keeps the full ranked
+  list (`fullResults`) and renders a window of `RESULT_PAGE_SIZE` (100)
+  rows. When more exist, a trailing "Showing X of Y — show more" row
+  extends the window by a page; ArrowDown past the last rendered row does
+  the same instead of wrapping (the keyboard path). A div rather than a
+  button so clicks can't steal focus from the search input. The in-file
+  outline browse stays deliberately un-paginated (it's a nav-pane-style
+  overview); its two direct render paths keep `fullResults` in sync so no
+  overflow row appears. Uncapping entirely was considered and rejected:
+  file libraries at real scale (~150k indexed .cmir files on the reference
+  machine) can match tens of thousands of rows on broad queries, and
+  building that much DOM per keystroke would freeze the palette for
+  seconds; pagination gives access to everything while bounding each
+  build. Selection restores (`togglePinPath`, `restoreSelection`) also now
+  use the O(1) in-place `setSelected` instead of full rebuilds.
+
+- **Multi-pane: caret clicks no longer re-resolve the whole document's
+  annotations** (`src/editor/multi-pane-shell.ts` `focusSlot`). Every pane
+  mousedown called `commentsColumn.refreshFlashcardAnchors()` (full
+  `flattenDoc` walk + descriptor re-resolution + a dispatched transaction +
+  cards re-render) and re-attached the scroll-sync listener, even when the
+  clicked pane was already focused — the `wasSame` guard existed but only
+  gated `setActiveView`. Both calls now live inside the guard; the
+  incremental paths (`reconcileAnchors`, highlight-range mapping,
+  `lastDropCount`) keep anchors current between actual focus changes.
+
+- **Quick-card palette: selection moves no longer rebuild the list**
+  (`src/editor/quick-card-search-ui.ts`). Hovering across rows or holding an
+  arrow key tore down and rebuilt every result row per event
+  (`innerHTML = ''` + 4–6 elements and 2–4 listeners per row + a forced
+  layout) — O(rows²) across a mouse sweep, and outline-browse mode is
+  deliberately uncapped, so on big files that was hundreds of rows per
+  hover twitch. New `setSelected` swaps the active class/aria-selected
+  between the two affected rows, refreshes the hint strip (Enter/Tab/pin
+  hints are per-row-type), and scrolls the new row into view; full rebuilds
+  are reserved for changes to the result set itself. Same treatment applied
+  to the tag picker's `renderList`.
+
 - **Find/Replace: incremental doc-change rescan**
   (`src/editor/find-replace-plugin.ts`, new
   `tests/editor/find-replace-incremental.test.ts`). With a query active, every

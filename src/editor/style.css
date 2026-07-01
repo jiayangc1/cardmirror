@@ -8147,6 +8147,17 @@ body.pmd-recovery-active.pmd-multi-doc #app {
   color: var(--pmd-c-text-muted);
   font-size: 0.82rem;
 }
+.pmd-qcs-more {
+  padding: 0.45rem 0.5rem;
+  color: var(--pmd-c-text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+}
+.pmd-qcs-more:hover {
+  color: var(--pmd-c-text);
+}
 .pmd-qcs-input {
   border: none;
   outline: none;
