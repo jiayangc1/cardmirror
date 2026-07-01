@@ -39,20 +39,37 @@ interface ShowSaveFilePickerOptions {
   suggestedName?: string;
   types?: { description: string; accept: Record<string, string[]> }[];
 }
+type FsPermissionMode = { mode: 'read' | 'readwrite' };
 interface FileSystemFileHandle {
   name?: string;
+  getFile(): Promise<File>;
   createWritable(): Promise<{
     write(data: Blob | ArrayBuffer | Uint8Array): Promise<void>;
     close(): Promise<void>;
   }>;
+  queryPermission?(opts: FsPermissionMode): Promise<PermissionState>;
+  requestPermission?(opts: FsPermissionMode): Promise<PermissionState>;
+  isSameEntry?(other: FileSystemFileHandle): Promise<boolean>;
 }
 type ShowSaveFilePicker = (
   opts: ShowSaveFilePickerOptions,
 ) => Promise<FileSystemFileHandle>;
+interface ShowOpenFilePickerOptions {
+  types?: ShowSaveFilePickerOptions['types'];
+  multiple?: boolean;
+  excludeAcceptAllOption?: boolean;
+}
+type ShowOpenFilePicker = (
+  opts?: ShowOpenFilePickerOptions,
+) => Promise<FileSystemFileHandle[]>;
 
 function getShowSaveFilePicker(): ShowSaveFilePicker | undefined {
   return (window as unknown as { showSaveFilePicker?: ShowSaveFilePicker })
     .showSaveFilePicker;
+}
+function getShowOpenFilePicker(): ShowOpenFilePicker | undefined {
+  return (window as unknown as { showOpenFilePicker?: ShowOpenFilePicker })
+    .showOpenFilePicker;
 }
 
 function filtersToAcceptAttribute(filters?: FileFilter[]): string {
@@ -75,18 +92,28 @@ function isIOS(): boolean {
   return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
 }
 
+// The File System Access pickers validate each accept extension and reject
+// anything outside [A-Za-z0-9+.] — notably the hyphen in `.cmir-journal`, which
+// the lenient `<input accept>` allowed. Skip extensions the API would reject;
+// they remain pickable via the picker's "All files" option (which we keep on).
+const FS_ACCESS_EXT_OK = /^[A-Za-z0-9+.]+$/;
+
 function filtersToSavePickerTypes(filters?: FileFilter[]): ShowSaveFilePickerOptions['types'] {
   if (!filters || filters.length === 0) return undefined;
-  return filters.map((f) => {
-    const accept: Record<string, string[]> = {};
-    for (const ext of f.extensions) {
-      const mime = mimeForExtension(ext);
-      const existing = accept[mime] ?? [];
-      existing.push(`.${ext}`);
-      accept[mime] = existing;
-    }
-    return { description: f.name, accept };
-  });
+  const types = filters
+    .map((f) => {
+      const accept: Record<string, string[]> = {};
+      for (const ext of f.extensions) {
+        if (!FS_ACCESS_EXT_OK.test(ext)) continue;
+        const mime = mimeForExtension(ext);
+        const existing = accept[mime] ?? [];
+        existing.push(`.${ext}`);
+        accept[mime] = existing;
+      }
+      return { description: f.name, accept };
+    })
+    .filter((t) => Object.keys(t.accept).length > 0);
+  return types.length > 0 ? types : undefined;
 }
 
 /** Opened IndexedDB connection. Lazily created on first journal
@@ -121,10 +148,31 @@ function browserJournalsSupported(): boolean {
   return typeof indexedDB !== 'undefined';
 }
 
+/** Best-effort request for durable (non-evictable) storage. No-op where the
+ *  Storage API is absent; harmless if the browser declines. */
+async function requestPersistentStorage(): Promise<void> {
+  try {
+    const s = typeof navigator !== 'undefined' ? navigator.storage : undefined;
+    if (!s?.persist) return;
+    const already = s.persisted ? await s.persisted() : false;
+    if (!already) await s.persist();
+  } catch {
+    /* best-effort — storage still works, just without the durability hint */
+  }
+}
+
 export class BrowserHost implements Host {
   readonly kind = 'browser' as const;
   readonly journalsSupported = browserJournalsSupported();
   readonly canSpawnWindow = false;
+
+  constructor() {
+    // Ask the browser to keep our IndexedDB/localStorage (settings, the autosave
+    // journal, recovery state) from being evicted under storage pressure. Matters
+    // most for the installed PWA on ChromeOS, where the user's work otherwise
+    // lives only in the browser profile. Best-effort, fire-and-forget.
+    void requestPersistentStorage();
+  }
 
   get supportsInPlaceSave(): boolean {
     // showSaveFilePicker gives us a writable handle that survives
@@ -147,8 +195,41 @@ export class BrowserHost implements Host {
   private abortPendingOpen: (() => void) | null = null;
 
   async openFile(opts: OpenFileOptions = {}): Promise<OpenedFile | null> {
+    // File System Access path (Chromium): yields a handle so subsequent saves
+    // write back IN PLACE. Falls back to the handle-less <input> elsewhere
+    // (Firefox/Safari/iOS), where Save stays Save-As.
+    const showOpenFilePicker = getShowOpenFilePicker();
+    if (typeof showOpenFilePicker === 'function') {
+      return this.openViaPicker(showOpenFilePicker, opts);
+    }
     this.abortPendingOpen?.();
     return this.openOnce(opts);
+  }
+
+  private async openViaPicker(
+    pick: ShowOpenFilePicker,
+    opts: OpenFileOptions,
+  ): Promise<OpenedFile | null> {
+    let handle: FileSystemFileHandle | undefined;
+    try {
+      [handle] = await pick({
+        types: filtersToSavePickerTypes(opts.filters),
+        multiple: false,
+      });
+    } catch (e) {
+      // AbortError = user dismissed the picker. Quietly bail.
+      if (e instanceof DOMException && e.name === 'AbortError') return null;
+      throw e;
+    }
+    if (!handle) return null;
+    // No permission request here — opening a file to read shouldn't prompt for
+    // edit access (it looks like an unprompted "save?" before the user has
+    // touched anything). The readwrite grant is requested later, from a user
+    // gesture, when the user actually saves or turns autosave on. See
+    // `ensureWritable`.
+    const file = await handle.getFile();
+    const buf = await file.arrayBuffer();
+    return { name: handle.name ?? file.name, bytes: new Uint8Array(buf), handle };
   }
 
   private openOnce(opts: OpenFileOptions): Promise<OpenedFile | null> {
@@ -274,10 +355,39 @@ export class BrowserHost implements Host {
       throw new Error('BrowserHost: saveExisting requires a File System Access handle.');
     }
     const fh = handle as FileSystemFileHandle;
+    // VERIFY only — never prompt here. Write permission is granted ahead of time
+    // by `ensureWritable` from a user gesture (Save click / autosave toggle), so
+    // a gesture-less autosave fire that lacks permission fails cleanly (the
+    // caller no-ops) rather than triggering a confusing out-of-context prompt.
+    if (
+      fh.queryPermission &&
+      (await fh.queryPermission({ mode: 'readwrite' })) !== 'granted'
+    ) {
+      throw new Error('BrowserHost: write permission not granted for in-place save.');
+    }
     const blob = bytesToBlob(bytes, fh.name ?? '');
     const writable = await fh.createWritable();
     await writable.write(blob);
     await writable.close();
+  }
+
+  /** Ensure write access to `handle`, prompting if necessary. MUST be called
+   *  from a user gesture (Save / autosave toggle) so the readwrite prompt can
+   *  show. Returns whether write access is granted. */
+  async ensureWritable(handle: unknown): Promise<boolean> {
+    const fh = handle as FileSystemFileHandle | null;
+    if (!fh || typeof fh.createWritable !== 'function') return false;
+    // No permission API (older Chromium): assume writable; createWritable throws
+    // downstream if not.
+    if (!fh.queryPermission || !fh.requestPermission) return true;
+    const rw: FsPermissionMode = { mode: 'readwrite' };
+    if ((await fh.queryPermission(rw)) === 'granted') return true;
+    try {
+      return (await fh.requestPermission(rw)) === 'granted';
+    } catch {
+      // requestPermission throws without transient activation.
+      return false;
+    }
   }
 
   async writeJournal(entry: JournalEntry): Promise<void> {

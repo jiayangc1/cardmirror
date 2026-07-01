@@ -475,6 +475,11 @@ export class ElectronHost implements Host {
     await api().saveExisting(handle, bytes);
   }
 
+  /** Electron writes to absolute paths — always writable, no permission model. */
+  async ensureWritable(_handle: unknown): Promise<boolean> {
+    return true;
+  }
+
   /** Silent "Save Send Doc" write. `opts.folder` (fixed-folder mode)
    *  or `opts.siblingHandle` (same-folder mode, the source file's path)
    *  resolves the destination directory in main. Returns the written

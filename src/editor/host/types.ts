@@ -143,6 +143,15 @@ export interface Host {
    *  cases. */
   saveExisting(handle: unknown, bytes: Uint8Array): Promise<void>;
 
+  /** Ensure `handle` is writable, prompting for permission if needed, and
+   *  resolve to whether write access is granted. Call this from a USER-GESTURE
+   *  context (a Save click / autosave toggle) BEFORE the work that precedes the
+   *  write (e.g. serialization), so the browser's readwrite permission prompt
+   *  fires while the gesture's activation is still valid — and only when the
+   *  user has shown save intent, not on open. No-op `true` on Electron (paths
+   *  are always writable) and where there's no permission model. */
+  ensureWritable(handle: unknown): Promise<boolean>;
+
   /** Whether this host can actually perform in-place saves. The
    *  caller uses this to decide whether to even surface the
    *  silent-Save affordance — when false, "Save" devolves into

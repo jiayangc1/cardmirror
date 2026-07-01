@@ -195,10 +195,15 @@ import { wireColorPanel } from './color-panel.js';
 import { countReadAloudWords, formatReadTime, formatNumber } from './word-count.js';
 import { getHost, getElectronHost, isWindowsHost, isSameOpenHandle, type OpenedFile, type JournalEntry } from './host/index.js';
 
-// Tag the body with the host kind so CSS can gate platform-specific
-// chrome (e.g. the plain-paste toggle button only appears in the
-// browser edition; the autosave button only appears on desktop).
+// Tag the body with the host kind so CSS can gate platform-specific chrome
+// (e.g. the Paste Text button appears only in the browser edition).
 document.body.classList.add('pmd-host-' + getHost().kind);
+// Tag in-place-save capability separately from host kind: the autosave button
+// is gated on this (Electron always; a Chromium browser with the File System
+// Access API; hidden on Firefox/Safari where Save can only ever Save-As).
+if (getHost().supportsInPlaceSave) {
+  document.body.classList.add('pmd-inplace-save');
+}
 
 const editorEl = document.getElementById('editor')!;
 /** Single-doc scroll container. `#app` is `position: fixed` +
@@ -592,9 +597,28 @@ const fontSizeControlEl = fontSizeInput?.parentElement as HTMLDivElement | null;
 const fontSizeUpBtn = document.getElementById('font-size-up-btn') as HTMLButtonElement | null;
 const fontSizeDownBtn = document.getElementById('font-size-down-btn') as HTMLButtonElement | null;
 
+// Mirror the paste-plugin's armed flag onto the Paste Text button: aria-pressed
+// (the lit state) plus a state-aware tooltip. The common path (clipboard read
+// succeeds) pastes immediately and never arms; this only lights up on the
+// browser fallback when the read is denied, where the tooltip then explains that
+// the next Ctrl/Cmd+V does the paste.
 function updatePlainPasteIndicator(armed: boolean): void {
   if (!plainPasteToggleBtn) return;
   plainPasteToggleBtn.setAttribute('aria-pressed', armed ? 'true' : 'false');
+  // Route through the tooltip controller so ribbonTooltipMode governs whether it
+  // shows. Armed → drop the F2 hint (Ctrl/Cmd+V is the actionable key now).
+  if (armed) {
+    registerRibbonTooltip({
+      el: plainPasteToggleBtn,
+      label: 'Plain paste armed — press Ctrl/Cmd+V to paste as text',
+    });
+  } else {
+    registerRibbonTooltip({
+      el: plainPasteToggleBtn,
+      commandId: 'pasteAsText',
+      label: 'Paste the clipboard as unformatted text',
+    });
+  }
 }
 const zoomOutBtn = document.getElementById('zoom-out-btn') as HTMLButtonElement;
 const zoomInBtn = document.getElementById('zoom-in-btn') as HTMLButtonElement;
@@ -1156,6 +1180,10 @@ const ribbonContext: RibbonContext = {
     settings.set('autosaveEnabled', next);
     // Remember the choice per-file so it survives close + reopen.
     setAutosaveForPath(activeFile().handle, next);
+    // Turning autosave ON: secure write permission now, while this click's
+    // activation is fresh — autosave fires on a timer with no gesture to prompt
+    // from, so it relies on the grant being in place already.
+    if (next) void getHost().ensureWritable(activeFile().handle);
   },
   newSpeechDocument: () => {
     if (multiDocNewSpeechDocument) {
@@ -2845,7 +2873,7 @@ if (timerToggleBtn) {
   button(
     'plain-paste-toggle-btn',
     'pasteAsText',
-    'Paste plain text — when on, Ctrl/Cmd+V pastes unformatted text',
+    'Paste the clipboard as unformatted text',
   );
   button('new-speech-btn', 'newSpeechDocument');
   button('mark-active-as-speech-btn', 'markActiveAsSpeech');
@@ -3102,19 +3130,18 @@ function syncParagraphIntegrityBtn(): void {
 }
 syncParagraphIntegrityBtn();
 
-// Plain Paste button — routes through `runRibbon('pasteAsText')` so
-// it follows the same host-aware path the F2 keymap uses. Browser:
-// flips the paste-plugin's armed flag (aria-pressed mirrors that
-// state via `onArmedChange`); Electron: fires an immediate plain
-// paste from the system clipboard.
+// Paste Text button — routes through `runRibbon('pasteAsText')`, the same path
+// as the F2 keymap: read the clipboard and paste it unformatted (Electron via
+// host IPC; browser via the async Clipboard API, gated on this click as the
+// user gesture). If a browser read is denied it falls back to arming the paste-
+// plugin's flag, and `onArmedChange` mirrors that onto `aria-pressed` so the
+// button lights up as the cue to press Ctrl/Cmd+V.
 if (plainPasteToggleBtn) {
   plainPasteToggleBtn.addEventListener('mousedown', (e) => e.preventDefault());
   plainPasteToggleBtn.addEventListener('click', () => runRibbon('pasteAsText'));
-  // Title is owned by the ribbon-tooltip controller (registered
-  // with the `pasteAsText` command id below); the controller
-  // appends the current keybinding when ribbonTooltipMode is
-  // `both` or `shortcut`. The HTML's longer explainer is the
-  // initial-paint fallback before the controller takes over.
+  // Title is owned by the ribbon-tooltip controller (registered with the
+  // `pasteAsText` command id above); it appends the keybinding in `both` /
+  // `shortcut` modes. The HTML title is the initial-paint fallback.
 }
 
 // ---- Font-size input + dropdown ----
@@ -4500,7 +4527,7 @@ const OPEN_FILE_FILTERS = [
 function resolveOpenedFile(
   opened: OpenedFile,
 ):
-  | { name: string; bytes: Uint8Array; handle: string | null; format: 'cmir' | 'docx'; recovered: boolean }
+  | { name: string; bytes: Uint8Array; handle: unknown; format: 'cmir' | 'docx'; recovered: boolean }
   | 'corrupt' {
   if (opened.name.toLowerCase().endsWith('.cmir-journal')) {
     try {
@@ -4534,7 +4561,10 @@ function resolveOpenedFile(
   return {
     name: opened.name,
     bytes: opened.bytes,
-    handle: typeof opened.handle === 'string' ? opened.handle : null,
+    // Keep the handle as-is: an Electron path string OR a web FileSystemFile-
+    // Handle object (so Save can write in place). Only string paths reach the
+    // path-keyed stores downstream (they guard with `typeof === 'string'`).
+    handle: opened.handle ?? null,
     format: formatFromFilename(opened.name) ?? 'docx',
     recovered: false,
   };
@@ -4626,7 +4656,9 @@ async function routeOpenedFile(opened: OpenedFile): Promise<void> {
       await host.spawnWindow({
         filename: src.name,
         bytes: src.bytes,
-        handle: src.handle,
+        // spawnWindow is Electron-only (canSpawnWindow); its handle is a path
+        // string. A web FileSystemFileHandle can't cross to a new window.
+        handle: typeof src.handle === 'string' ? src.handle : null,
         format,
         uid: null,
       });
@@ -4672,7 +4704,7 @@ async function routeOpenedFile(opened: OpenedFile): Promise<void> {
     // A recovered journal has no path yet — don't record an unreopenable
     // (handle-null) recent; the Save flow records it once it's written.
     if (!src.recovered) {
-      recordRecent({ handle: src.handle, filename: src.name, format });
+      recordRecent({ handle: typeof src.handle === 'string' ? src.handle : null, filename: src.name, format });
     }
     homeScreen.hide();
     console.log(`Loaded ${src.name}: ${countSummary(docNode)}`);
@@ -4693,7 +4725,9 @@ async function routeOpenedFile(opened: OpenedFile): Promise<void> {
 async function loadFileInPlace(file: {
   filename: string;
   bytes: Uint8Array;
-  handle: string | null;
+  // Electron path string OR a web FileSystemFileHandle object — flows to
+  // `setCurrentDocHandle` so in-place Save works in both editions.
+  handle: unknown;
   format: 'cmir' | 'docx';
   /** A recovered (.cmir-journal) doc: mount dirty, don't record a recent. */
   recovered?: boolean;
@@ -4731,7 +4765,7 @@ async function loadFileInPlace(file: {
     if (electron) void electron.openPathRegister(file.handle);
   }
   if (!file.recovered) {
-    recordRecent({ handle: file.handle, filename: file.filename, format: file.format });
+    recordRecent({ handle: typeof file.handle === 'string' ? file.handle : null, filename: file.filename, format: file.format });
   }
   homeScreen.hide();
 }
@@ -5678,6 +5712,13 @@ export async function runSaveMarkedCardsFlow(): Promise<boolean> {
 export async function runSaveFlow(): Promise<boolean> {
   const file = activeFile();
   if (!file.handle || !file.format || !getHost().supportsInPlaceSave) {
+    return runSaveAsFlow();
+  }
+  // Request write access (browser: the readwrite permission prompt) NOW, while
+  // this Save's user-activation is fresh and BEFORE the potentially slow
+  // serialize — so the prompt only appears on real save intent, in context.
+  // Denied → fall back to Save-As. No-op `true` on Electron.
+  if (!(await getHost().ensureWritable(file.handle))) {
     return runSaveAsFlow();
   }
   try {

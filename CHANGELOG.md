@@ -5,6 +5,26 @@ changes in each release, written for users of the editor. For
 in-depth rationale and implementation context behind each entry,
 see `DETAILED_CHANGELOG.md`.
 
+## Unreleased
+
+### Added
+
+- **Install CardMirror as an app (web edition).** The web version is now an
+  installable PWA — on Chrome / ChromeOS, use the browser's Install button to run
+  it in its own window, offline. The desktop editions are unchanged.
+
+- **Save in place on the web.** On Chromium browsers (Chrome / Edge / ChromeOS),
+  opening a file and pressing Save now writes back to the *same* file instead of a
+  Save-As every time, and the autosave toggle works there too (via the File System
+  Access API). Your browser asks once to allow editing the file the first time you
+  save it. Firefox / Safari keep the download / Save-As behavior.
+
+- **Paste Text (F2) reads the clipboard directly on the web.** On Chromium, F2 —
+  or the ribbon's **Paste Text** button — now pastes the clipboard as plain text in
+  one keystroke (the browser asks once for clipboard access, then remembers it). If
+  access is denied it falls back to the previous "next Ctrl/Cmd+V pastes as text"
+  behavior, and the button lights up with a cue.
+
 ## 0.1.0-beta.4 — 2026-06-29
 
 ### Added

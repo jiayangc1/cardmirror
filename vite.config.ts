@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
@@ -23,11 +24,71 @@ export default defineConfig(({ command }) => {
   // Only the dev server wires the real engine (when present).
   const cardCutterTarget =
     command === 'serve' && existsSync(cardCutterEntry) ? cardCutterEntry : cardCutterStub;
+
+  // The installable-PWA layer (web app manifest + offline service worker) is
+  // WEB-ONLY. The Electron renderer reuses THIS build with `--base=./` (see
+  // apps/desktop `build:renderer`); a service worker there is unwanted and
+  // misbehaves under file://, so detect that relative base and gate the plugin
+  // off. PWA is also skipped for the dev server (`serve`) — it's a build-time,
+  // production-only concern; test it with `npm run build && npm run preview`.
+  const cliBase = (() => {
+    const eq = process.argv.find((a) => a.startsWith('--base='));
+    if (eq) return eq.slice('--base='.length);
+    const i = process.argv.indexOf('--base');
+    return i >= 0 ? process.argv[i + 1] : undefined;
+  })();
+  const isElectronRenderer = cliBase === './';
+  // `NO_PWA=1` builds without the service worker — use it for local in-place
+  // iteration so a stale precache doesn't keep serving old bundles.
+  const enablePWA =
+    command === 'build' && !isElectronRenderer && !process.env['NO_PWA'];
+
   return {
     base:
       process.env['VITE_BASE'] ??
       (command === 'build' ? '/cardmirror/' : '/'),
     resolve: { alias: { '@cardcutter/browser': cardCutterTarget } },
+    plugins: enablePWA
+      ? [
+          VitePWA({
+            // `prompt` (not `autoUpdate`): never force-reload a running editor
+            // session — a new version activates on the next launch, so unsaved
+            // work is never interrupted. `injectRegister: 'auto'` injects the
+            // registration into the built HTML (web only); nothing lands in the
+            // Electron renderer, which never sees this plugin.
+            registerType: 'prompt',
+            injectRegister: 'auto',
+            includeAssets: ['favicon.png', 'apple-touch-icon.png'],
+            manifest: {
+              name: 'CardMirror',
+              short_name: 'CardMirror',
+              description:
+                'A debate-card editor that interoperates with Advanced Verbatim — cut, format, and organize evidence offline.',
+              theme_color: '#2563eb',
+              background_color: '#ffffff',
+              display: 'standalone',
+              categories: ['productivity', 'education'],
+              icons: [
+                { src: 'pwa-192.png', sizes: '192x192', type: 'image/png' },
+                { src: 'pwa-512.png', sizes: '512x512', type: 'image/png' },
+                {
+                  src: 'pwa-maskable-512.png',
+                  sizes: '512x512',
+                  type: 'image/png',
+                  purpose: 'maskable',
+                },
+              ],
+            },
+            workbox: {
+              // The editor bundle is large; raise the precache cap so the main
+              // chunk is cached (else the app won't open offline).
+              globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2,ttf,json}'],
+              maximumFileSizeToCacheInBytes: 15 * 1024 * 1024,
+              cleanupOutdatedCaches: true,
+            },
+          }),
+        ]
+      : [],
     server: {
       fs: { allow: [path.resolve(__dirname), path.resolve(__dirname, '../card-cutter')] },
     },

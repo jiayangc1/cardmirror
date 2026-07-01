@@ -1291,19 +1291,19 @@ body.pmd-speech-banner-visible:not(.pmd-multi-doc) #app {
 body.pmd-multi-doc #speech-doc-banner { display: none; }
 
 /* Host-gated ribbon buttons.
-   - The plain-paste toggle (T) is the browser edition's
-     armed-state UI for sticky paste (Chromium won't let JS read
-     the clipboard synchronously, so the workaround is to flip a
-     flag and let the next Ctrl/Cmd+V trigger the rewrite). On
-     desktop, F2 reads the clipboard directly — no toggle state
-     to show, no reason for the button.
-   - The autosave toggle (⏱) only works when the host can do
-     in-place file writes against an existing `.cmir` handle.
-     Browser has no on-disk handles (every save is a download via
-     File System Access API or Save-As) — the button can never go
-     from "inert" to "effective" there. Hide it. */
+   - The Paste Text button (T) is the browser edition's clickable
+     paste-as-text — handy where F2 isn't (e.g. Chromebooks). It reads
+     the clipboard and pastes it unformatted; if the browser denies the
+     read it arms the F2 fallback, and its aria-pressed lights up as the
+     "next Ctrl/Cmd+V pastes as text" cue. Desktop uses F2, so hide it.
+   - The autosave toggle (⏱) only works when the host can do in-place
+     file writes against an existing `.cmir` handle. That's Electron
+     always, and a Chromium browser via the File System Access API
+     (`pmd-inplace-save`). Where in-place save is absent (Firefox/Safari
+     — every save is a download / Save-As), the button can never go from
+     "inert" to "effective", so hide it. */
 body.pmd-host-electron #plain-paste-toggle-btn { display: none; }
-body.pmd-host-browser #autosave-btn { display: none; }
+body:not(.pmd-inplace-save) #autosave-btn { display: none; }
 /* `mark active as speech` is a toggle — when this button is the
    active doc's speech designation, it stays pressed-down so the
    user can see at a glance which slot holds the speech doc. */

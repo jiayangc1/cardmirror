@@ -49,8 +49,8 @@ export interface RibbonTooltipTarget {
    *  maps 1:1 to a ribbon command. */
   commandId?: RibbonCommandId;
   /** Explicit label override. Used for buttons whose tooltip text doesn't match
-   *  `RIBBON_COMMAND_LABELS[commandId]` (e.g., state-aware autosave toggle,
-   *  plain-paste toggle). Falls back to the command-id-derived label. */
+   *  `RIBBON_COMMAND_LABELS[commandId]` (e.g., the state-aware autosave toggle,
+   *  the Paste Text button). Falls back to the command-id-derived label. */
   label?: string;
   /** A dropdown menu item rather than a top-level button. Affects `tooltip` and
    *  `both` modes: menu items never show their label (the menu already does),

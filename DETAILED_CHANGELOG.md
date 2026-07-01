@@ -5,6 +5,45 @@ behavior, rationale, and (where useful) the implementation context
 behind a change. For a shorter, jargon-free summary of what's new
 in each release, see `CHANGELOG.md`.
 
+## Unreleased
+
+- **Web edition: installable PWA + offline** (`vite.config.ts`, `public/` icons,
+  `index.html`, `src/editor/host/browser-host.ts`). Added `vite-plugin-pwa`: a web
+  app manifest (`display: standalone`, maskable icon, base-aware `start_url`/scope
+  for the `/cardmirror/` Pages deploy) and a Workbox service worker precaching the
+  app shell for offline use, `registerType: 'prompt'` so a running editor is never
+  force-reloaded. The plugin is gated to the WEB build only — the Electron renderer
+  reuses the same `vite build` with `--base=./`, which is detected and skips the
+  plugin (no service worker under `file://`). A `NO_PWA=1` env flag builds without
+  the SW for local iteration. `BrowserHost` now calls `navigator.storage.persist()`
+  so the install's IndexedDB/localStorage isn't evicted.
+
+- **Web edition: in-session in-place save** (`src/editor/host/browser-host.ts`,
+  `electron-host.ts`, `host/types.ts`, `src/editor/index.ts`, `style.css`). Web
+  `openFile` now uses `showOpenFilePicker` (Chromium) to obtain a
+  `FileSystemFileHandle`, falling back to the handle-less `<input>` elsewhere; the
+  handle is threaded through the file-state model (previously coerced to null in
+  `resolveOpenedFile`, which forced Save-As), so Save writes back via
+  `handle.createWritable()`. The picker's accept types now drop extensions the File
+  System Access API rejects (e.g. `-` in `.cmir-journal`; still reachable via "All
+  files"). New host method `ensureWritable(handle)` (no-op `true` on Electron)
+  requests the readwrite permission from a user gesture at the START of Save
+  (before serialize) and when autosave is toggled on — so the prompt appears on
+  save intent, not on open; `saveExisting` only verifies (never prompts) so a
+  gesture-less autosave fire fails cleanly. The autosave button is gated on a new
+  `pmd-inplace-save` body class (Chromium browser or Electron) instead of host kind.
+
+- **Web edition: direct clipboard read for Paste Text** (`src/editor/ribbon-commands.ts`,
+  `src/editor/index.ts`, `index.html`, `style.css`, `ribbon-tooltips.ts`). F2 /
+  Paste-and-Condense now read the clipboard via `navigator.clipboard.readText()` on
+  the web, invoked from the keypress (the required user gesture); Chromium prompts
+  once for `clipboard-read` and persists the grant, giving one-keystroke plain
+  paste like desktop. On denial/unsupported, F2 falls back to the existing
+  arm-a-flag workflow. The ribbon **Paste Text** button was relabelled from a toggle
+  to an action ("Paste the clipboard as unformatted text") with a state-aware
+  tooltip that switches to "Plain paste armed — press Ctrl/Cmd+V to paste as text"
+  when the fallback arms.
+
 ## 0.1.0-beta.4 — 2026-06-29
 
 - **Discontinuous (Ctrl/Cmd) selection** (`editor/word-selection-plugin.ts`,

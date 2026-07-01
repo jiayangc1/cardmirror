@@ -3375,20 +3375,16 @@ export function copyPreviousCite(): Command {
 }
 
 /**
- * F2 — Paste Text. Browsers won't let a web app read the clipboard
- * silently (Chrome and Firefox both show a "Paste" prompt on
- * `navigator.clipboard.readText`, and Firefox doesn't even offer a
- * persistent grant), so F2 can't be a one-keystroke paste in the
- * browser. Instead F2 toggles a "plain paste armed" flag in the
- * `paste-plugin`; the next real `paste` event (Ctrl/Cmd+V) consumes
- * the flag, strips formatting, and disarms. See
- * `src/editor/paste-plugin.ts` for the consumer side.
- *
- * On Electron we have full clipboard read access, so F2 instead
- * fires an immediate paste of the clipboard's plain-text content —
- * matching Verbatim's one-keystroke behavior. The browser keeps
- * the toggle workflow because Chromium's clipboard-permission UI
- * forbids a programmatic synchronous read.
+ * F2 — Paste Text. Pastes the clipboard's plain text in one keystroke when a
+ * clipboard read is available:
+ *   - Electron: full host clipboard access, no prompt.
+ *   - Chromium browser: the async Clipboard API, gated on THIS keypress as the
+ *     required user gesture. Chromium prompts once for the clipboard-read
+ *     permission and then persists the grant — one-keystroke thereafter.
+ * When no read is available, or the web read is denied (Firefox has no
+ * persistent grant), F2 falls back to arming a "plain paste" flag in the
+ * `paste-plugin`; the next real `paste` event (Ctrl/Cmd+V) consumes it, strips
+ * formatting, and disarms. See `src/editor/paste-plugin.ts` for the consumer.
  */
 export function pasteAsText(
   ctx: Pick<
@@ -3399,27 +3395,64 @@ export function pasteAsText(
   return (state, dispatch, view) => {
     if (!dispatch) return true;
     const electron = getElectronHost();
-    if (electron && view) {
-      void runElectronPlainPaste(electron, view, ctx);
+    if (view && clipboardReadAvailable(electron)) {
+      void runPlainPasteFromClipboard(electron, view, ctx);
       return true;
     }
     return togglePlainPaste()(state, dispatch);
   };
 }
 
-async function runElectronPlainPaste(
-  electron: { clipboardReadText: () => Promise<string> },
+type ClipboardReader = { clipboardReadText: () => Promise<string> } | null;
+
+/** True when SOME clipboard read is available: Electron's host IPC, or the
+ *  browser's async Clipboard API. */
+function clipboardReadAvailable(electron: ClipboardReader): boolean {
+  return (
+    !!electron ||
+    (typeof navigator !== 'undefined' && !!navigator.clipboard?.readText)
+  );
+}
+
+/** Read the clipboard's plain text — Electron via host IPC, browser via the
+ *  async Clipboard API. The web path MUST be reached from a user gesture (called
+ *  straight from a keypress command, before any await) and prompts for the
+ *  clipboard-read permission the first time (persists on Chromium). Returns null
+ *  when the read is unavailable or denied. */
+async function readClipboardText(electron: ClipboardReader): Promise<string | null> {
+  if (electron) {
+    try {
+      return await electron.clipboardReadText();
+    } catch (err) {
+      console.warn('clipboard read (host) failed:', err);
+      return null;
+    }
+  }
+  const clip = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
+  if (clip?.readText) {
+    try {
+      return await clip.readText();
+    } catch (err) {
+      console.warn('clipboard read (web) failed:', err);
+      return null;
+    }
+  }
+  return null;
+}
+
+async function runPlainPasteFromClipboard(
+  electron: ClipboardReader,
   view: EditorView,
   ctx: Pick<
     RibbonContext,
     'condenseOnPaste' | 'paragraphIntegrity' | 'usePilcrows' | 'headingMode'
   >,
 ): Promise<void> {
-  let text: string;
-  try {
-    text = await electron.clipboardReadText();
-  } catch (err) {
-    console.warn('F2 plain paste — clipboard read failed:', err);
+  const text = await readClipboardText(electron);
+  if (text === null) {
+    // Read denied/unavailable — on web, fall back to the arm-flag workflow so
+    // the next Ctrl/Cmd+V still does a plain paste. (Electron reads rarely fail.)
+    if (!electron) togglePlainPaste()(view.state, view.dispatch);
     return;
   }
   applyPlainPasteFromText(view, text, ctx);
@@ -3429,34 +3462,31 @@ async function runElectronPlainPaste(
  * Desktop-only: paste the clipboard's plain text, then DESTRUCTIVELY condense
  * just the pasted content WITHOUT preserving paragraph integrity — the net
  * effect of an F2 plain paste followed by Alt-F3 (Condense Without Paragraph
- * Integrity) over what you pasted. Reads the clipboard via the host (web can't),
+ * Integrity) over what you pasted. Reads the clipboard (Electron host IPC, or
+ * the Chromium async Clipboard API — this keypress is the required gesture),
  * pastes with the settings-driven condense-on-paste suppressed, then forces
  * `condenseMerge({ withPilcrows: false })` over the inserted range regardless of
  * the user's condense settings. Unbound by default; no-op (the key falls
- * through) off Electron.
+ * through) where no clipboard read is available, and — unlike F2 — there's no
+ * arm-flag fallback (the condense needs the text immediately).
  */
 export function pasteCondensed(ctx: Pick<RibbonContext, 'headingMode'>): Command {
   return (_state, dispatch, view) => {
     if (!dispatch) return true;
     const electron = getElectronHost();
-    if (!electron || !view) return false; // desktop-only — let the key fall through on web
+    if (!view || !clipboardReadAvailable(electron)) return false;
     void runPasteCondensed(electron, view, ctx);
     return true;
   };
 }
 
 async function runPasteCondensed(
-  electron: { clipboardReadText: () => Promise<string> },
+  electron: ClipboardReader,
   view: EditorView,
   ctx: Pick<RibbonContext, 'headingMode'>,
 ): Promise<void> {
-  let text: string;
-  try {
-    text = await electron.clipboardReadText();
-  } catch (err) {
-    console.warn('Paste + condense — clipboard read failed:', err);
-    return;
-  }
+  const text = await readClipboardText(electron);
+  if (text === null) return; // read denied/unavailable — no-op (no arm-flag for condense)
   pasteTextAndCondense(view, text, ctx.headingMode());
 }
 
