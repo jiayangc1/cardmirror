@@ -6507,6 +6507,26 @@ void loadLearnStore();
 // Drag-and-drop file opening works in both single-doc and multi-pane modes.
 installDragToOpen();
 
+// Web only: disable the reload keyboard shortcut (Mod+R / F5), matching the
+// desktop build (which removes the reload accelerator in the main process). An
+// accidental reload would discard the in-memory session. Programmatic reloads
+// (the mode switch) are unaffected, and an intentional reload is still available
+// from the browser / app menu. Capture phase so we win before anything else;
+// reliable in the installed PWA (a plain tab's browser chrome may still honor
+// its own reload).
+if (getHost().kind === 'browser') {
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if ((mod && (e.key === 'r' || e.key === 'R')) || e.key === 'F5') {
+        e.preventDefault();
+      }
+    },
+    { capture: true },
+  );
+}
+
 if (BOOT_MULTI_DOC_WORKSPACE) {
   void (async () => {
     // Singleton: only one three-pane window. Run the check alongside the shell
