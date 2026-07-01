@@ -12,7 +12,7 @@
  * the home screen only surfaces the entry on the desktop edition.
  */
 
-import JSZip from 'jszip';
+import { zipSync } from 'fflate';
 import { fromDocxFull, parseNative, serializeNative, toDocx } from '../index.js';
 import { getHost, getElectronHost } from './host/index.js';
 import { runWebFileTool } from './web-file-tools.js';
@@ -272,9 +272,7 @@ class BulkConvertModal {
         this.setStatus(`Converting ${input.name}…`);
         const converted = await convertBytes(input.bytes!, dir);
         if (out === 'zip') {
-          const zip = new JSZip();
-          zip.file(swapExt(input.name, dir), converted);
-          const bytes = await zip.generateAsync({ type: 'uint8array' });
+          const bytes = zipSync({ [swapExt(input.name, dir)]: converted });
           await electron.writeFileAtPath(joinPath(dest, `${baseNoExt(input.name)}.zip`), bytes);
         } else {
           await electron.writeFileAtPath(joinPath(dest, swapExt(input.name, dir)), converted);
@@ -288,7 +286,7 @@ class BulkConvertModal {
           this.setStatus(`No .${srcExt} files found in that folder.`);
           return;
         }
-        const zip = out === 'zip' ? new JSZip() : null;
+        const zipParts: Record<string, Uint8Array> | null = out === 'zip' ? {} : null;
         let ok = 0;
         let failed = 0;
         for (let i = 0; i < files.length; i++) {
@@ -299,7 +297,7 @@ class BulkConvertModal {
             if (!read) throw new Error('unreadable');
             const converted = await convertBytes(read.bytes, dir);
             const rel = swapExt(f.relPath, dir);
-            if (zip) zip.file(rel.replace(/\\/g, '/'), converted);
+            if (zipParts) zipParts[rel.replace(/\\/g, '/')] = converted;
             else await electron.writeFileAtPath(joinPath(dest, rel), converted);
             ok++;
           } catch (err) {
@@ -307,8 +305,8 @@ class BulkConvertModal {
             console.error('Bulk convert failed for', f.path, err);
           }
         }
-        if (zip && ok > 0) {
-          const bytes = await zip.generateAsync({ type: 'uint8array' });
+        if (zipParts && ok > 0) {
+          const bytes = zipSync(zipParts);
           await electron.writeFileAtPath(joinPath(dest, `${input.name}.zip`), bytes);
         }
         this.setStatus(

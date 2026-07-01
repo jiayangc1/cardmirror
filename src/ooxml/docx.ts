@@ -17,28 +17,45 @@
  * but don't generate from scratch.
  */
 
-import JSZip from 'jszip';
+import { unzipSync, zipSync } from 'fflate';
 import { CANONICAL_STYLES_XML } from './styles.js';
 import { XML_PROLOG, escText } from './xml.js';
 
-/** Loaded docx — an in-memory zip we can read parts from and modify. */
+const utf8Decoder = new TextDecoder('utf-8');
+const utf8Encoder = new TextEncoder();
+
+/** Loaded docx — an in-memory zip we can read parts from and modify.
+ *
+ *  Backed by fflate (the same DEFLATE the `.cmir` codec uses) over a
+ *  part-name → bytes Map. Insertion order is preserved through
+ *  `toBuffer`, so a loaded file re-serializes with its original part
+ *  order. Reads/writes are synchronous internally; the async method
+ *  signatures are kept so callers are untouched. */
 export class Docx {
-  constructor(private zip: JSZip) {}
+  private constructor(private parts: Map<string, Uint8Array>) {}
 
   /** Load a .docx from a Uint8Array (Node Buffer / browser ArrayBuffer-derived). */
   static async load(bytes: Uint8Array | ArrayBuffer): Promise<Docx> {
-    const zip = await JSZip.loadAsync(bytes);
-    return new Docx(zip);
+    const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    const entries = unzipSync(u8);
+    const parts = new Map<string, Uint8Array>();
+    for (const [path, data] of Object.entries(entries)) {
+      // Skip explicit directory entries — parts are files; consumers
+      // (`paths()` copy-through, media enumeration) expect file paths.
+      if (path.endsWith('/')) continue;
+      parts.set(path, data);
+    }
+    return new Docx(parts);
   }
 
   /** Construct a fresh, minimal .docx with the canonical style block. */
   static empty(): Docx {
-    const zip = new JSZip();
-    zip.file('[Content_Types].xml', CONTENT_TYPES_XML);
-    zip.file('_rels/.rels', TOP_LEVEL_RELS_XML);
-    zip.file('word/styles.xml', CANONICAL_STYLES_XML);
-    zip.file('word/_rels/document.xml.rels', DOCUMENT_RELS_XML);
-    zip.file('word/document.xml', EMPTY_DOCUMENT_XML);
+    const docx = new Docx(new Map());
+    docx.writeText('[Content_Types].xml', CONTENT_TYPES_XML);
+    docx.writeText('_rels/.rels', TOP_LEVEL_RELS_XML);
+    docx.writeText('word/styles.xml', CANONICAL_STYLES_XML);
+    docx.writeText('word/_rels/document.xml.rels', DOCUMENT_RELS_XML);
+    docx.writeText('word/document.xml', EMPTY_DOCUMENT_XML);
     // Verbatim-recognition surface. Setting <w:attachedTemplate> in
     // word/settings.xml with a Target ending in "/Debate.dotm" makes
     // Verbatim's per-doc visibility callback
@@ -55,33 +72,31 @@ export class Docx {
     // lives in `reference-docs/experiment-verbatimize.mjs`
     // (gitignored — local diagnostic for re-running if Verbatim's
     // recognition mechanism ever shifts).
-    zip.file('word/settings.xml', SETTINGS_XML);
-    zip.file('word/_rels/settings.xml.rels', SETTINGS_RELS_XML);
-    return new Docx(zip);
+    docx.writeText('word/settings.xml', SETTINGS_XML);
+    docx.writeText('word/_rels/settings.xml.rels', SETTINGS_RELS_XML);
+    return docx;
   }
 
   /** Read a part as a string. */
   async readText(path: string): Promise<string | null> {
-    const file = this.zip.file(path);
-    if (!file) return null;
-    return file.async('string');
+    const bytes = this.parts.get(path);
+    if (!bytes) return null;
+    return utf8Decoder.decode(bytes);
   }
 
   /** Write or overwrite a part. */
   writeText(path: string, content: string): void {
-    this.zip.file(path, content);
+    this.parts.set(path, utf8Encoder.encode(content));
   }
 
   /** Read a part as raw bytes. */
   async readBinary(path: string): Promise<Uint8Array | null> {
-    const file = this.zip.file(path);
-    if (!file) return null;
-    return file.async('uint8array');
+    return this.parts.get(path) ?? null;
   }
 
   /** Write or overwrite a binary part. */
   writeBinary(path: string, bytes: Uint8Array): void {
-    this.zip.file(path, bytes);
+    this.parts.set(path, bytes);
   }
 
   /** Insert one or more `<Override>` entries into the
@@ -160,27 +175,14 @@ export class Docx {
     return m ? m[1]! : null;
   }
 
-  /** Get the raw zip for advanced operations. */
-  raw(): JSZip {
-    return this.zip;
-  }
-
   /** Serialize to bytes (for writing to disk or sending across a wire). */
   async toBuffer(): Promise<Uint8Array> {
-    return this.zip.generateAsync({
-      type: 'uint8array',
-      compression: 'DEFLATE',
-      compressionOptions: { level: 6 },
-    });
+    return zipSync(Object.fromEntries(this.parts), { level: 6 });
   }
 
   /** List all part paths in the zip. */
   paths(): string[] {
-    const paths: string[] = [];
-    this.zip.forEach((path) => {
-      paths.push(path);
-    });
-    return paths;
+    return [...this.parts.keys()];
   }
 }
 

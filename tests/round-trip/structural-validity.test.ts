@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import JSZip from 'jszip';
+import { unzipSync } from 'fflate';
 import { fromDocx } from '../../src/import/index.js';
 import { toDocx } from '../../src/export/index.js';
 import { schema, newHeadingId } from '../../src/schema/index.js';
@@ -20,7 +20,7 @@ describe('exported docx structural validity', () => {
       schema.nodes['pocket']!.create({ id: newHeadingId() }, schema.text('Pocket')),
     ]);
     const bytes = await toDocx(doc);
-    const zip = await JSZip.loadAsync(bytes);
+    const parts = unzipSync(bytes);
 
     const requiredParts = [
       '[Content_Types].xml',
@@ -30,7 +30,7 @@ describe('exported docx structural validity', () => {
       'word/_rels/document.xml.rels',
     ];
     for (const part of requiredParts) {
-      expect(zip.file(part), `missing required part ${part}`).toBeDefined();
+      expect(parts[part], `missing required part ${part}`).toBeDefined();
     }
   });
 
@@ -49,8 +49,8 @@ describe('exported docx structural validity', () => {
       ]),
     ]);
     const bytes = await toDocx(doc);
-    const zip = await JSZip.loadAsync(bytes);
-    const docXml = await zip.file('word/document.xml')!.async('string');
+    const parts = unzipSync(bytes);
+    const docXml = new TextDecoder().decode(parts['word/document.xml']!);
 
     // If the XML is malformed, parseXml will throw.
     expect(() => parseXml(docXml)).not.toThrow();
@@ -66,14 +66,14 @@ describe('exported docx structural validity', () => {
       const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
       const imported = await fromDocx(bytes);
       const reExported = await toDocx(imported);
-      const zip = await JSZip.loadAsync(reExported);
-      const docXml = await zip.file('word/document.xml')!.async('string');
+      const parts = unzipSync(reExported);
+      const docXml = new TextDecoder().decode(parts['word/document.xml']!);
       expect(() => parseXml(docXml)).not.toThrow();
 
-      const stylesXml = await zip.file('word/styles.xml')!.async('string');
+      const stylesXml = new TextDecoder().decode(parts['word/styles.xml']!);
       expect(() => parseXml(stylesXml)).not.toThrow();
 
-      const relsXml = await zip.file('word/_rels/document.xml.rels')!.async('string');
+      const relsXml = new TextDecoder().decode(parts['word/_rels/document.xml.rels']!);
       expect(() => parseXml(relsXml)).not.toThrow();
     },
   );
@@ -83,8 +83,8 @@ describe('exported docx structural validity', () => {
       schema.nodes['paragraph']!.create(null, schema.text('hi')),
     ]);
     const bytes = await toDocx(doc);
-    const zip = await JSZip.loadAsync(bytes);
-    const stylesXml = await zip.file('word/styles.xml')!.async('string');
+    const parts = unzipSync(bytes);
+    const stylesXml = new TextDecoder().decode(parts['word/styles.xml']!);
 
     const requiredStyleIds = [
       'Heading1', 'Heading2', 'Heading3', 'Heading4',
@@ -106,8 +106,8 @@ describe('exported docx structural validity', () => {
       schema.nodes['paragraph']!.create(null, schema.text('hi')),
     ]);
     const bytes = await toDocx(doc);
-    const zip = await JSZip.loadAsync(bytes);
-    const stylesXml = await zip.file('word/styles.xml')!.async('string');
+    const parts = unzipSync(bytes);
+    const stylesXml = new TextDecoder().decode(parts['word/styles.xml']!);
 
     expect(stylesXml).toContain('<w:aliases w:val="Pocket"/>');
     expect(stylesXml).toContain('<w:aliases w:val="Hat"/>');

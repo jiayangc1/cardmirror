@@ -51,6 +51,26 @@ acceptance).
   doc), so the very largest docs keep a small synchronous blip per pause —
   the dominant ~70% (compression) is what moved off-thread.
 
+- **jszip dropped; the .docx container now runs on fflate**
+  (`src/ooxml/docx.ts`, `src/editor/bulk-convert-ui.ts`,
+  `tests/round-trip/structural-validity.test.ts`, `package.json`,
+  `THIRD-PARTY-NOTICES.md`). The app shipped two DEFLATE implementations:
+  fflate (the `.cmir` codec) and jszip's bundled pako fork, used only by
+  the `Docx` wrapper class and bulk-convert's zip output (audit P-9). The
+  `Docx` class now holds a part-name → bytes Map over fflate's
+  `unzipSync`/`zipSync` (insertion order preserved, so loaded files
+  re-serialize with their original part order; level 6 as before). Public
+  API unchanged — async signatures kept so no caller moved — except the
+  never-used `raw(): JSZip` escape hatch, deleted (it was the one thing
+  leaking the JSZip type). Bulk-convert's output zips switch from jszip's
+  default STORE to deflate (smaller, still standard). Verified: the full
+  ooxml/import/export/round-trip suites, plus `bin/round-trip` on a real
+  Word-produced .docx with images — identical structure/mark counts, the
+  fflate-written file re-imports as a byte-identical fixed point, and the
+  archive passes system `unzip -t`. Main chunk 1,263 → 1,168 KB; one zip
+  implementation and one fewer dependency (JSZip removed from
+  THIRD-PARTY-NOTICES).
+
 - **Startup: Settings subtree lazy-loaded** (`src/editor/index.ts`,
   `quick-card-search-ui.ts`, `settings-ui.ts`, new `settings-categories.ts`
   + `benchmark-state.ts`). The entry point statically imported

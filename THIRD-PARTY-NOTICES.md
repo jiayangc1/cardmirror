@@ -23,8 +23,7 @@ Editor / renderer (web + Electron):
 | --- | --- | --- |
 | [ProseMirror](https://prosemirror.net/) (`prosemirror-model`, `-state`, `-view`, `-transform`, `-commands`, `-keymap`, `-history`, `-tables`) | © 2015–2017 Marijn Haverbeke and others | Rich-text editing core |
 | [fast-xml-parser](https://github.com/NaturalIntelligence/fast-xml-parser) | © 2017 Amit Kumar Gupta | `.docx` (OOXML) parsing |
-| [fflate](https://github.com/101arrowz/fflate) | © Arjun Barrett | gzip codec for `.cmir`, `.docx` |
-| [JSZip](https://stuk.github.io/jszip/) | © 2009–2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso | `.docx` zip container (dual MIT / GPL-3.0-or-later; used here under **MIT**) |
+| [fflate](https://github.com/101arrowz/fflate) | © Arjun Barrett | zip / gzip codec for `.cmir` and `.docx` |
 | [nspell](https://github.com/wooorm/nspell) | © 2016 Titus Wormer | Hunspell-in-JS spellcheck engine |
 | [tinyld](https://github.com/komodojp/tinyld) | © 2021 Komodo | Source-language detection for the Translator |
 
