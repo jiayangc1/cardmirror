@@ -67,25 +67,23 @@ You can run CardMirror two ways:
 
 **Installing as an app (Chrome / Edge / ChromeOS).** Open the web edition
 and click the **Install** button in the address bar to run CardMirror in
-its own window, offline, updating itself when you relaunch — on a
-Chromebook this is how to run it. Installed, the web app can **save in
-place** and autosave (the browser asks once for permission to edit each
-file), read the clipboard for **[Paste Text](#paste-text-f2)** in one
-keystroke, open **multiple windows** (New Document and New Speech Document
-each open their own window, with the dropzone, Quick Cards, and
-send-to-speech kept in sync across them), use the
-**[three-pane workspace](#7-the-multi-doc-workspace)**, and run the
-single-file **Clean / Convert / Compress** tools from the home screen. It
-won't reload on an accidental **Mod-R**, and it won't let you open the
-same file in two windows at once.
+its own window — offline, and updating itself when you relaunch. On a
+Chromebook this is how to run it. Installed, the web app covers most of the
+desktop experience; what follows is only what still differs.
 
-Still desktop-only, in any browser: the background file-library search,
-folder-wide bulk operations, Send to Verbatim Flow, voice control, and
-card sharing. And in **Firefox and Safari** the editor runs but can't
-save in place — there Save downloads a copy, as it always has.
+A few capabilities still need the **desktop app**: the background
+**[file-library search](#the-search-everything-palette-mod-shift-space)**,
+**folder-wide** bulk operations (the web app runs Clean / Convert /
+Compress one file at a time instead),
+**[Send to Verbatim Flow](#12-send-to-verbatim-flow)**,
+**[voice control](#13-voice-control)**, and
+**[card sharing](#card-sharing-send-and-receive-pills)**. And saving in
+place needs a Chromium browser — in **Firefox and Safari** the editor runs
+but **[Save](#saving)** downloads a copy instead.
 
 Features that work in only one edition are marked **(desktop only)** or
-**(web only)** throughout.
+**(web only)** throughout, so you'll find the specifics in each relevant
+section as you read.
 
 **Mobile layout (web edition).** Open CardMirror in a phone or tablet
 browser — or any browser window narrower than about 768px — and it
