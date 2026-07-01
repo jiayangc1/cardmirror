@@ -243,10 +243,10 @@ export function runCompressSingleFileWeb(): Promise<void> {
         bytes: out,
         outputName: name,
         filter: { name: 'CardMirror document', extensions: ['cmir'] },
-        doneToast:
+        resultNote:
           after < before
-            ? `Compressed ${formatBytes(before)} → ${formatBytes(after)} (${pct}% smaller)`
-            : `Saved compressed copy (${formatBytes(after)}) — already compact`,
+            ? `Compressed: ${formatBytes(before)} → ${formatBytes(after)} (${pct}% smaller).`
+            : `Already compact (${formatBytes(after)}).`,
       };
     },
   });

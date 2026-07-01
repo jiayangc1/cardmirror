@@ -9484,6 +9484,39 @@ body.pmd-multi-doc #word-count-btn {
 :root[data-motion='reduce'] .pmd-file-tool-spinner {
   animation-duration: 2s;
 }
+.pmd-file-tool-note {
+  font-size: 0.82rem;
+  color: var(--pmd-c-fg-muted, #666);
+  max-width: 24rem;
+  overflow-wrap: anywhere;
+}
+.pmd-file-tool-buttons {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 0.25rem;
+}
+.pmd-file-tool-btn {
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid var(--pmd-c-border, rgba(0, 0, 0, 0.2));
+  background: var(--pmd-c-bg, #fff);
+  color: var(--pmd-c-fg, #1a1a1a);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.pmd-file-tool-btn:hover {
+  background: var(--pmd-c-hover, rgba(0, 0, 0, 0.05));
+}
+.pmd-file-tool-btn-primary {
+  background: var(--pmd-c-accent, #2563eb);
+  border-color: var(--pmd-c-accent, #2563eb);
+  color: #fff;
+}
+.pmd-file-tool-btn-primary:hover {
+  filter: brightness(1.05);
+  background: var(--pmd-c-accent, #2563eb);
+}
 .pmd-route-buttons {
   display: flex;
   gap: 0.5rem;
