@@ -169,6 +169,29 @@ in each release, see `CHANGELOG.md`.
   accelerator — an accidental reload would discard the in-memory session, while
   programmatic reloads (the mode switch) are unaffected.
 
+- **Per-document outline close + vertical resize in the multi-doc rail**
+  (`editor/nav-panel.ts`, `editor/multi-pane-shell.ts`, `editor/style.css`). In
+  the multi-doc workspace the navigation rail stacks one `NavigationPanel`
+  section per open document. The section header's × previously called
+  `settings.set('navPaneVisible', false)`, which hid the whole rail for every
+  document; and the sections were locked to `flex: 1 1 0`, so they always split
+  the rail evenly. `NavigationPanel` now takes an optional `onClose` callback —
+  when set (multi-doc), the × routes to it instead of the global setting; the
+  single-doc panel keeps the old "hide the pane" behavior. The shell wires
+  `onClose` to a per-slot `navHidden` flag and a new `reconcileNavRail()` that is
+  the single source of truth for section visibility (expand mode → only the
+  expanded slot; otherwise every populated slot, minus individually-closed ones),
+  the resize handles, the per-slot flex weights, and whether the rail shows at
+  all. When every open document's outline is closed the rail is dropped
+  (`pmd-multi-nav-empty` body class zeroes `#app`'s left margin, mirroring the
+  global nav toggle). Each non-topmost section grows a top-edge `row-resize`
+  handle; dragging it trades flex weight between the section and its visible
+  neighbour above (combined weight held constant so the rest hold their size),
+  double-click resets to an even split, and any composition change (open / close
+  / hide / show) re-evens the split so a reopened section doesn't inherit a stale
+  weight. Each pane's title chip gains an outline-toggle button (the reopen
+  affordance and a one-click hide), pressed when the outline is shown.
+
 ## 0.1.0-beta.4 — 2026-06-29
 
 - **Discontinuous (Ctrl/Cmd) selection** (`editor/word-selection-plugin.ts`,
