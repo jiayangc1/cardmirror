@@ -7366,12 +7366,16 @@ body.pmd-recovery-active:not(.pmd-multi-doc) #app {
   color: var(--pmd-c-text);
 }
 /* Shared scaffolding (surface hover) — consolidated from 4 identical rules
-   (CSS dedup, 2026-07-01). Diverge by pulling a selector out, not by re-copying. */
+   (CSS dedup, 2026-07-01). Diverge by pulling a selector out, not by re-copying.
+   These originally pointed at the never-defined --pmd-c-surface-3 and fell
+   back to --pmd-c-surface — the same color as the pane footer they sit on,
+   so the hover was invisible since multi-pane's first cut. --pmd-c-hover is
+   the shade that phantom token was reaching for. */
 .pmd-recovery-sidebar-done:hover,
 .pmd-pane-chip-stack:hover,
 .pmd-pane-open:hover,
 .pmd-route-btn:hover {
-  background: var(--pmd-c-surface);
+  background: var(--pmd-c-hover);
 }
 
 /* Multi-doc layout has its own `body.pmd-multi-doc #app` rule
@@ -9067,6 +9071,13 @@ body.pmd-multi-nav-empty.pmd-multi-doc #status-bar {
   color: var(--pmd-c-text-on-accent);
   background: var(--pmd-c-on-accent-overlay);
   border-radius: 3px;
+}
+/* Hover on the FOCUSED chip's stack button: the shared light-gray
+ * hover would swallow the white count/chevron on the accent-filled
+ * chip — brighten with the on-accent overlay instead, matching the
+ * pressed-state treatment above. */
+.pmd-pane-focused .pmd-pane-chip-stack:hover {
+  background: var(--pmd-c-on-accent-overlay);
 }
 
 /* Title chip — fixed height so the strip stays the same regardless
@@ -11618,6 +11629,13 @@ body.pmd-multi-doc .pmd-cardcutter-trim {
   text-align: center;
   white-space: nowrap;
   transition: background-color 320ms ease, color 320ms ease;
+}
+/* Hover feedback on the clickable pill. Resting bg is already
+   --pmd-c-hover, so hover steps up to the stronger shade. The :not()
+   guard keeps the unread badge's accent fill from being grayed on
+   mouseover (a bare :hover would out-specify the unread class). */
+.pmd-receive-badge:not(.pmd-receive-badge-unread):hover {
+  background: var(--pmd-c-hover-strong);
 }
 .pmd-receive-badge-unread {
   background: var(--pmd-c-accent);

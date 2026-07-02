@@ -44,6 +44,10 @@ see `DETAILED_CHANGELOG.md`.
 - **Dark mode: the home-screen file tools (Clean, Convert, Compress) now
   follow the dark theme** instead of rendering as light buttons on the dark
   background.
+- **Hover feedback restored on several buttons that never had a visible
+  one:** the per-pane open-file button and doc-stack chip in the three-pane
+  workspace, the slot-picker buttons, the recovery sidebar's Done button, and
+  the card-sharing receive pill.
 
 ## 0.1.0-beta.5 — 2026-07-01
 

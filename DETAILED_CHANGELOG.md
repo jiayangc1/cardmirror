@@ -7,6 +7,19 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Fix: invisible hover states on multi-pane footer buttons + receive pill**
+  (`src/editor/style.css`). The pane open-file button, doc-stack chip,
+  slot-picker buttons, and recovery-sidebar Done button had hover rules
+  pointing at the never-defined `--pmd-c-surface-3`, falling back to
+  `--pmd-c-surface` — the same color as the footer they sit on, so the hover
+  painted the color already underneath it. A no-op since multi-pane's
+  first-cut commit (bd37dc0); surfaced by user testing after the dedup pass
+  made the group visible. Now `--pmd-c-hover`, the token that phantom was
+  reaching for. The receive pill separately had NO hover rule; added one at
+  `--pmd-c-hover-strong` (its resting bg is already `--pmd-c-hover`) with a
+  `:not(.pmd-receive-badge-unread)` guard so hovering an unread badge doesn't
+  gray out its accent fill.
+
 - **CSS dedup: 28 copy-pasted rule groups consolidated to grouped selectors**
   (`src/editor/style.css`, −249 lines / −7 KB minified). The audit's dedup map
   found ~90 rules whose bodies are exact duplicates across feature families —
