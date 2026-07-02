@@ -90,6 +90,26 @@ in each release, see `CHANGELOG.md`.
   the default composition, each option axis, cite collection, the
   heading-assembly rules, and the empty-selection guard.
 
+- **Fix: condense-on-paste scoped to the cursor, not the paste**
+  (`paste-plugin.ts`).
+  With `condenseOnPaste` on, both F2 paths (Electron's
+  `applyPlainPasteFromText` and the browser armed-mode `handlePaste`)
+  dispatched the paste and then ran `condenseBranchC` /
+  `condenseMerge` against the post-paste collapsed cursor.
+  `resolveCondenseScope` treats an empty selection as "the enclosing
+  card, else nothing" — so the common case, pasting a plain-text blob
+  at doc level, condensed nothing (all intraparagraph whitespace
+  survived), and a mid-card paste over-condensed the whole card. Both
+  sites now share `condensePastedRange`: capture the selection start
+  before the paste, take the post-paste cursor as the end, select
+  that range, run the settings-driven condense (the same pattern
+  `pasteTextAndCondense` already used), and collapse the cursor back
+  to the end of the range. A whole paragraph the paste merges into is
+  cleaned in full — identical to F3 over a selection touching it. New
+  `tests/editor/condense-on-paste.test.ts` (5 tests): the doc-level
+  repro, out-of-range content untouched, merge branch, cursor
+  restoration, and setting-off passthrough.
+
 - **Comment-audit follow-ups** (`settings.ts`, `settings-ui.ts`,
   `word-break.ts`, `word-selection-keymap.ts`, `word-selection-plugin.ts`,
   `find-replace-plugin.ts`, `ribbon-commands.ts`).

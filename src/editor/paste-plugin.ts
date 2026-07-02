@@ -11,9 +11,10 @@
  *    Instead F2 toggles a plugin-state flag; while armed, every real
  *    `paste` event (a user-initiated Ctrl/Cmd+V) strips all
  *    formatting and inserts the clipboard's `text/plain` content.
- *    If `condenseOnPaste` is on (matches the F3 default condense),
- *    runs that immediately after. F2 again (or the ribbon button)
- *    disarms. The status-bar UI shows the armed state.
+ *    If `condenseOnPaste` is on, the F3 default condense then runs
+ *    scoped to the pasted range (see `condensePastedRange`). F2
+ *    again (or the ribbon button) disarms. The status-bar UI shows
+ *    the armed state.
  *
  * 2. **A structural-led paste splits the destination container.** When the
  *    clipboard leads with structural content — a `tag` / `analytic` head, a
@@ -247,6 +248,41 @@ export function togglePlainPaste(): (state: EditorState, dispatch?: (tr: Transac
   };
 }
 
+/** Settings-driven condense over just-pasted content. `from` is the
+ *  selection start captured BEFORE the paste transaction; the cursor
+ *  parks at the far end afterwards, so [from, cursor] spans the
+ *  pasted range. Selects that range, condenses it (same pattern as
+ *  `pasteTextAndCondense`), then collapses the cursor back to the
+ *  end. The range selection is essential: condensing against the
+ *  post-paste empty cursor would scope to the enclosing card — or
+ *  no-op entirely at doc level, where plain-text blobs usually land. */
+function condensePastedRange(
+  view: EditorView,
+  from: number,
+  ctx: Pick<PastePluginCtx, 'paragraphIntegrity' | 'usePilcrows' | 'headingMode'>,
+): void {
+  const to = view.state.selection.from;
+  if (to <= from) return; // nothing landed
+  try {
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, to)));
+    const cmd = ctx.paragraphIntegrity()
+      ? condenseBranchC()
+      : condenseMerge({
+          withPilcrows: ctx.usePilcrows(),
+          headingMode: ctx.headingMode(),
+        });
+    cmd(view.state, view.dispatch.bind(view));
+  } catch (err) {
+    console.warn('Condense after paste — condense step failed:', err);
+  }
+  // F2 normally leaves a collapsed cursor at the end of the paste;
+  // restore that after the temporary range selection.
+  const sel = view.state.selection;
+  if (!sel.empty) {
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, sel.to)));
+  }
+}
+
 /** Replace the current selection with `text` as plain inline
  *  content, with the same condense-after-paste behavior the armed-
  *  mode `handlePaste` path uses. Exported for Electron's F2 flow,
@@ -281,19 +317,12 @@ export function applyPlainPasteFromText(
   // through the lift+re-absorb instead of landing at the end of
   // the pasted content. Same template as the rich-paste path
   // (handlePaste below).
+  const pasteFrom = view.state.selection.from;
   let tr = tryPasteAsCardBodies(view.state, slice);
   if (!tr) tr = view.state.tr.replaceSelection(slice);
   tr.setStoredMarks([]);
   view.dispatch(tr.scrollIntoView());
-  if (ctx.condenseOnPaste()) {
-    const cmd = ctx.paragraphIntegrity()
-      ? condenseBranchC()
-      : condenseMerge({
-          withPilcrows: ctx.usePilcrows(),
-          headingMode: ctx.headingMode(),
-        });
-    cmd(view.state, view.dispatch.bind(view));
-  }
+  if (ctx.condenseOnPaste()) condensePastedRange(view, pasteFrom, ctx);
 }
 
 export function buildPastePlugin(ctx: PastePluginCtx): Plugin<PluginState> {
@@ -360,19 +389,12 @@ export function buildPastePlugin(ctx: PastePluginCtx): Plugin<PluginState> {
           // Same card_body pre-fit as `applyPlainPasteFromText` — see
           // the rationale comment there. Keeps the armed-paste path
           // (browser/web F2) in sync with the direct Electron F2 path.
+          const pasteFrom = view.state.selection.from;
           let tr = tryPasteAsCardBodies(view.state, plainSlice);
           if (!tr) tr = view.state.tr.replaceSelection(plainSlice);
           tr.setStoredMarks([]);
           view.dispatch(tr.scrollIntoView());
-          if (ctx.condenseOnPaste()) {
-            const cmd = ctx.paragraphIntegrity()
-              ? condenseBranchC()
-              : condenseMerge({
-                  withPilcrows: ctx.usePilcrows(),
-                  headingMode: ctx.headingMode(),
-                });
-            cmd(view.state, view.dispatch.bind(view));
-          }
+          if (ctx.condenseOnPaste()) condensePastedRange(view, pasteFrom, ctx);
           return true;
         }
 

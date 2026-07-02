@@ -31,6 +31,16 @@ see `DETAILED_CHANGELOG.md`.
   kept as highlights, or removed. The existing Gray-50% body text option
   moved into the same section.
 
+### Fixed
+
+- **Condense after Paste Text (F2) now actually condenses what you
+  pasted.** Previously the automatic condense ran against the cursor
+  position after the paste, so pasting outside a card — the usual way of
+  bringing in a long article — condensed nothing at all, and pasting
+  inside a card condensed the whole card instead of just the new text.
+  It now runs on exactly the pasted range, honoring your condense
+  settings (paragraph integrity, pilcrows, heading handling).
+
 ### Changed
 
 - **"Background color" everywhere.** Settings and documentation now say
