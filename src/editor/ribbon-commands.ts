@@ -2054,24 +2054,31 @@ export function setShadingColor(rgb: string): Command {
  *   - `'document'` — walk the whole doc (Verbatim parity).
  *   - `'selection'` — walk only the current selection. No-op when
  *     the selection is empty.
+ *
+ * `except` (the "with Exception" variant): a getter for one Word
+ * highlight name whose runs are left completely untouched — they
+ * keep their color even when the pen is null.
  */
 export function uniHighlight(
   activeColor: () => string | null,
   scope: 'document' | 'selection' = 'document',
+  except?: () => string,
 ): Command {
-  return runUniColor('highlight', activeColor, scope, false);
+  return runUniColor('highlight', activeColor, scope, false, except);
 }
 
 /**
  * Standardize Shading — same shape as `uniHighlight` but for the
  * `shading` mark. Shading uses RGB hex (no leading `#`); the active
- * color is normalized to uppercase to match the schema.
+ * color is normalized to uppercase to match the schema, and the
+ * `except` hex is compared case-insensitively.
  */
 export function uniShade(
   activeColor: () => string | null,
   scope: 'document' | 'selection' = 'document',
+  except?: () => string,
 ): Command {
-  return runUniColor('shading', activeColor, scope, true);
+  return runUniColor('shading', activeColor, scope, true, except);
 }
 
 /** Word's 15 named highlight colors with their canonical OOXML RGB
@@ -2200,6 +2207,7 @@ function runUniColor(
   activeColor: () => string | null,
   scope: 'document' | 'selection',
   upperHex: boolean,
+  except?: () => string,
 ): Command {
   return (state, dispatch) => {
     const type = schema.marks[markName];
@@ -2222,11 +2230,22 @@ function runUniColor(
     // Null pen: "standardize onto none" — strip the mark from every
     // marked run in scope. Unmarked text stays untouched either way.
     const color = raw === null ? null : upperHex ? raw.toUpperCase() : raw;
+    // Exception pen: runs already marked in this color are skipped
+    // entirely (highlight compares Word names; shading compares hex
+    // case-insensitively via the shared uppercase normalization).
+    const exceptRaw = except?.();
+    const exceptColor =
+      exceptRaw === undefined ? undefined : upperHex ? exceptRaw.toUpperCase() : exceptRaw;
     if (!dispatch) return true;
     const tr = state.tr;
     state.doc.nodesBetween(from, to, (node, pos) => {
       if (!node.isText) return true;
-      if (!node.marks.some((m) => m.type === type)) return true;
+      const mark = node.marks.find((m) => m.type === type);
+      if (!mark) return true;
+      if (exceptColor !== undefined) {
+        const current = String(mark.attrs['color'] ?? '');
+        if ((upperHex ? current.toUpperCase() : current) === exceptColor) return true;
+      }
       const start = Math.max(from, pos);
       const end = Math.min(to, pos + node.nodeSize);
       if (start >= end) return true;
@@ -4493,6 +4512,8 @@ export type RibbonCommandId =
   | 'shadingToHighlight'
   | 'standardizeHighlight'
   | 'standardizeShading'
+  | 'standardizeHighlightExcept'
+  | 'standardizeShadingExcept'
   | 'toggleReadMode'
   | 'toggleCommentsVisible'
   | 'addCommentToSelection'
@@ -4686,6 +4707,8 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'shadingToHighlight',
   'standardizeHighlight',
   'standardizeShading',
+  'standardizeHighlightExcept',
+  'standardizeShadingExcept',
   'toggleReadMode',
   'toggleCommentsVisible',
   'addCommentToSelection',
@@ -4840,6 +4863,8 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   shadingToHighlight: 'Background to Highlight',
   standardizeHighlight: 'Standardize Highlighting',
   standardizeShading: 'Standardize Background Color',
+  standardizeHighlightExcept: 'Standardize Highlighting (with Exception)',
+  standardizeShadingExcept: 'Standardize Background Color (with Exception)',
   toggleReadMode: 'Toggle Read Mode',
   toggleCommentsVisible: 'Show / Hide Comments',
   addCommentToSelection: 'Add Comment to Selection',
@@ -4978,6 +5003,8 @@ export const RIBBON_COMMAND_ALIASES: Partial<Record<RibbonCommandId, readonly st
   // vague / Word-flavored labels
   clearToNormal: ['clear formatting', 'remove formatting', 'clear to normal'],
   lockHighlighting: ['lock highlights', 'grey highlights', 'gray highlights', 'rehighlight'],
+  standardizeHighlightExcept: ['standardize except', 'standardize highlighting except', 'exception highlight'],
+  standardizeShadingExcept: ['standardize background except', 'standardize shading except', 'exception shading'],
   regrow: ['unshrink', 'regrow', 'restore text size', 'unshrink card text'],
   smartShrink: ['smart shrink', 'deep shrink'],
   aiAskAboutSelection: ['question'],
@@ -5087,6 +5114,8 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   shadingToHighlight: '',
   standardizeHighlight: '',
   standardizeShading: '',
+  standardizeHighlightExcept: '',
+  standardizeShadingExcept: '',
   toggleReadMode: '',
   toggleCommentsVisible: '',
   addCommentToSelection: '',
@@ -5654,6 +5683,22 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
         uniShade(
           ctx.shadingColor,
           state.selection.empty ? 'document' : 'selection',
+        )(state, dispatch, view);
+    case 'standardizeHighlightExcept':
+      // Same auto-scoping as the plain command; runs already in the
+      // configured exception color are left untouched.
+      return (state, dispatch, view) =>
+        uniHighlight(
+          ctx.highlightColor,
+          state.selection.empty ? 'document' : 'selection',
+          () => settings.get('standardizeHighlightException'),
+        )(state, dispatch, view);
+    case 'standardizeShadingExcept':
+      return (state, dispatch, view) =>
+        uniShade(
+          ctx.shadingColor,
+          state.selection.empty ? 'document' : 'selection',
+          () => settings.get('standardizeShadingException'),
         )(state, dispatch, view);
     case 'toggleReadMode':
       return (_state, dispatch) => {

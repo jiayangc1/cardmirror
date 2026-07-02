@@ -37,7 +37,12 @@ import { CATEGORY_TABS, visibleCategoryTabs, type SettingsTarget } from './setti
 import { generateGroupId, normalizePairingCode } from './pairing/pairing-ids.js';
 import { regenerateOwnCode } from './pairing/pairing-wiring.js';
 import { isFontAvailable } from './font-detect.js';
-import { WORD_HIGHLIGHT_COLORS } from './color-palette.js';
+import {
+  WORD_HIGHLIGHT_COLORS,
+  WORD_SHADING_COLORS,
+  highlightColorLabel,
+  shadingColorLabel,
+} from './color-palette.js';
 import { buildKeybindingsEditor } from './keybindings-editor.js';
 import { TRANSLATION_LANGUAGES } from './translate.js';
 import { getHost, getElectronHost, isWindowsHost } from './host/index.js';
@@ -793,6 +798,14 @@ class SettingsModal {
     } else if (meta.kind === 'color') {
       row.appendChild(text);
       row.appendChild(buildColorEditor(meta.key as keyof typeof SETTINGS_DEFAULTS));
+      return row;
+    } else if (meta.kind === 'standardizeHighlightException') {
+      row.appendChild(text);
+      row.appendChild(buildHighlightExceptionEditor());
+      return row;
+    } else if (meta.kind === 'standardizeShadingException') {
+      row.appendChild(text);
+      row.appendChild(buildShadingExceptionEditor());
       return row;
     } else if (meta.kind === 'colorSlots') {
       row.appendChild(text);
@@ -2812,6 +2825,115 @@ function buildColorEditor(key: string): HTMLElement {
   });
 
   refreshActive();
+  return wrap;
+}
+
+/** Highlighting-exception editor: a swatch row of Word's 15 named
+ *  highlight colors (highlight marks can only be one of these) plus
+ *  a label naming the current pick. Stores the OOXML color name. */
+function buildHighlightExceptionEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-color-editor';
+
+  const top = document.createElement('div');
+  top.className = 'pmd-color-editor-row';
+  const label = document.createElement('span');
+  label.className = 'pmd-color-editor-hex';
+  top.appendChild(label);
+  wrap.appendChild(top);
+
+  const presets = document.createElement('div');
+  presets.className = 'pmd-color-editor-presets';
+  const swatchButtons: { btn: HTMLButtonElement; name: string }[] = [];
+  for (const c of WORD_HIGHLIGHT_COLORS) {
+    const sw = document.createElement('button');
+    sw.type = 'button';
+    sw.className = 'pmd-color-editor-swatch';
+    sw.style.background = `#${c.rgb}`;
+    sw.title = c.label;
+    sw.setAttribute('aria-label', c.label);
+    sw.addEventListener('click', () => {
+      settings.set('standardizeHighlightException', c.name);
+      refresh();
+    });
+    presets.appendChild(sw);
+    swatchButtons.push({ btn: sw, name: c.name });
+  }
+  wrap.appendChild(presets);
+
+  function refresh(): void {
+    const current = settings.get('standardizeHighlightException');
+    label.textContent = highlightColorLabel(current);
+    for (const { btn, name } of swatchButtons) {
+      btn.classList.toggle('pmd-color-editor-swatch-active', name === current);
+    }
+  }
+
+  refresh();
+  return wrap;
+}
+
+/** Background-color-exception editor: same shape as the free color
+ *  editor (picker + preset swatches) but stores a bare uppercase hex
+ *  (matching the shading mark's attr) and adds a Protected Grey
+ *  swatch after the shading palette. */
+function buildShadingExceptionEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-color-editor';
+  const get = () => settings.get('standardizeShadingException');
+  const set = (v: string) =>
+    settings.set('standardizeShadingException', v.replace(/^#/, '').toUpperCase());
+
+  const top = document.createElement('div');
+  top.className = 'pmd-color-editor-row';
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.className = 'pmd-color-editor-input';
+  input.value = `#${get().toLowerCase()}`;
+  top.appendChild(input);
+  const label = document.createElement('span');
+  label.className = 'pmd-color-editor-hex';
+  top.appendChild(label);
+  wrap.appendChild(top);
+
+  const presets = document.createElement('div');
+  presets.className = 'pmd-color-editor-presets';
+  const swatchButtons: { btn: HTMLButtonElement; hex: string }[] = [];
+  const swatchColors = [
+    ...WORD_SHADING_COLORS,
+    { name: 'protectedGrey', rgb: 'D2D2D2', label: 'Protected Grey' },
+  ];
+  for (const c of swatchColors) {
+    const sw = document.createElement('button');
+    sw.type = 'button';
+    sw.className = 'pmd-color-editor-swatch';
+    sw.style.background = `#${c.rgb}`;
+    sw.title = c.label;
+    sw.setAttribute('aria-label', c.label);
+    sw.addEventListener('click', () => {
+      set(c.rgb);
+      input.value = `#${c.rgb.toLowerCase()}`;
+      refresh();
+    });
+    presets.appendChild(sw);
+    swatchButtons.push({ btn: sw, hex: c.rgb.toUpperCase() });
+  }
+  wrap.appendChild(presets);
+
+  function refresh(): void {
+    const current = get();
+    label.textContent = shadingColorLabel(current);
+    for (const { btn, hex } of swatchButtons) {
+      btn.classList.toggle('pmd-color-editor-swatch-active', hex === current);
+    }
+  }
+
+  input.addEventListener('input', () => {
+    set(input.value);
+    refresh();
+  });
+
+  refresh();
   return wrap;
 }
 

@@ -849,6 +849,21 @@ export interface Settings {
    * re-apply direct formatting after).
    */
   clearFormattingOnNamedStyleToggleOff: boolean;
+  /**
+   * The highlight color the "Standardize Highlighting (with
+   * Exception)" command leaves untouched. One of Word's 15 named
+   * highlight colors (`yellow`, `green`, …). Runs highlighted in this
+   * color are skipped when the command rewrites everything else to
+   * the active pen color (or strips, when the pen is "No highlight").
+   */
+  standardizeHighlightException: string;
+  /**
+   * The background color the "Standardize Background Color (with
+   * Exception)" command leaves untouched. 6-char hex, no leading `#`
+   * (matching the shading mark's stored attr); compared
+   * case-insensitively.
+   */
+  standardizeShadingException: string;
   /** When true, "Create Reference" (Card menu) emits its body text
    *  in Gray-50% (#808080) instead of black. Heading line stays
    *  black either way. */
@@ -1247,6 +1262,8 @@ const DEFAULTS: Settings = {
   formattingGapClass: 'both',
   autoBridgeFormattingGaps: true,
   clearFormattingOnNamedStyleToggleOff: true,
+  standardizeHighlightException: 'yellow',
+  standardizeShadingException: 'FFFF00',
   forReferenceUseGray50: false,
   shrinkRestoresOmissionsToNormal: false,
   condenseWarningDelimiter: '[',
@@ -1365,6 +1382,8 @@ export interface SettingMeta {
     | 'headingMode'
     | 'condenseWarningDelimiter'
     | 'shrinkCustomProtections'
+    | 'standardizeHighlightException'
+    | 'standardizeShadingException'
     | 'keybindings'
     | 'text'
     | 'folder'
@@ -2255,6 +2274,26 @@ export const SETTING_METADATA: SettingMeta[] = [
     section: 'Formatting operations',
   },
   {
+    key: 'standardizeHighlightException',
+    label: 'Highlighting exception',
+    description:
+      'The highlight color that "Standardize Highlighting (with Exception)" (Doc menu) leaves untouched. Text highlighted in this color is skipped; everything else is rewritten to your active highlight color as usual.',
+    kind: 'standardizeHighlightException',
+    category: 'editing',
+    section: 'Standardize exceptions',
+    aliases: ['standardize highlighting exception', 'protected highlight color'],
+  },
+  {
+    key: 'standardizeShadingException',
+    label: 'Background color exception',
+    description:
+      'The background color that "Standardize Background Color (with Exception)" (Doc menu) leaves untouched. Text shaded in this color is skipped; everything else is rewritten to your active background color as usual.',
+    kind: 'standardizeShadingException',
+    category: 'editing',
+    section: 'Standardize exceptions',
+    aliases: ['standardize background exception', 'protected background color', 'protected grey', 'protected gray'],
+  },
+  {
     key: 'showDropzonePill',
     label: 'Show dropzone shelf',
     description:
@@ -2898,6 +2937,14 @@ function sanitize(s: Settings): Settings {
       s.clearFormattingOnNamedStyleToggleOff === undefined
         ? DEFAULTS.clearFormattingOnNamedStyleToggleOff
         : !!s.clearFormattingOnNamedStyleToggleOff,
+    standardizeHighlightException: isWordHighlightName(
+      String(s.standardizeHighlightException ?? ''),
+    )
+      ? String(s.standardizeHighlightException)
+      : DEFAULTS.standardizeHighlightException,
+    standardizeShadingException: isHex6(s.standardizeShadingException)
+      ? String(s.standardizeShadingException).toUpperCase()
+      : DEFAULTS.standardizeShadingException,
     forReferenceUseGray50:
       s.forReferenceUseGray50 === undefined
         ? DEFAULTS.forReferenceUseGray50

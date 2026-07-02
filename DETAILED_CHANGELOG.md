@@ -5,6 +5,41 @@ behavior, rationale, and (where useful) the implementation context
 behind a change. For a shorter, jargon-free summary of what's new
 in each release, see `CHANGELOG.md`.
 
+## Unreleased
+
+- **Standardize with exceptions** (`ribbon-commands.ts`, `ribbon-groups.ts`,
+  `settings.ts`, `settings-ui.ts`, `index.ts`).
+  Two new commands, `standardizeHighlightExcept` and
+  `standardizeShadingExcept`, mirror the plain standardize pair — same
+  auto-scoping (selection when non-empty, whole doc otherwise), same
+  rewrite-to-active-pen semantics, same null-pen strip — but skip any run
+  whose *current* color matches a configured exception, leaving it
+  completely untouched (including under a null pen, which makes the
+  commands double as "strip everything except my exception color").
+  Implementation is a single optional `except` getter threaded through
+  `runUniColor` → `uniHighlight` / `uniShade`; the run's mark color is
+  compared against the exception before the remove/add — highlight by
+  exact Word name, shading case-insensitively via the existing `upperHex`
+  normalization (stored shading attrs from imports can be lowercase).
+  Two new settings back the commands: `standardizeHighlightException`
+  (one of Word's 15 highlight names; sanitized through
+  `isWordHighlightName`, default `yellow`) and
+  `standardizeShadingException` (bare 6-char hex, uppercased on write via
+  `isHex6`, default `FFFF00` — yellow, matching the highlight default).
+  They render in a new Editing-tab section,
+  "Standardize exceptions": the highlight editor is a name-storing swatch
+  row of the 15 Word colors plus a label naming the pick (highlights can
+  only be those 15); the shading editor reuses the free-color-editor shape
+  (picker + swatches, storing bare hex) with a Protected Grey swatch
+  appended after the shading palette. Doc menu → Highlighting gains both
+  entries below the plain pair; since the menu rebuilds on every open, the
+  labels interpolate the live exception ("Standardize Highlighting (except
+  Bright Green)"). Both commands are registered keybindable (unbound by
+  default, "Highlight tools" group) with find-palette aliases. New test
+  file `tests/editor/standardize-except.test.ts` (7 tests): rewrite-with-
+  skip, null-pen + exception, plain-standardize regression, selection
+  scoping, and case-insensitive shading matching.
+
 ## 0.1.0-beta.6 — 2026-07-02
 
 - **Settings navigability: section headers, Files tab, category moves**

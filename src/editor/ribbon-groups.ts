@@ -120,6 +120,8 @@ export const RIBBON_GROUPS: RibbonGroup[] = [
     commands: [
       'standardizeHighlight',
       'standardizeShading',
+      'standardizeHighlightExcept',
+      'standardizeShadingExcept',
       'highlightToShading',
       'shadingToHighlight',
       'lockHighlighting',

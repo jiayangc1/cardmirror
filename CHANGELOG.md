@@ -5,6 +5,20 @@ changes in each release, written for users of the editor. For
 in-depth rationale and implementation context behind each entry,
 see `DETAILED_CHANGELOG.md`.
 
+## Unreleased
+
+### Added
+
+- **Standardize with exceptions.** Two new Doc-menu commands — **Standardize
+  Highlighting (with Exception)** and **Standardize Background Color (with
+  Exception)** — work exactly like the plain standardize commands but leave
+  one color of your choice completely untouched. Pick the protected colors
+  in Settings → Editing → Standardize exceptions (both default to yellow).
+  The menu labels show your current exception, e.g. "Standardize
+  Highlighting (except Yellow)". Both commands are
+  keybindable (unbound by default). Combined with the "No color" pen, they
+  also work as "clear everything except my exception color".
+
 ## 0.1.0-beta.6 — 2026-07-02
 
 ### Added

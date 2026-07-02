@@ -443,6 +443,15 @@ background) to convert every color in scope to your active one (with the
 "no color" pen active, they remove every highlight or background in
 scope), and converters between highlight and background.
 
+Each standardize command also has a **(with Exception)** variant in the
+Doc menu that works the same way but leaves one color of your choice
+completely untouched — pick the protected colors under **Settings →
+Editing → Standardize exceptions**. The menu label always shows the
+current exception (e.g. "Standardize Highlighting (except Yellow)");
+both exceptions default to yellow. With the "no color" pen active, the
+variants strip everything *except* your exception color. Both are
+keybindable (unbound by default).
+
 **Tip:** right-click any structural-style or character-style button to
 select *every* instance of that style in the document — then apply a
 color to all of them at once.
@@ -1674,6 +1683,15 @@ Typing helpers and the behavior of the cutting and condense commands
   off also strips direct formatting in the range.
 - **Create Reference uses Gray-50% text** — render a Reference's body
   text in gray; the heading line stays black.
+
+**Standardize exceptions**
+
+- **Highlighting exception** — the highlight color that "Standardize
+  Highlighting (with Exception)" leaves untouched. One of Word's 15
+  highlight colors; defaults to yellow.
+- **Background color exception** — the background color that "Standardize
+  Background Color (with Exception)" leaves untouched. Any color; defaults
+  to yellow.
 
 **Insert surfaces**
 

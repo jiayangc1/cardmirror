@@ -1647,6 +1647,18 @@ if (docMenuBtn) {
             commandId: 'standardizeShading',
             run: () => runRibbon('standardizeShading'),
           },
+          // The menu is rebuilt on every open, so these labels show
+          // the live exception colors from settings.
+          {
+            label: `Standardize Highlighting (except ${highlightColorLabel(settings.get('standardizeHighlightException'))})`,
+            commandId: 'standardizeHighlightExcept',
+            run: () => runRibbon('standardizeHighlightExcept'),
+          },
+          {
+            label: `Standardize Background Color (except ${shadingColorLabel(settings.get('standardizeShadingException'))})`,
+            commandId: 'standardizeShadingExcept',
+            run: () => runRibbon('standardizeShadingExcept'),
+          },
         ],
       },
       {
