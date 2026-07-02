@@ -22,21 +22,39 @@ async function fetchJson(opts: {
   headers?: Record<string, string>;
 }): Promise<{ status: number; json: any }> {
   const headers: Record<string, string> = { ...(opts.headers ?? {}) };
+  // No keep-alive: undici's global pool can hand a later test a socket
+  // the previous test's server.close() already destroyed (Node ≥19
+  // closes idle connections), which surfaces as a load-sensitive
+  // "TypeError: fetch failed". Each request gets a fresh socket; this
+  // also lets afterEach's close() resolve without idle-socket waits.
+  headers['connection'] ??= 'close';
   if (opts.token) headers['x-fdp-token'] = opts.token;
   let body: string | undefined;
   if (opts.body !== undefined) {
     headers['content-type'] = 'application/json';
     body = JSON.stringify(opts.body);
   }
-  const res = await fetch(`http://127.0.0.1:${opts.port}${opts.path}`, {
-    method: opts.method,
-    headers,
-    body,
-  });
-  const text = await res.text();
-  let json: any = null;
-  try { json = JSON.parse(text); } catch { /* tolerate */ }
-  return { status: res.status, json };
+  const doFetch = async (): Promise<{ status: number; json: any }> => {
+    const res = await fetch(`http://127.0.0.1:${opts.port}${opts.path}`, {
+      method: opts.method,
+      headers,
+      body,
+    });
+    const text = await res.text();
+    let json: any = null;
+    try { json = JSON.parse(text); } catch { /* tolerate */ }
+    return { status: res.status, json };
+  };
+  try {
+    return await doFetch();
+  } catch {
+    // One retry on connect-level failure only (HTTP error statuses
+    // return normally above and still hit the assertions). A loopback
+    // server this test just started gets one second chance under
+    // parallel-suite load; a real bridge bug fails the retry too.
+    await new Promise((r) => setTimeout(r, 50));
+    return doFetch();
+  }
 }
 
 function fireRendererAck(ack: any): void {
