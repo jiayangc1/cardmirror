@@ -51,6 +51,27 @@ in each release, see `CHANGELOG.md`.
   dropping a row's own divider when it sits against a section boundary
   so lines never stack.
 
+- **Fix: voice-model download offer was unreachable at session start**
+  (`apps/desktop/src/voice/ipc.ts`, `voice/controller.ts`). The
+  first-use flow shipped with the model-download feature intended
+  Ctrl-Shift-V on a model-less install to return `voice-model-missing`
+  so the controller offers the download. But `resolveVoiceAssets()`
+  returned null unless BOTH libvosk and the model resolved, and the
+  start handler derived `libPresent` from that collapsed null — so a
+  fresh install (libvosk bundled, model not yet downloaded) always
+  reported `voice-assets-missing` and showed the dead-end
+  "set CARDMIRROR_VOICE_DIR" toast. Slipped through testing because the
+  model had been downloaded via the settings widget (separate presence
+  probe) before any cold session start. The resolver now returns
+  `{ libPath, modelDir }` with independent nulls and the handler checks
+  the pieces separately; `voice-assets-missing` now genuinely means
+  libvosk is absent (broken install), and both toasts were reworded
+  (reinstall / update guidance first, the env var demoted to a
+  developer hint). Found while confirming the dev-only variant of the
+  symptom: dev builds resolve libvosk from the recognizer spike's cache
+  (`spikes/voice-recognizer/lib/`), not from `resources/voice/`, so
+  after `npm run fetch:voice` the lib must also land there.
+
 - **Accessibility: persistent voice-mode badge** (`voice/ui.ts`,
   `style.css`, `MANUAL.md`). Color-audit item (MEDIUM-HIGH): the voice
   session's mode was conveyed by dot hue + a matching editor-boundary

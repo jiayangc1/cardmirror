@@ -24,6 +24,11 @@ see `DETAILED_CHANGELOG.md`.
   palette engineered to stay distinguishable under red-green and blue-yellow
   color-vision deficiencies. Works in light and dark themes, and any colors
   you've set by hand still win.
+- **Fixed: first voice use now offers the model download.** On a fresh
+  install, turning voice on before downloading the recognition model showed
+  a dead-end error mentioning a developer environment variable instead of
+  offering to download the model. It now offers the download as intended,
+  and the error for genuinely broken installs says to reinstall.
 - **The voice pill always names its mode.** The voice status pill now
   carries a persistent COMMAND / DICTATION / PAINT / ASLEEP badge, so the
   current mode is readable as text instead of only as the colored dot —

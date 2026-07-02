@@ -58,8 +58,14 @@ function baseModelPresent(): boolean {
  *     build) → resources/voice/model/
  *  4. dev fallback: the recognizer spike's downloads in the repo
  *  libvosk is resolved independently (it's always bundled), so a
- *  userData-only model still pairs with the shipped lib. */
-function resolveVoiceAssets(): { libPath: string; modelDir: string } | null {
+ *  userData-only model still pairs with the shipped lib.
+ *  The two paths are returned independently (null for whichever is
+ *  missing) — callers need to tell "model not downloaded yet" (the
+ *  common, recoverable case: offer the download) apart from "libvosk
+ *  missing" (a broken install). An all-or-nothing null here once
+ *  collapsed the two and made the download offer unreachable on a
+ *  fresh install. */
+function resolveVoiceAssets(): { libPath: string | null; modelDir: string | null } {
   const libCandidates: string[] = [];
   const modelCandidates: string[] = [];
   const envDir = process.env.CARDMIRROR_VOICE_DIR;
@@ -75,9 +81,8 @@ function resolveVoiceAssets(): { libPath: string; modelDir: string } | null {
     libCandidates.push(path.join(spike, 'lib', libFileName()));
     modelCandidates.push(path.join(spike, 'models', BASE_MODEL_NAME));
   }
-  const libPath = libCandidates.find((p) => fs.existsSync(p));
-  const modelDir = modelCandidates.find((p) => fs.existsSync(p));
-  if (!libPath || !modelDir) return null;
+  const libPath = libCandidates.find((p) => fs.existsSync(p)) ?? null;
+  const modelDir = modelCandidates.find((p) => fs.existsSync(p)) ?? null;
   return { libPath, modelDir };
 }
 
@@ -362,19 +367,19 @@ export function registerVoiceIpc(): void {
         }
       }
       if (worker) stopSession(); // same window restarting — rebuild cleanly
-      const assets = opts.modelDir
-        ? { libPath: resolveVoiceAssets()?.libPath ?? '', modelDir: opts.modelDir }
-        : resolveVoiceAssets();
-      if (!assets || !fs.existsSync(assets.libPath) || !fs.existsSync(assets.modelDir)) {
+      const found = resolveVoiceAssets();
+      const libPath = found.libPath;
+      const modelDir = opts.modelDir ?? found.modelDir;
+      if (!libPath || !modelDir || !fs.existsSync(modelDir)) {
         // Distinguish "the model needs downloading" (the common,
         // recoverable case now that it's not bundled) from a genuinely
         // broken install where libvosk itself is missing.
-        const libPresent = !!assets && fs.existsSync(assets.libPath);
         return {
           ok: false,
-          error: libPresent ? 'voice-model-missing' : 'voice-assets-missing',
+          error: libPath ? 'voice-model-missing' : 'voice-assets-missing',
         };
       }
+      const assets = { libPath, modelDir };
 
       // Plain Node child, NOT utilityProcess (see resolveNodeBinary).
       // Advanced serialization structured-clones the audio chunks.

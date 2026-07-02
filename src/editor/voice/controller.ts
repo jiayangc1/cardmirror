@@ -143,7 +143,8 @@ export class VoiceController {
       }
       let msg: string;
       if (res.error === 'voice-assets-missing') {
-        msg = 'Voice model not found (set CARDMIRROR_VOICE_DIR)';
+        msg =
+          'Voice recognizer library missing — reinstall CardMirror (developers: set CARDMIRROR_VOICE_DIR)';
       } else if (res.error === 'voice-mic-denied') {
         msg = 'Microphone access denied — enable it in System Settings → Privacy & Security → Microphone';
       } else {
@@ -266,7 +267,10 @@ export class VoiceController {
    *  voice section. */
   private async offerBaseModelDownload(host: VoiceHostApi): Promise<void> {
     if (!host.voiceDownloadBaseModel || !host.voiceBaseModelInfo) {
-      showToast('Voice model not found (set CARDMIRROR_VOICE_DIR)', { durationMs: 2600 });
+      showToast(
+        "Voice model not downloaded, and this install can't fetch it — update CardMirror (developers: set CARDMIRROR_VOICE_DIR)",
+        { durationMs: 3200 },
+      );
       return;
     }
     const info = await host.voiceBaseModelInfo();
