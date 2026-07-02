@@ -29,6 +29,32 @@ export async function toDocx(doc: PMNode, opts: ExportOptions = {}): Promise<Uin
   for (const part of result.mediaParts) {
     docx.writeBinary(part.path, part.bytes);
   }
+  if (result.footnotesXml) {
+    docx.writeText('word/footnotes.xml', result.footnotesXml);
+    if (result.footnotesRelsXml) {
+      docx.writeText('word/_rels/footnotes.xml.rels', result.footnotesRelsXml);
+    }
+    await docx.addContentTypeOverrides([
+      {
+        partName: '/word/footnotes.xml',
+        contentType:
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml',
+      },
+    ]);
+  }
+  if (result.endnotesXml) {
+    docx.writeText('word/endnotes.xml', result.endnotesXml);
+    if (result.endnotesRelsXml) {
+      docx.writeText('word/_rels/endnotes.xml.rels', result.endnotesRelsXml);
+    }
+    await docx.addContentTypeOverrides([
+      {
+        partName: '/word/endnotes.xml',
+        contentType:
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml',
+      },
+    ]);
+  }
   if (result.commentsXml && result.commentsExtendedXml) {
     docx.writeText('word/comments.xml', result.commentsXml);
     docx.writeText('word/commentsExtended.xml', result.commentsExtendedXml);

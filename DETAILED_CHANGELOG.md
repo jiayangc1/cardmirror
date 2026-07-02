@@ -51,6 +51,45 @@ in each release, see `CHANGELOG.md`.
   dropping a row's own divider when it sits against a section boundary
   so lines never stack.
 
+- **Footnote / endnote support** (`schema/nodes.ts` + NEW
+  `schema/footnotes.ts`, NEW `import/footnotes.ts`, `importer.ts`,
+  `import/index.ts`, `exporter.ts`, `export/index.ts`, NEW
+  `editor/footnote-popover.ts`, `style.css`, `MANUAL.md`). Previously
+  an open→save cycle destroyed footnotes entirely (references dropped
+  by the importer, footnotes.xml never read or written) — a standing
+  §3 round-trip violation. Design: a self-contained inline atom
+  `footnote` node (the image pattern), attrs { kind:
+  footnote|endnote, content: paragraphs of simplified runs {text,
+  bold?, italic?, underline?, link?} } — deliberately NOT
+  ProseMirror's nested-content footnote (inner EditorView, undo
+  handoff): debate footnotes are read-only source citations.
+  Import: importNotes() parses footnotes/endnotes.xml (separator
+  furniture skipped, the footnoteRef+spacer opening of each body
+  stripped, hyperlink targets resolved through the part's own rels);
+  references import as empty-bodied markers when the part is absent.
+  Export: fresh 1-based ids per part; reference runs use direct
+  superscript (no style dependency); parts carry the mandatory
+  separator/continuationSeparator entries (Word repair-prompts
+  without them); note hyperlinks emit a footnotes.xml.rels with
+  escaped targets; content-type overrides + document.xml.rels
+  entries only when notes exist. Display: an empty <sup> whose
+  number is a pure CSS counter in document order (footnotes 1,2,3…,
+  endnotes i,ii,iii… independently — zero JS bookkeeping); click
+  opens a popover (title, rendered runs with working links, Edit →
+  plain-text textarea → setNodeMarkup; single instance, Escape/
+  outside-click dismiss). .cmir support is free (node lives in the
+  doc JSON). 7 tests in tests/round-trip/footnotes.test.ts including
+  a full toDocx→fromDocx inverse; package structure verified at the
+  byte level (well-formed XML, separators, content types, rels).
+  Creation: an `insertFootnote` registry command (unbound by default,
+  keyboard-only per maintainer — deliberately no Format-menu entry)
+  replaces the selection with an empty footnote node and opens the
+  popover straight into edit mode (exported `openFootnoteEditor`), so
+  the flow is invoke → type → Save. Deletion: a Delete button in the
+  popover removes the marker node (error-colored; Backspace over the
+  atom in the document works too — the button is the discoverable
+  route).
+
 - **Custom dash: configurable trigger** (`settings.ts`,
   `custom-dash-plugin.ts`, `settings-ui.ts`, `MANUAL.md`). New
   `customDashTrigger` ('---' default | '--'). The plugin's original

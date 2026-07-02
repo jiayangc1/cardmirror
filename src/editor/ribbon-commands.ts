@@ -38,6 +38,7 @@ import { Selection, TextSelection, type Command, type EditorState, type Transact
 import type { EditorView } from 'prosemirror-view';
 import { toggleMark } from 'prosemirror-commands';
 import { toggleReadingMarkerCommand } from './reading-marker.js';
+import { openFootnoteEditor } from './footnote-popover.js';
 import { flipQuoteDirection } from './flip-quote-direction.js';
 import { schema } from '../schema/index.js';
 import { newHeadingId } from '../schema/ids.js';
@@ -4625,6 +4626,10 @@ export type RibbonCommandId =
   // Show/hide is the one timer command NOT gated on visibility —
   // its whole point is bringing the panel up. Mirrors the ribbon
   // timer button (aria-pressed toggle in index.ts).
+  // Insert an empty footnote at the cursor and open its editor.
+  // No default binding and (per maintainer) no menu entry — a
+  // keyboard-only power feature.
+  | 'insertFootnote'
   | 'timerToggleVisible'
   | 'timerStartPause'
   | 'timerPreset1'
@@ -4781,6 +4786,7 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'cycleDocNext',
   'cycleDocPrev',
   'closeDocOrWindow',
+  'insertFootnote',
   'timerToggleVisible',
   'timerStartPause',
   'timerPreset1',
@@ -4933,6 +4939,7 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   cycleDocNext: 'Next Document in Slot',
   cycleDocPrev: 'Previous Document in Slot',
   closeDocOrWindow: 'Close Doc or Window',
+  insertFootnote: 'Insert Footnote',
   timerToggleVisible: 'Timer: Show / Hide Panel',
   timerStartPause: 'Timer: Start / Pause',
   timerPreset1: 'Timer: Start Speech Preset 1',
@@ -4995,6 +5002,7 @@ export const RIBBON_COMMAND_ALIASES: Partial<Record<RibbonCommandId, readonly st
   zoomReset: ['actual size'],
   cycleTheme: ['dark mode', 'light mode', 'toggle theme', 'switch theme', 'appearance'],
   cycleTimerPreset: ['switch timer preset', 'toggle timer preset', 'next timer preset', 'change timer preset', 'timer profile', 'timer preset'],
+  insertFootnote: ['footnote', 'endnote', 'add footnote', 'new footnote', 'note'],
   timerToggleVisible: ['show timer', 'hide timer', 'toggle timer', 'timer panel'],
   timerStartPause: ['start timer', 'pause timer', 'speech timer', 'play timer'],
   timerPreset1: ['timer 9', 'first speech preset'],
@@ -5221,6 +5229,7 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   cycleDocNext: '',
   cycleDocPrev: '',
   closeDocOrWindow: 'Mod-w',
+  insertFootnote: '',
   timerToggleVisible: '',
   timerStartPause: '',
   timerPreset1: '',
@@ -5962,6 +5971,24 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
       return (_state, dispatch) => {
         if (!dispatch) return true;
         ctx.insertImage();
+        return true;
+      };
+    case 'insertFootnote':
+      return (state, dispatch, view) => {
+        const type = schema.nodes['footnote'];
+        if (!type) return false;
+        // Needs an inline position (any textblock). Replaces a
+        // non-empty selection, like typing would.
+        if (!state.selection.$from.parent.inlineContent) return false;
+        if (!dispatch) return true;
+        const insertPos = state.selection.from;
+        const tr = state.tr.replaceSelectionWith(
+          type.create({ kind: 'footnote', content: [] }),
+        );
+        dispatch(tr.scrollIntoView());
+        // Open the popover straight into edit mode so the flow is
+        // invoke → type the note → Save.
+        if (view) openFootnoteEditor(view, insertPos);
         return true;
       };
     case 'zoomIn':

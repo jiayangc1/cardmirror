@@ -106,6 +106,7 @@ export const RIBBON_GROUPS: RibbonGroup[] = [
       'createReference',
       'extractUndertag',
       'insertImage',
+      'insertFootnote',
       'selectCurrentHeading',
       'deleteCurrentHeading',
       'copyCurrentHeading',

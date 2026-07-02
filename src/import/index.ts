@@ -6,6 +6,7 @@ import type { Node as PMNode } from 'prosemirror-model';
 import { Docx } from '../ooxml/docx.js';
 import { importDoc, type MediaPart, type MediaPartsMap } from './importer.js';
 import { importComments } from './comments.js';
+import { importNotes } from './footnotes.js';
 import type { Thread } from '../editor/comments-plugin.js';
 
 export { importDoc } from './importer.js';
@@ -59,7 +60,14 @@ export async function fromDocx(bytes: Uint8Array | ArrayBuffer): Promise<PMNode>
     mediaParts.set(path, part);
   }
 
-  return importDoc(documentXml, relsXml, mediaParts, stylesXml);
+  const footnotesXml = await docx.readText('word/footnotes.xml');
+  const endnotesXml = await docx.readText('word/endnotes.xml');
+  const footnotesRelsXml = await docx.readText('word/_rels/footnotes.xml.rels');
+  const endnotesRelsXml = await docx.readText('word/_rels/endnotes.xml.rels');
+  return importDoc(documentXml, relsXml, mediaParts, stylesXml, {
+    footnotes: importNotes(footnotesXml, footnotesRelsXml, 'w:footnotes', 'w:footnote'),
+    endnotes: importNotes(endnotesXml, endnotesRelsXml, 'w:endnotes', 'w:endnote'),
+  });
 }
 
 /** Like `fromDocx` but also returns the parsed comment threads.
@@ -86,7 +94,14 @@ export async function fromDocxFull(
     mediaParts.set(path, part);
   }
 
-  const doc = importDoc(documentXml, relsXml, mediaParts, stylesXml);
+  const footnotesXml = await docx.readText('word/footnotes.xml');
+  const endnotesXml = await docx.readText('word/endnotes.xml');
+  const footnotesRelsXml = await docx.readText('word/_rels/footnotes.xml.rels');
+  const endnotesRelsXml = await docx.readText('word/_rels/endnotes.xml.rels');
+  const doc = importDoc(documentXml, relsXml, mediaParts, stylesXml, {
+    footnotes: importNotes(footnotesXml, footnotesRelsXml, 'w:footnotes', 'w:footnote'),
+    endnotes: importNotes(endnotesXml, endnotesRelsXml, 'w:endnotes', 'w:endnote'),
+  });
   const commentsXml = await docx.readText('word/comments.xml');
   const commentsExtendedXml = await docx.readText('word/commentsExtended.xml');
   const threads = importComments(commentsXml, commentsExtendedXml);

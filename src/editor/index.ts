@@ -162,6 +162,7 @@ import { wordSelectionPlugin } from './word-selection-plugin.js';
 import { typeOverBoundaryPlugin } from './type-over-boundary.js';
 import { smartQuotesPlugin } from './smart-quotes-plugin.js';
 import { customDashPlugin } from './custom-dash-plugin.js';
+import { footnotePopoverPlugin } from './footnote-popover.js';
 import { wordSelectionKeymap } from './word-selection-keymap.js';
 import { highlightFrequencyPlugin } from './highlight-frequency-plugin.js';
 import { editorDragSurface } from './drag-editor-surface.js';
@@ -4102,6 +4103,7 @@ export function buildEditorPlugins(): Plugin[] {
   // Custom dash autoformat — converts a typed `---` when the customDash settings
   // are on (inert otherwise; the plugin checks per keystroke).
   plugins.push(customDashPlugin());
+  plugins.push(footnotePopoverPlugin());
   plugins.push(viewportSpellcheckPlugin());
   // Voice control (SPEC-voice.md §12 item 3): plugin state (mode, pen,
   // utterance atomicity). Desktop-only at runtime; the plugin itself is

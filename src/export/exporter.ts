@@ -26,6 +26,7 @@ import {
 import { bookmarkNameForId } from '../schema/ids.js';
 import { base64ToBytes } from '../ooxml/base64.js';
 import type { Thread } from '../editor/comments-plugin.js';
+import type { FootnoteContent, FootnoteRun } from '../schema/footnotes.js';
 
 interface HyperlinkRel {
   rId: string;
@@ -57,6 +58,13 @@ export interface ExportResult {
   /** `word/commentsExtended.xml` content. Same null-when-absent
    *  contract as `commentsXml`. */
   commentsExtendedXml: string | null;
+  /** `word/footnotes.xml` (+ its rels part when notes carry
+   *  hyperlinks), or null when the doc has no footnote nodes. Same
+   *  shape for endnotes. */
+  footnotesXml: string | null;
+  footnotesRelsXml: string | null;
+  endnotesXml: string | null;
+  endnotesRelsXml: string | null;
 }
 
 export interface ExportOptions {
@@ -134,6 +142,11 @@ class DocxExporter {
   private threads: readonly Thread[] = [];
   /** Comment-paragraph paraId allocator for `commentsExtended.xml`. */
   private nextParaIdHex = 0x10000000;
+  /** Footnote / endnote bodies collected during the doc walk, in
+   *  reference order. Emitted as word/footnotes.xml / endnotes.xml
+   *  after the walk; ids are assigned fresh (1-based, per part). */
+  private footnotes: FootnoteContent[] = [];
+  private endnotes: FootnoteContent[] = [];
 
   exportDoc(doc: PMNode, opts: ExportOptions = {}): ExportResult {
     if (doc.type.name !== 'doc') {
@@ -150,12 +163,18 @@ class DocxExporter {
     this.closeOpenCommentRanges();
     this.parts.push(SECT_PR_AND_DOCUMENT_CLOSE);
 
+    const fn = this.footnotes.length > 0 ? buildNotesXml('footnote', this.footnotes) : null;
+    const en = this.endnotes.length > 0 ? buildNotesXml('endnote', this.endnotes) : null;
     return {
       documentXml: this.parts.join(''),
       relsXml: this.buildRelsXml(),
       mediaParts: this.mediaParts,
       commentsXml: this.threads.length > 0 ? this.buildCommentsXml() : null,
       commentsExtendedXml: this.threads.length > 0 ? this.buildCommentsExtendedXml() : null,
+      footnotesXml: fn?.xml ?? null,
+      footnotesRelsXml: fn?.relsXml ?? null,
+      endnotesXml: en?.xml ?? null,
+      endnotesRelsXml: en?.relsXml ?? null,
     };
   }
 
@@ -413,7 +432,7 @@ class DocxExporter {
       // same reconciliation so a comment that spans across an
       // inline image stays continuous.
       const wanted = new Set<string>();
-      if (child.isText || child.type.name === 'image') {
+      if (child.isText || child.type.name === 'image' || child.type.name === 'footnote') {
         for (const mark of child.marks) {
           if (mark.type.name !== 'comment_range') continue;
           const id = String(mark.attrs['threadId'] ?? '');
@@ -426,6 +445,8 @@ class DocxExporter {
         this.emitTextRun(child.text ?? '', child.marks);
       } else if (child.type.name === 'image') {
         this.emitImageRun(child);
+      } else if (child.type.name === 'footnote') {
+        this.emitFootnoteRef(child);
       }
       // Other inline non-text nodes: defensive no-op.
     });
@@ -505,6 +526,23 @@ class DocxExporter {
     const rId = `rId${this.nextRelId++}`;
     this.imageRels.push({ rId, target });
     return rId;
+  }
+
+  /** Emit a `<w:footnoteReference w:id>` (or endnote) run and queue
+   *  the note body for the footnotes/endnotes part. Ids are fresh,
+   *  1-based, assigned in reference order per part — Word renumbers
+   *  visually anyway. Superscript via direct formatting so the doc
+   *  needs no FootnoteReference style entry. */
+  private emitFootnoteRef(node: PMNode): void {
+    const kind = String(node.attrs['kind'] ?? 'footnote');
+    const content = (node.attrs['content'] ?? []) as FootnoteContent;
+    const list = kind === 'endnote' ? this.endnotes : this.footnotes;
+    list.push(content);
+    const id = list.length; // 1-based; separator entries take -1 / 0
+    const tag = kind === 'endnote' ? 'w:endnoteReference' : 'w:footnoteReference';
+    this.parts.push(
+      `<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><${tag} w:id="${id}"/></w:r>`,
+    );
   }
 
   private emitTextRun(text: string, marks: readonly Mark[]): void {
@@ -710,6 +748,16 @@ class DocxExporter {
         `<Relationship Id="${rel.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${escAttr(rel.target)}"/>`,
       );
     }
+    if (this.footnotes.length > 0) {
+      inner.push(
+        `<Relationship Id="rId${this.nextRelId++}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>`,
+      );
+    }
+    if (this.endnotes.length > 0) {
+      inner.push(
+        `<Relationship Id="rId${this.nextRelId++}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes" Target="endnotes.xml"/>`,
+      );
+    }
     if (this.threads.length > 0) {
       const commentsRId = `rId${this.nextRelId++}`;
       inner.push(
@@ -843,6 +891,65 @@ function buildDrawingXml(opts: {
 }
 
 /** Public API: schema doc → document.xml + rels. */
+/** Build word/footnotes.xml or word/endnotes.xml (+ the part's rels
+ *  file when any note run carries a hyperlink). Word requires the
+ *  separator (-1) and continuationSeparator (0) entries — omitting
+ *  them triggers a repair prompt. Note runs use direct formatting
+ *  only, so no styles.xml additions are needed. */
+function buildNotesXml(
+  kind: 'footnote' | 'endnote',
+  notes: FootnoteContent[],
+): { xml: string; relsXml: string | null } {
+  const root = kind === 'endnote' ? 'w:endnotes' : 'w:footnotes';
+  const noteTag = kind === 'endnote' ? 'w:endnote' : 'w:footnote';
+  const refTag = kind === 'endnote' ? 'w:endnoteRef' : 'w:footnoteRef';
+  const rels: string[] = [];
+  let nextRel = 1;
+
+  const runXml = (run: FootnoteRun): string => {
+    const props: string[] = [];
+    if (run.bold) props.push('<w:b/>');
+    if (run.italic) props.push('<w:i/>');
+    if (run.underline) props.push('<w:u w:val="single"/>');
+    const rPr = props.length > 0 ? `<w:rPr>${props.join('')}</w:rPr>` : '';
+    const body = `<w:r>${rPr}<w:t xml:space="preserve">${escText(run.text)}</w:t></w:r>`;
+    if (!run.link) return body;
+    const rId = `rIdN${nextRel++}`;
+    rels.push(
+      `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${escAttr(run.link)}" TargetMode="External"/>`,
+    );
+    return `<w:hyperlink r:id="${rId}" w:history="1">${body}</w:hyperlink>`;
+  };
+
+  const noteXml = (content: FootnoteContent, id: number): string => {
+    const paras = (content.length > 0 ? content : [[]]).map((runs, i) => {
+      // First paragraph opens with the in-note number marker + a
+      // spacer, matching Word's own output.
+      const lead =
+        i === 0
+          ? `<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><${refTag}/></w:r><w:r><w:t xml:space="preserve"> </w:t></w:r>`
+          : '';
+      return `<w:p>${lead}${runs.map(runXml).join('')}</w:p>`;
+    });
+    return `<${noteTag} w:id="${id}">${paras.join('')}</${noteTag}>`;
+  };
+
+  const sepP = '<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>';
+  const parts: string[] = [
+    `${XML_PROLOG}\n<${root} xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">`,
+    `<${noteTag} w:type="separator" w:id="-1">${sepP}<w:r><w:separator/></w:r></w:p></${noteTag}>`,
+    `<${noteTag} w:type="continuationSeparator" w:id="0">${sepP}<w:r><w:continuationSeparator/></w:r></w:p></${noteTag}>`,
+  ];
+  notes.forEach((content, idx) => parts.push(noteXml(content, idx + 1)));
+  parts.push(`</${root}>`);
+
+  const relsXml =
+    rels.length > 0
+      ? `${XML_PROLOG}\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.join('')}</Relationships>`
+      : null;
+  return { xml: parts.join(''), relsXml };
+}
+
 export function exportDoc(doc: PMNode, opts: ExportOptions = {}): ExportResult {
   return new DocxExporter().exportDoc(doc, opts);
 }

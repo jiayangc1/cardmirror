@@ -249,6 +249,68 @@ export const nodes: { [name: string]: NodeSpec } = {
   },
 
   /**
+   * Footnote / endnote reference — round-trips OOXML
+   * `<w:footnoteReference w:id>` (+ `word/footnotes.xml`) and the
+   * endnote equivalents.
+   *
+   * Like `image`, the node is self-contained: the note's body is
+   * flattened into the `content` attr as paragraphs of simplified runs
+   * ({ text, bold?, italic?, underline?, link? }) so it survives JSON
+   * round-trips (.cmir, clipboard, undo) with no sidecar. Debate
+   * footnotes are near-always read-only source citations, so the
+   * simplified-run model deliberately avoids ProseMirror's
+   * nested-content footnote pattern (inner EditorView, selection/undo
+   * handoff) — display + light editing happens in the popover
+   * (footnote-popover.ts).
+   *
+   * Rendering: an empty <sup>; the visible number is a pure CSS
+   * counter (see .pmd-footnote-ref in style.css), so ordinals track
+   * document order with zero bookkeeping.
+   */
+  footnote: {
+    inline: true,
+    group: 'inline',
+    atom: true,
+    attrs: {
+      /** 'footnote' (page bottom) or 'endnote' (document end). */
+      kind: {
+        default: 'footnote',
+        validate: (v: unknown) => v === 'footnote' || v === 'endnote',
+      },
+      /** Paragraphs of simplified runs — see FootnoteContent. */
+      content: {
+        default: [],
+        validate: (v: unknown) =>
+          Array.isArray(v) && v.every((p) => Array.isArray(p)),
+      },
+    },
+    parseDOM: [
+      {
+        tag: 'sup.pmd-footnote-ref',
+        getAttrs: (dom: HTMLElement) => {
+          const kind = dom.getAttribute('data-kind') === 'endnote' ? 'endnote' : 'footnote';
+          let content: unknown = [];
+          try {
+            content = JSON.parse(dom.getAttribute('data-content') ?? '[]');
+          } catch {
+            content = [];
+          }
+          if (!Array.isArray(content) || !content.every((p) => Array.isArray(p))) content = [];
+          return { kind, content };
+        },
+      },
+    ],
+    toDOM: (node) => [
+      'sup',
+      {
+        class: `pmd-footnote-ref pmd-footnote-kind-${String(node.attrs['kind'])}`,
+        'data-kind': String(node.attrs['kind']),
+        'data-content': JSON.stringify(node.attrs['content'] ?? []),
+      },
+    ],
+  },
+
+  /**
    * Heading paragraphs — flat in document order, hierarchy via the
    * derived outline view, not schema containment.
    */

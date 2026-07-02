@@ -24,6 +24,15 @@ see `DETAILED_CHANGELOG.md`.
   palette engineered to stay distinguishable under red-green and blue-yellow
   color-vision deficiencies. Works in light and dark themes, and any colors
   you've set by hand still win.
+- **Word footnotes and endnotes are supported.** Opening a `.docx` now
+  keeps its footnotes and endnotes (they previously disappeared on save),
+  shows each as a clickable superscript number — click to read the note,
+  links included, or edit it as plain text — and saving writes them back
+  to Word format. Notes travel with their text when you cut, copy, or send
+  cards. A new **Insert Footnote** command (unbound by default — assign a
+  key under Settings → Keyboard) creates one at the cursor and opens the
+  note editor immediately; the popover's Delete button (or Backspace over
+  the marker) removes one.
 - **Custom dash can trigger on `--`.** The custom dash setting now lets you
   choose what gets replaced — the classic `---`, or just `--` for a quicker
   dash. Backspace right after still reverts to the literal hyphens.

@@ -458,6 +458,24 @@ color to all of them at once.
   image** (see [AI features](#11-ai-features)). Alt text round-trips to
   Word.
 
+### Footnotes and endnotes
+
+Word footnotes and endnotes survive the round trip: opening a `.docx`
+keeps every note, and saving writes them back so a Word user sees them
+exactly where they were. In the editor each note is a small superscript
+number (footnotes count 1, 2, 3…; endnotes i, ii, iii…) — **click it to
+read the note** in a popover, links included. The popover's **Edit**
+button lets you correct a note as plain text (formatting inside the
+note is dropped when you save an edit). Notes travel with their text:
+cut, copy, and send a card and its footnotes go along.
+
+To create a new footnote, use the **Insert Footnote** command — unbound
+by default; assign a key under Settings → Keyboard. It drops a marker
+at the cursor and opens the note editor right away, so the flow is:
+invoke, type the note, Save. To remove one, click the marker and hit
+**Delete** in the popover — or just Backspace over the marker in the
+text.
+
 ### Document and card cleanup
 
 The **Doc** and **Card** ribbon menus hold document- and card-level

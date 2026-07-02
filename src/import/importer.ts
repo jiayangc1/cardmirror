@@ -20,6 +20,7 @@
  */
 
 import type { Mark, Node as PMNode, NodeType } from 'prosemirror-model';
+import type { FootnoteContent } from '../schema/footnotes.js';
 import { schema } from '../schema/index.js';
 import { idFromBookmarkName, newHeadingId } from '../schema/ids.js';
 import { normalizeUnderlineMarks } from '../editor/named-style-normalizer-plugin.js';
@@ -105,6 +106,11 @@ interface ImportContext {
   commentRangeStack: string[];
   /** Media parts from the source zip; null if not provided (drawings drop). */
   mediaParts: MediaPartsMap | null;
+  /** Note id → flattened body, from word/footnotes.xml / endnotes.xml.
+   *  Null when the parts weren't provided — references then import as
+   *  empty-bodied footnote nodes (marker survives, body lost). */
+  footnotes: Map<string, FootnoteContent> | null;
+  endnotes: Map<string, FootnoteContent> | null;
   /** styleId → style metadata from word/styles.xml. Empty when styles.xml
    *  wasn't provided. Used to classify paragraphs whose pStyle isn't a
    *  canonical styleId (e.g. analytics authored under other templates). */
@@ -130,6 +136,10 @@ export function importDoc(
   relsXml: string | null = null,
   mediaParts: MediaPartsMap | null = null,
   stylesXml: string | null = null,
+  notes: {
+    footnotes?: Map<string, FootnoteContent>;
+    endnotes?: Map<string, FootnoteContent>;
+  } | null = null,
 ): PMNode {
   const rels = relsXml ? parseRels(relsXml) : {};
   const ctx: ImportContext = {
@@ -138,6 +148,8 @@ export function importDoc(
     fieldStack: [],
     commentRangeStack: [],
     mediaParts,
+    footnotes: notes?.footnotes ?? null,
+    endnotes: notes?.endnotes ?? null,
     styles: stylesXml ? parseStyles(stylesXml) : new Map(),
     legacy: null,
   };
@@ -717,6 +729,27 @@ function parseRun(rNode: XmlNode, ctx: ImportContext, out: PMNode[]): void {
       try { out.push(schema.text('‑', currentMarks())); } catch (_) { /* */ }
     } else if ('w:softHyphen' in c) {
       try { out.push(schema.text('­', currentMarks())); } catch (_) { /* */ }
+    }
+    // Footnote / endnote references — become self-contained footnote
+    // nodes carrying the flattened body from footnotes.xml/endnotes.xml
+    // (empty when the part wasn't provided; the marker still survives).
+    else if ('w:footnoteReference' in c || 'w:endnoteReference' in c) {
+      const isEnd = 'w:endnoteReference' in c;
+      const id = attrsOf(c)['w:id'] ?? '';
+      const map = isEnd ? ctx.endnotes : ctx.footnotes;
+      const content = (id && map?.get(id)) || [];
+      let fnNode = schema.nodes['footnote']!.create({
+        kind: isEnd ? 'endnote' : 'footnote',
+        content,
+      });
+      if (ctx.commentRangeStack.length > 0) {
+        fnNode = fnNode.mark(
+          ctx.commentRangeStack.map((threadId) =>
+            schema.marks['comment_range']!.create({ threadId }),
+          ),
+        );
+      }
+      out.push(fnNode);
     }
     // Inline pictures: <w:drawing><wp:inline>… or floating
     // <w:drawing><wp:anchor>…. Both wrap a picture referenced via
