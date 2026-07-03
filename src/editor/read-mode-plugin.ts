@@ -37,6 +37,8 @@ import { Decoration, DecorationSet } from 'prosemirror-view';
 import type { Node as PMNode } from 'prosemirror-model';
 import { undo, redo, undoDepth, redoDepth } from 'prosemirror-history';
 import { changedRange, expandToTopLevel } from './decoration-range.js';
+import { isSyncOrigin } from './sync-origin.js';
+import { NORMALIZER_META } from './normalizer-guard.js';
 import {
   toggleReadingMarker,
   isReadingMarkerColor,
@@ -140,10 +142,19 @@ export const readModePlugin: Plugin<ReadModeState> = new Plugin<ReadModeState>({
   // drag-move / dropzone / receive-pill insertions (position-validated by the
   // drag controller, so safe while reading). Selection moves and meta-only
   // transactions (no doc change) pass, so the cursor stays usable.
+  //
+  // Two categories bypass the lock outright: sync-origin transactions
+  // (already-merged remote content — rejecting one desynchronizes the
+  // editor from the shared doc, see sync-origin.ts) and normalizer
+  // output (a normalizer only fires in response to a transaction this
+  // filter already admitted; blocking the fix-up would strand the doc
+  // half-normalized until read mode exits).
   filterTransaction(tr, state) {
     if (!readModePlugin.getState(state)?.on) return true;
     if (!tr.docChanged) return true;
     return (
+      isSyncOrigin(tr) ||
+      tr.getMeta(NORMALIZER_META) === true ||
       tr.getMeta(READING_MARKER_META) === true ||
       tr.getMeta(READ_MODE_UNDO_META) === true ||
       tr.getMeta(READ_MODE_DRAG_META) === true

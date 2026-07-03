@@ -38,6 +38,7 @@
 import { Plugin, TextSelection } from 'prosemirror-state';
 import { Fragment, type Node as PMNode } from 'prosemirror-model';
 import { schema } from '../schema/index.js';
+import { guardNormalizerTr } from './normalizer-guard.js';
 
 const ABSORBING_TYPES = new Set(['card', 'analytic_unit']);
 
@@ -92,7 +93,7 @@ export const absorbPlugin: Plugin = new Plugin({
       const $anchor = tr.doc.resolve(newAnchor);
       tr.setSelection(TextSelection.between($anchor, $head));
     }
-    return tr;
+    return guardNormalizerTr(transactions, tr);
   },
 });
 

@@ -23,6 +23,13 @@
  *     a bypass meta). This keeps an op's content plan valid: nobody can
  *     retype, re-style, or re-mark inside the region mid-flight.
  *
+ * Sync-origin transactions (already-merged remote content) are the one
+ * exception to the inside-a-lease block: they cannot be rejected without
+ * desynchronizing the editor from the shared doc, so an overlapping sync
+ * edit instead *releases* the touched lease — the op's content plan is
+ * stale against the merged text, and the owning feature already treats a
+ * vanished lease as "abort and retry".
+ *
  * Because leases remap, disjoint ops run concurrently; overlapping claims
  * are rejected (`claimRegion` returns null and the caller aborts). When a
  * user edit is blocked, the touched lease region flashes.
@@ -35,6 +42,7 @@
 import { Plugin, PluginKey } from 'prosemirror-state';
 import type { EditorState, Transaction } from 'prosemirror-state';
 import { Decoration, DecorationSet, type EditorView } from 'prosemirror-view';
+import { isSyncOrigin } from '../sync-origin.js';
 
 export interface CoordRange {
   from: number;
@@ -83,7 +91,7 @@ function isBypass(tr: Transaction): boolean {
 /** True when a non-bypass transaction would change content *inside* any
  *  live lease — length change at the interior, or a deleted boundary. */
 export function coordinatorBlocks(state: EditorState, tr: Transaction): boolean {
-  if (!tr.docChanged || isBypass(tr)) return false;
+  if (!tr.docChanged || isBypass(tr) || isSyncOrigin(tr)) return false;
   const cs = coordinatorKey.getState(state);
   if (!cs || cs.leases.length === 0) return false;
   return cs.leases.some((l) => leaseTouched(tr, l));
@@ -115,6 +123,12 @@ export const editCoordinatorPlugin = new Plugin<CoordState>({
       let leases = prev.leases;
       let flash = prev.flash;
       if (tr.docChanged) {
+        // A sync-origin edit inside a lease releases it (module doc):
+        // the touched-check runs against pre-mapping positions, so it
+        // must precede the remap below.
+        if (isSyncOrigin(tr) && leases.length) {
+          leases = leases.filter((l) => !leaseTouched(tr, l));
+        }
         // region.from biases right, region.to biases left, so insertions
         // at the very edge stay *outside* the region; interior points keep
         // the default rightward bias.

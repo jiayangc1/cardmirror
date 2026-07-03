@@ -25,6 +25,7 @@ import type { Transaction } from 'prosemirror-state';
 import type { Node as PMNode } from 'prosemirror-model';
 import { schema } from '../schema/index.js';
 import { changedRange } from './transaction-utils.js';
+import { guardNormalizerTr } from './normalizer-guard.js';
 
 const CANDIDATE_TYPES = new Set<string>(['card_body', 'paragraph', 'cite_paragraph']);
 
@@ -50,7 +51,7 @@ export const citeClassifierPlugin: Plugin = new Plugin({
       return false;
     });
 
-    return tr;
+    return tr === null ? null : guardNormalizerTr(transactions, tr);
   },
 });
 

@@ -7,6 +7,40 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Collab groundwork (M0): sync-origin meta contract, normalizer loop
+  guard, deterministic doc repair** (`sync-origin.ts` NEW,
+  `normalizer-guard.ts` NEW, `doc-repair.ts` NEW; `read-mode-plugin.ts`,
+  `ai/edit-coordinator.ts`, `absorb-plugin.ts`,
+  `cite-classifier-plugin.ts`, `named-style-normalizer-plugin.ts`,
+  `import/index.ts`). Three standalone-valuable pieces of the
+  collaborative-editing groundwork:
+  1. *Sync-origin transactions.* `markSyncOrigin(tr)` tags a transaction
+     as already-merged remote content. Read mode's `filterTransaction`
+     and the AI edit coordinator now admit such transactions
+     unconditionally — rejecting one would desynchronize the editor from
+     a shared document. The coordinator instead *releases* any lease a
+     sync edit touches (checked against pre-mapping positions); the
+     owning AI feature already treats a vanished lease as abort-and-retry.
+  2. *Normalizer round guard.* ProseMirror re-runs `appendTransaction`
+     with no bound, so two normalizers that each "fix" the other's output
+     could wedge the renderer in an infinite dispatch loop (a
+     WHITE_SCREEN_AUDIT wedge contributor). All three normalizers now
+     route appended transactions through `guardNormalizerTr`, which
+     stamps origin + round metas and drops the pass (with a console
+     warning) past round 8. Normalizer output is admitted in read mode —
+     it only fires in response to transactions the lock already admitted.
+  3. *Deterministic doc repair.* `repairDoc`/`buildDocRepairTr`: pads
+     ragged tables (prosemirror-tables `fixTables`), sweeps co-present
+     `excludes` marks (keeps the earlier-declared), and restores the
+     card/analytic_unit first-child invariant. Pure and idempotent by
+     construction. Wired into `fromDocx`/`fromDocxFull` so Word's
+     tolerated-ragged tables arrive rectangular.
+  Tests: `sync-origin.test.ts` (7), `normalizer-guard.test.ts` (5),
+  `doc-repair.test.ts` (4), and `collab-fuzz.test.ts` — a seeded fuzz
+  skeleton (25 seeds × 25 random ops against the real schema with the
+  normalizer trio active) asserting validity, no cap trips, and repair
+  idempotence; the CRDT bindings slot into this harness later.
+
 - **Relay test harnesses preserved in-repo** (`dev/relay-contract.mjs`
   NEW, `dev/relay-load.mjs` NEW). The 20-check wire-contract suite (the
   old-client compatibility gate for any relay change) and the SSE/POST

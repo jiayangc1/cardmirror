@@ -7,7 +7,20 @@ see `DETAILED_CHANGELOG.md`.
 
 ## Unreleased
 
+### Fixed
+
+- **Word tables with uneven rows import cleanly.** A .docx table whose
+  rows have different numbers of cells (Word allows this) is now padded
+  to a clean rectangle on import, so row and column editing behaves
+  predictably instead of misaligning.
+
 ### Changed
+
+- **Editor stability: internal fix-up passes are now loop-guarded.**
+  The automatic tidy-ups that run after every edit (card absorption,
+  paragraph reclassification, underline style normalization) can no
+  longer chase each other indefinitely in unusual documents — a
+  safety cap stops the cycle instead of freezing the window.
 
 - **Self-hosted relay: hardened against heavy traffic.** The bundled
   relay server (`relay/`) now stays responsive under sustained send

@@ -4,6 +4,7 @@
 
 import type { Node as PMNode } from 'prosemirror-model';
 import { Docx } from '../ooxml/docx.js';
+import { repairDoc } from '../doc-repair.js';
 import { importDoc, type MediaPart, type MediaPartsMap } from './importer.js';
 import { importComments } from './comments.js';
 import { importNotes } from './footnotes.js';
@@ -63,10 +64,14 @@ export async function fromDocx(bytes: Uint8Array | ArrayBuffer): Promise<PMNode>
   const endnotesXml = await docx.readText('word/endnotes.xml');
   const footnotesRelsXml = await docx.readText('word/_rels/footnotes.xml.rels');
   const endnotesRelsXml = await docx.readText('word/_rels/endnotes.xml.rels');
-  return importDoc(documentXml, relsXml, mediaParts, stylesXml, {
-    footnotes: importNotes(footnotesXml, footnotesRelsXml, 'w:footnotes', 'w:footnote'),
-    endnotes: importNotes(endnotesXml, endnotesRelsXml, 'w:endnotes', 'w:endnote'),
-  });
+  // Word tolerates ragged tables (rows with differing cell counts); the
+  // editor's table plumbing assumes rectangular ones. Repair on the way in.
+  return repairDoc(
+    importDoc(documentXml, relsXml, mediaParts, stylesXml, {
+      footnotes: importNotes(footnotesXml, footnotesRelsXml, 'w:footnotes', 'w:footnote'),
+      endnotes: importNotes(endnotesXml, endnotesRelsXml, 'w:endnotes', 'w:endnote'),
+    }),
+  );
 }
 
 /** Like `fromDocx` but also returns the parsed comment threads.
@@ -97,10 +102,13 @@ export async function fromDocxFull(
   const endnotesXml = await docx.readText('word/endnotes.xml');
   const footnotesRelsXml = await docx.readText('word/_rels/footnotes.xml.rels');
   const endnotesRelsXml = await docx.readText('word/_rels/endnotes.xml.rels');
-  const doc = importDoc(documentXml, relsXml, mediaParts, stylesXml, {
-    footnotes: importNotes(footnotesXml, footnotesRelsXml, 'w:footnotes', 'w:footnote'),
-    endnotes: importNotes(endnotesXml, endnotesRelsXml, 'w:endnotes', 'w:endnote'),
-  });
+  // Same rectangularity repair as `fromDocx`.
+  const doc = repairDoc(
+    importDoc(documentXml, relsXml, mediaParts, stylesXml, {
+      footnotes: importNotes(footnotesXml, footnotesRelsXml, 'w:footnotes', 'w:footnote'),
+      endnotes: importNotes(endnotesXml, endnotesRelsXml, 'w:endnotes', 'w:endnote'),
+    }),
+  );
   const commentsXml = await docx.readText('word/comments.xml');
   const commentsExtendedXml = await docx.readText('word/commentsExtended.xml');
   const threads = importComments(commentsXml, commentsExtendedXml);

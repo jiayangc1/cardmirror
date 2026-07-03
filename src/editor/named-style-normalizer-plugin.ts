@@ -30,6 +30,7 @@ import type { Transaction } from 'prosemirror-state';
 import { Fragment, type Node as PMNode } from 'prosemirror-model';
 import { schema } from '../schema/index.js';
 import { changedRange } from './transaction-utils.js';
+import { guardNormalizerTr } from './normalizer-guard.js';
 
 const BODY_TEXTBLOCKS = new Set<string>(['paragraph', 'card_body', 'cite_paragraph']);
 const STRUCTURAL_TEXTBLOCKS = new Set<string>([
@@ -88,7 +89,7 @@ export const namedStyleNormalizerPlugin: Plugin = new Plugin({
       return true;
     });
 
-    return tr;
+    return tr === null ? null : guardNormalizerTr(transactions, tr);
   },
 });
 
