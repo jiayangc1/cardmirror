@@ -406,7 +406,10 @@ hands-free-editing community — [Talon](https://talonvoice.com/),
 The card sharing feature was conceived and prototyped by
 [Q Cooper](https://github.com/mosuqc) of Missouri State University; his
 proof-of-concept demonstrated the cross-machine send-and-receive flow the
-built-in version is based on.
+built-in version is based on. Thanks also to Shreeram Modi, whose
+[debate-scripts](https://github.com/shreerammodi/debate-scripts) for
+Verbatim inspired a few features here — notably the customizable
+acronym marking.
 
 The app's interface icons are from the
 [Untitled UI free icons](https://www.untitledui.com/free-icons),

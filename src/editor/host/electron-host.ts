@@ -39,8 +39,29 @@ export interface QuickCardIpc {
  *  identical to the renderer's pairing types) so this module takes no
  *  import dependency on the pairing stores — same convention as
  *  `QuickCardIpc`. */
+export interface PairingAccountStatusIpc {
+  /** False when the build/runtime doesn't enable the blog-account flow. */
+  enabled: boolean;
+  connected: boolean;
+  /** Entitlement expiry, epoch ms (0 when none). */
+  expiresAt: number;
+  /** Member email the relay reported ('' when unknown). */
+  email: string;
+}
+
+export interface PairingConnectResultIpc {
+  ok: boolean;
+  /** 'seatLimit' | 'evicted' | 'badCode' | 'subscription' | 'unsupported' | 'network' | 'disabled' | 'http NNN' */
+  error?: string;
+  expiresAt?: number;
+  email?: string;
+  limit?: number;
+  wouldEvict?: { routingCode: string; boundAt: string };
+  retryCode?: string;
+}
+
 export interface PairingConfigIpc {
-  /** Whether the receive poller should run. */
+  /** Whether the receive channel should run. */
   enabled: boolean;
   /** Optional name stamped (inside the ciphertext) on outgoing cards. */
   displayName: string;
@@ -49,8 +70,13 @@ export interface PairingConfigIpc {
   /** Compatibility floor stamped on cards this build sends — the minimum
    *  receiver version that can read them. Blank = any version may receive. */
   minReceiverVersion?: string;
-  /** Poll cadence in seconds. */
+  /** Poll cadence in seconds (fallback polling against legacy relays;
+   *  floored to 5 min as the catch-up cadence while push-streaming). */
   pollSeconds: number;
+  /** Self-hosted relay base URL ('' = the official relay). */
+  relayUrl?: string;
+  /** Bearer for a self-hosted relay ('' = the baked official token). */
+  relayToken?: string;
 }
 export interface PairingSendItemIpc {
   label: string;
@@ -243,6 +269,15 @@ interface ElectronAPI {
       localVersion: string;
       requiredVersion: string;
     }) => void,
+  ): () => void;
+  pairingConnectAccount?(payload: {
+    connectCode: string;
+    confirmEvict?: boolean;
+  }): Promise<PairingConnectResultIpc>;
+  pairingAccountStatus?(): Promise<PairingAccountStatusIpc>;
+  pairingDisconnectAccount?(): Promise<PairingAccountStatusIpc>;
+  onPairingEntitlementChanged?(
+    handler: (status: PairingAccountStatusIpc & { evicted?: boolean; lapsed?: boolean }) => void,
   ): () => void;
 
   /** Return every open doc across every window with its current
@@ -735,6 +770,43 @@ export class ElectronHost implements Host {
     }) => void,
   ): () => void {
     return api().onPairingVersionMismatch?.(handler) ?? (() => {});
+  }
+
+  async pairingConnectAccount(payload: {
+    connectCode: string;
+    confirmEvict?: boolean;
+  }): Promise<PairingConnectResultIpc> {
+    return (
+      (await api().pairingConnectAccount?.(payload)) ?? { ok: false, error: 'disabled' }
+    );
+  }
+
+  async pairingAccountStatus(): Promise<PairingAccountStatusIpc> {
+    return (
+      (await api().pairingAccountStatus?.()) ?? {
+        enabled: false,
+        connected: false,
+        expiresAt: 0,
+        email: '',
+      }
+    );
+  }
+
+  async pairingDisconnectAccount(): Promise<PairingAccountStatusIpc> {
+    return (
+      (await api().pairingDisconnectAccount?.()) ?? {
+        enabled: false,
+        connected: false,
+        expiresAt: 0,
+        email: '',
+      }
+    );
+  }
+
+  onPairingEntitlementChanged(
+    handler: (status: PairingAccountStatusIpc & { evicted?: boolean; lapsed?: boolean }) => void,
+  ): () => void {
+    return api().onPairingEntitlementChanged?.(handler) ?? (() => {});
   }
 
   async listDocs(): Promise<

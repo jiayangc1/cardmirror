@@ -58,6 +58,7 @@ import { getElectronHost, getHost } from './host/index.js';
 import { classifyChar, isWordChar } from './word-break.js';
 import { moveContainerUp, moveContainerDown } from './move-container.js';
 import { settings } from './settings.js';
+import { matchAcronymPattern } from './acronym-patterns.js';
 import {
   getTimerState,
   loadSpeechPreset,
@@ -1026,123 +1027,160 @@ export function applyEmphasis(): Command {
 }
 
 /**
- * Alt-F10 — apply `emphasis_mark` to the FIRST character of each
- * word inside the selection, expanding the selection to whole-word
- * boundaries first. Useful for marking the source letters of an
- * acronym: select "United States Capitol Police", run this, and
- * "U", "S", "C", "P" get emphasized.
+ * Shared walk for the acronym commands. Expands the selection to
+ * whole-word boundaries per textblock and returns the ranges to mark:
+ *
+ *   - When the (expanded) selection lives in a SINGLE textblock and
+ *     its text matches an entry in the custom acronym table
+ *     (Settings → Editing → Acronym marking, case-insensitive), the
+ *     ranges are the user-picked character offsets — so "weapons of
+ *     mass destruction" can mark just w/m/d and read as "WMD".
+ *   - Otherwise, the first character of each word — a word being a
+ *     maximal run of word-class characters per `word-break.ts`
+ *     (inline leaves and block boundaries break words; mark
+ *     boundaries don't; `U.S.A.` is three one-letter words).
+ *
+ * `skipBlocks` applies the `NAMED_STYLE_SKIP_BLOCKS` gate (body-text
+ * marks skip structural textblocks; highlight doesn't).
+ */
+function acronymTargetRanges(
+  state: EditorState,
+  skipBlocks: boolean,
+): { from: number; to: number }[] {
+  const sel = state.selection;
+  interface BlockInfo {
+    tbStart: number;
+    expFrom: number;
+    text: string; // expanded-range text; inline leaves as '\0'
+    firstLetters: { from: number; to: number }[];
+  }
+  const blocks: BlockInfo[] = [];
+
+  state.doc.nodesBetween(sel.from, sel.to, (node, pos) => {
+    if (!node.isTextblock) return true;
+    if (skipBlocks && NAMED_STYLE_SKIP_BLOCKS.has(node.type.name)) return false;
+
+    const tbStart = pos + 1;
+    const size = node.content.size;
+    if (size === 0) return false;
+
+    // Per-position word-class map and character image for THIS
+    // textblock. `isW[i]` is true iff the char at slot `i` classifies
+    // as a word-character (`isWordChar`); inline leaves get '\0',
+    // which is non-word and ends any in-progress word.
+    const isW = new Array<boolean>(size);
+    const chars = new Array<string>(size);
+    let p = 0;
+    node.forEach((child) => {
+      if (child.isText) {
+        const t = child.text ?? '';
+        for (let i = 0; i < t.length; i++) {
+          const ch = t[i] ?? '\0';
+          isW[p + i] = isWordChar(ch);
+          chars[p + i] = ch;
+        }
+        p += t.length;
+      } else {
+        for (let i = 0; i < child.nodeSize; i++) {
+          isW[p + i] = false;
+          chars[p + i] = '\0';
+        }
+        p += child.nodeSize;
+      }
+    });
+
+    // Selection-clip range in textblock-local coords.
+    const localFrom = Math.max(0, sel.from - tbStart);
+    const localTo = Math.min(size, sel.to - tbStart);
+    if (localFrom >= localTo) return false;
+
+    // A word is "partially selected" iff at least one of its
+    // word-class characters falls inside the selection.
+    let leftW = -1;
+    let rightW = -1;
+    for (let i = localFrom; i < localTo; i++) {
+      if (isW[i] === true) {
+        if (leftW < 0) leftW = i;
+        rightW = i;
+      }
+    }
+    if (leftW < 0) return false;
+
+    // Expand to whole-word boundaries — the smallest contiguous range
+    // fully covering every partially-selected word.
+    let expFrom = leftW;
+    let expTo = rightW + 1;
+    while (expFrom > 0 && isW[expFrom - 1] === true) expFrom--;
+    while (expTo < size && isW[expTo] === true) expTo++;
+
+    // First character of each word in the expanded range.
+    const firstLetters: { from: number; to: number }[] = [];
+    let inWord = false;
+    for (let i = expFrom; i < expTo; i++) {
+      const isWord = isW[i] === true;
+      if (isWord && !inWord) {
+        firstLetters.push({ from: tbStart + i, to: tbStart + i + 1 });
+        inWord = true;
+      } else if (!isWord) {
+        inWord = false;
+      }
+    }
+    blocks.push({
+      tbStart,
+      expFrom,
+      text: chars.slice(expFrom, expTo).join(''),
+      firstLetters,
+    });
+    // Stop descent; the whole textblock is processed.
+    return false;
+  });
+
+  // Custom table lookup — single-textblock selections only (phrases
+  // don't span paragraphs; multi-block selections keep the classic
+  // per-word behavior).
+  if (blocks.length === 1) {
+    const b = blocks[0]!;
+    const hit = matchAcronymPattern(b.text, settings.get('acronymPatterns'));
+    if (hit) {
+      return hit.chars
+        .filter((c) => c < b.text.length && b.text[c] !== '\0')
+        .map((c) => ({
+          from: b.tbStart + b.expFrom + c,
+          to: b.tbStart + b.expFrom + c + 1,
+        }));
+    }
+  }
+  return blocks.flatMap((b) => b.firstLetters);
+}
+
+/**
+ * Alt-F10 — apply `emphasis_mark` to the acronym target letters of
+ * the selection: the custom-table characters when the selection
+ * matches a configured phrase, else the first character of each word
+ * (select "United States Capitol Police" and "U", "S", "C", "P" get
+ * emphasized). See `acronymTargetRanges` for the walk contract.
  *
  * No-op on empty selection — no "emphasize the word at the cursor"
  * fallback like `applyEmphasis` has.
  *
- * Word definition matches `wordRangeAtCursor`: a maximal run of
- * non-whitespace characters within a single textblock. Inline
- * leaves (images, etc.) and structural-block boundaries break
- * words. Mark boundaries do NOT break a word.
- *
  * Structural blocks (tag / undertag / pocket / hat / block /
  * analytic) are skipped — `emphasis_mark` is a body-text mark
- * (same skip rule as `applyEmphasis`).
- *
- * Applied per word: the first character of the word (a single
- * code-unit slot — surrogate-pair edge case isn't relevant for
- * real-world acronyms) gets `emphasis_mark`, plus the same
- * direct-formatting stripping `applyEmphasis` does.
+ * (same skip rule as `applyEmphasis`). Each marked character also
+ * gets the same direct-formatting stripping `applyEmphasis` does.
  */
 export function emphasizeAcronym(): Command {
   return (state, dispatch) => {
     const markType = schema.marks['emphasis_mark'];
     if (!markType) return false;
-    const sel = state.selection;
-    if (sel.empty) return false;
+    if (state.selection.empty) return false;
 
-    const firstLetterRanges: { from: number; to: number }[] = [];
-    state.doc.nodesBetween(sel.from, sel.to, (node, pos) => {
-      if (!node.isTextblock) return true;
-      if (NAMED_STYLE_SKIP_BLOCKS.has(node.type.name)) return false;
-
-      const tbStart = pos + 1;
-      const tbEnd = pos + node.nodeSize - 1;
-      const size = node.content.size;
-      if (size === 0) return false;
-
-      // Per-position word-class map for THIS textblock. `isW[i]` is
-      // true iff the char at slot `i` classifies as a word-character
-      // per the spec (`isWordChar` from `word-break.ts`): letters,
-      // digits, `'` U+0027, `'` U+2019. Inline leaves (images, etc.)
-      // get the sentinel `'\0'` which classifies as non-word and
-      // therefore ends any in-progress word. Same index space as
-      // `wordRangeAtCursor`. Under the spec `U.S.A.` is three words
-      // (each letter standalone), so `U`, `S`, `A` are emphasized
-      // separately.
-      const isW = new Array<boolean>(size);
-      let p = 0;
-      node.forEach((child) => {
-        if (child.isText) {
-          const t = child.text ?? '';
-          for (let i = 0; i < t.length; i++) {
-            isW[p + i] = isWordChar(t[i] ?? '\0');
-          }
-          p += t.length;
-        } else {
-          for (let i = 0; i < child.nodeSize; i++) isW[p + i] = false;
-          p += child.nodeSize;
-        }
-      });
-
-      // Selection-clip range in textblock-local coords.
-      const localFrom = Math.max(0, sel.from - tbStart);
-      const localTo = Math.min(size, sel.to - tbStart);
-      if (localFrom >= localTo) return false;
-
-      // A word is "partially selected" iff at least one of its
-      // word-class characters falls inside the selection. Find the
-      // leftmost and rightmost word-class positions within
-      // [localFrom, localTo). If none exist (selection is entirely
-      // non-word chars), skip this block.
-      let leftW = -1;
-      let rightW = -1;
-      for (let i = localFrom; i < localTo; i++) {
-        if (isW[i] === true) {
-          if (leftW < 0) leftW = i;
-          rightW = i;
-        }
-      }
-      if (leftW < 0) return false;
-
-      // Expand to whole-word boundaries: extend left through
-      // word-class slots preceding `leftW`, and right through
-      // word-class slots following `rightW`. Smallest contiguous
-      // range fully covering every partially-selected word.
-      let expFrom = leftW;
-      let expTo = rightW + 1;
-      while (expFrom > 0 && isW[expFrom - 1] === true) expFrom--;
-      while (expTo < size && isW[expTo] === true) expTo++;
-
-      // Walk the expanded range; each non-word → word transition
-      // (or the very first slot if it's word-class) is the start
-      // of a new word, and the slot is the word's first character.
-      let inWord = false;
-      for (let i = expFrom; i < expTo; i++) {
-        const isWord = isW[i] === true;
-        if (isWord && !inWord) {
-          firstLetterRanges.push({ from: tbStart + i, to: tbStart + i + 1 });
-          inWord = true;
-        } else if (!isWord) {
-          inWord = false;
-        }
-      }
-      // Stop descent into this textblock's children; we've already
-      // processed the whole content.
-      return false;
-    });
-
-    if (firstLetterRanges.length === 0) return false;
+    const ranges = acronymTargetRanges(state, true);
+    if (ranges.length === 0) return false;
     if (!dispatch) return true;
 
     const tr = state.tr;
     const mark = markType.create();
-    for (const r of firstLetterRanges) {
+    for (const r of ranges) {
       tr.addMark(r.from, r.to, mark);
       // Same one-directional-apply semantics as `applyBodyMark`:
       // direct overrides clear; highlight survives, shading strips.
@@ -1154,12 +1192,38 @@ export function emphasizeAcronym(): Command {
 }
 
 /**
- * Alt-F11 — apply the active `highlight` color to the FIRST
- * character of each word inside the selection, using the same
- * per-word-first-letter walk as `emphasizeAcronym`. Useful for
- * making an acronym's source letters pop visually (e.g., select
- * "United States Capitol Police", run this, and `U / S / C / P`
- * each carry the active highlight).
+ * Underline Acronym — `underline_mark` on the acronym target letters,
+ * completing the emphasize / highlight / underline trio. Same
+ * contract as `emphasizeAcronym` (body-text named style: structural
+ * blocks skipped, direct formatting stripped on apply); unbound by
+ * default.
+ */
+export function underlineAcronym(): Command {
+  return (state, dispatch) => {
+    const markType = schema.marks['underline_mark'];
+    if (!markType) return false;
+    if (state.selection.empty) return false;
+
+    const ranges = acronymTargetRanges(state, true);
+    if (ranges.length === 0) return false;
+    if (!dispatch) return true;
+
+    const tr = state.tr;
+    const mark = markType.create();
+    for (const r of ranges) {
+      tr.addMark(r.from, r.to, mark);
+      stripDirectFormattingOnApply(tr, r.from, r.to);
+    }
+    dispatch(tr);
+    return true;
+  };
+}
+
+/**
+ * Alt-F11 — apply the active `highlight` color to the acronym target
+ * letters of the selection (custom-table characters on a phrase
+ * match, else each word's first letter — select "United States
+ * Capitol Police" and `U / S / C / P` carry the active highlight).
  *
  * Differences from `emphasizeAcronym`, parallel to the differences
  * between `applyHighlight` and `applyEmphasis`:
@@ -1175,77 +1239,19 @@ export function highlightAcronym(activeColor: () => string | null): Command {
   return (state, dispatch) => {
     const markType = schema.marks['highlight'];
     if (!markType) return false;
-    const sel = state.selection;
-    if (sel.empty) return false;
+    if (state.selection.empty) return false;
 
-    const firstLetterRanges: { from: number; to: number }[] = [];
-    state.doc.nodesBetween(sel.from, sel.to, (node, pos) => {
-      if (!node.isTextblock) return true;
-      // No NAMED_STYLE_SKIP_BLOCKS gate — highlight is allowed in
-      // structural textblocks (tags / analytics / pockets / etc.).
-
-      const tbStart = pos + 1;
-      const size = node.content.size;
-      if (size === 0) return false;
-
-      // Per-position word-class map, identical to emphasizeAcronym.
-      const isW = new Array<boolean>(size);
-      let p = 0;
-      node.forEach((child) => {
-        if (child.isText) {
-          const t = child.text ?? '';
-          for (let i = 0; i < t.length; i++) {
-            isW[p + i] = isWordChar(t[i] ?? '\0');
-          }
-          p += t.length;
-        } else {
-          for (let i = 0; i < child.nodeSize; i++) isW[p + i] = false;
-          p += child.nodeSize;
-        }
-      });
-
-      const localFrom = Math.max(0, sel.from - tbStart);
-      const localTo = Math.min(size, sel.to - tbStart);
-      if (localFrom >= localTo) return false;
-
-      let leftW = -1;
-      let rightW = -1;
-      for (let i = localFrom; i < localTo; i++) {
-        if (isW[i] === true) {
-          if (leftW < 0) leftW = i;
-          rightW = i;
-        }
-      }
-      if (leftW < 0) return false;
-
-      let expFrom = leftW;
-      let expTo = rightW + 1;
-      while (expFrom > 0 && isW[expFrom - 1] === true) expFrom--;
-      while (expTo < size && isW[expTo] === true) expTo++;
-
-      let inWord = false;
-      for (let i = expFrom; i < expTo; i++) {
-        const isWord = isW[i] === true;
-        if (isWord && !inWord) {
-          firstLetterRanges.push({ from: tbStart + i, to: tbStart + i + 1 });
-          inWord = true;
-        } else if (!isWord) {
-          inWord = false;
-        }
-      }
-      return false;
-    });
-
-    if (firstLetterRanges.length === 0) return false;
+    const ranges = acronymTargetRanges(state, false);
+    if (ranges.length === 0) return false;
     if (!dispatch) return true;
 
     const tr = state.tr;
     const color = activeColor();
-    for (const r of firstLetterRanges) {
+    for (const r of ranges) {
       // Replace any existing highlight color on this character so
       // the new acronym mark wins (parallel to applyHighlight's
       // remove-then-add for the "apply" branch). A null pen ("No
-      // highlight") strips the first letters instead.
+      // highlight") strips the target letters instead.
       tr.removeMark(r.from, r.to, markType);
       if (color !== null) tr.addMark(r.from, r.to, markType.create({ color }));
     }
@@ -4419,6 +4425,7 @@ export type RibbonCommandId =
   | 'emphasizeAcronym'
   | 'applyHighlight'
   | 'highlightAcronym'
+  | 'underlineAcronym'
   | 'applyShading'
   | 'condenseDefault'
   | 'condenseNoIntegrity'
@@ -4615,6 +4622,7 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'emphasizeAcronym',
   'applyHighlight',
   'highlightAcronym',
+  'underlineAcronym',
   'applyShading',
   'condenseDefault',
   'condenseNoIntegrity',
@@ -4771,6 +4779,7 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   emphasizeAcronym: 'Emphasize Acronym',
   applyHighlight: 'Toggle Highlight',
   highlightAcronym: 'Highlight Acronym',
+  underlineAcronym: 'Underline Acronym',
   applyShading: 'Toggle Background Color',
   condenseDefault: 'Condense',
   condenseNoIntegrity: 'Condense Without Paragraph Integrity',
@@ -5020,6 +5029,7 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   emphasizeAcronym: 'Alt-F10',
   applyHighlight: 'F11',
   highlightAcronym: 'Alt-F11',
+  underlineAcronym: '',
   applyShading: 'Mod-F11',
   condenseDefault: 'F3',
   condenseNoIntegrity: 'Alt-F3',
@@ -5530,6 +5540,7 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
     case 'emphasizeAcronym': return emphasizeAcronym();
     case 'applyHighlight': return applyHighlight(ctx.highlightColor);
     case 'highlightAcronym': return highlightAcronym(ctx.highlightColor);
+    case 'underlineAcronym': return underlineAcronym();
     case 'applyShading': return applyShading(ctx.shadingColor);
     case 'condenseDefault':
       // F3 reads paragraphIntegrity + usePilcrows at invocation time.

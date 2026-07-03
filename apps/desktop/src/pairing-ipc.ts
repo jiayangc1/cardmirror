@@ -4,11 +4,21 @@
  * The main process is the single owner of:
  *   - the X25519 keypair (this machine's identity; private key in userData,
  *     never exposed to a renderer or the relay);
- *   - the relay base URL + bearer token (baked build constants, env-
- *     overridable; never exposed to a renderer);
- *   - the background receive poller (one loop, shared by all windows);
+ *   - the relay base URL + bearer token (baked build constants; settings and
+ *     env overrides for self-hosted relays);
+ *   - the background delivery channel — an SSE push stream with poll
+ *     catch-up, or interval polling against legacy relays (one channel,
+ *     shared by all windows);
  *   - the inbox of received cards (persisted to userData, broadcast to
  *     every window via `pairing:inbox-changed`).
+ *
+ * DELIVERY: the relay live-pushes new cards over `GET /relay/stream` (see
+ * relay-stream.ts); on every (re)connect — and on wake-from-sleep — the
+ * client runs one catch-up `GET /messages`, so the store-and-forward
+ * guarantee is unchanged. Relays without the stream endpoint (404) get
+ * today's interval polling for the whole session. Delivery is
+ * at-least-once; the `consumed` / `rx-<msgId>` dedupe absorbs overlap
+ * between push and catch-up.
  *
  * END-TO-END ENCRYPTED: every card is sealed to the recipient's public key
  * (sealed box; see pairing-crypto.ts) before it leaves this process, and the
@@ -16,23 +26,24 @@
  * sender identity, group label, schema version, and card content all live
  * INSIDE the ciphertext — the relay host can interpret none of it.
  *
- * Addressing is DIRECTED: each machine polls only its own routing code and
- * never sends to itself, so there is no self-echo and no delete race.
+ * Addressing is DIRECTED: each machine receives only its own routing code
+ * and never sends to itself, so there is no self-echo and no delete race.
  *
  * The relay contract here is identical to the scouting-assistant `/relay` API,
- * so pointing at production is a one-line change to RELAY_URL.
+ * so pointing at production is a one-line change to DEFAULT_RELAY_URL.
  */
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, powerMonitor } from 'electron';
 import { gzipSync } from 'node:zlib';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { createPairingKeystore, routingId, type PairingKeystore, type SealedBundle } from './pairing-crypto.js';
 import { BUILT_IN_RELAY_TOKEN } from './pairing-build.js';
+import { RelayStream } from './relay-stream.js';
 
-/** Relay endpoint config. Env vars override the baked defaults, so the app
- *  talks to PRODUCTION by default but you can point it at the local mock
- *  during development, e.g.:
+/** Relay endpoint defaults. Resolution order (see relayUrl()/relayToken()):
+ *  user settings (self-hosted relay) → env override → baked default. Env
+ *  overrides point dev at the local mock, e.g.:
  *    PAIRING_RELAY_URL=http://127.0.0.1:3200 PAIRING_TOKEN=dev-pairing-token \
  *      npm run desktop:dev
  *
@@ -46,8 +57,9 @@ import { BUILT_IN_RELAY_TOKEN } from './pairing-build.js';
  *  distributed build must have PAIRING_TOKEN present in its BUILD env to bake
  *  the token into the artifact. For `desktop:dev` (launched from a shell) the
  *  env var is read directly at runtime. */
-const RELAY_URL = process.env.PAIRING_RELAY_URL || 'https://scouting-assistant.up.railway.app/relay';
-const RELAY_TOKEN = process.env.PAIRING_TOKEN || BUILT_IN_RELAY_TOKEN || 'dev-pairing-token';
+const DEFAULT_RELAY_URL =
+  process.env.PAIRING_RELAY_URL || 'https://scouting-assistant.up.railway.app/relay';
+const DEFAULT_RELAY_TOKEN = process.env.PAIRING_TOKEN || BUILT_IN_RELAY_TOKEN || 'dev-pairing-token';
 
 interface PairingConfig {
   enabled: boolean;
@@ -57,6 +69,37 @@ interface PairingConfig {
    *  receiver version that can read them. Blank = any version may receive. */
   minReceiverVersion: string;
   pollSeconds: number;
+  /** Self-hosted relay base URL ('' = the official relay). */
+  relayUrl: string;
+  /** Bearer for a self-hosted relay ('' = the baked official token). */
+  relayToken: string;
+}
+
+/** Effective relay base URL: settings override → env/baked default. */
+function relayUrl(): string {
+  const custom = config.relayUrl.trim().replace(/\/+$/, '');
+  return custom || DEFAULT_RELAY_URL;
+}
+
+/** Blog-account entitlement flow — SHIPPED DORMANT. Everything below
+ *  the flag exists in release builds but is inert until the app is
+ *  launched with PAIRING_AUTH=1 (dev/testing). When active, a valid
+ *  stored entitlement becomes the bearer for the OFFICIAL relay (the
+ *  relay accepts it alongside the shared token even before gating is
+ *  enforced); custom self-hosted relays always use their own token. */
+const AUTH_FEATURE = process.env.PAIRING_AUTH === '1';
+
+/** Effective bearer. This supplier is the single seam of the
+ *  subscription-entitlement flow — everything (POST, GET, DELETE,
+ *  stream) routes its Authorization through here. */
+function relayToken(): string {
+  const custom = config.relayToken.trim();
+  if (custom) return custom;
+  if (AUTH_FEATURE && !config.relayUrl.trim()) {
+    const ent = entitlementIfValid();
+    if (ent) return ent.entitlement;
+  }
+  return DEFAULT_RELAY_TOKEN;
 }
 
 interface SendItem {
@@ -104,11 +147,22 @@ let config: PairingConfig = {
   schemaVersion: 'unknown',
   minReceiverVersion: '',
   pollSeconds: 30,
+  relayUrl: '',
+  relayToken: '',
 };
+/** Interval poller — legacy-relay fallback mode only. */
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+/** Low-frequency belt-and-suspenders catch-up while streaming. */
+let catchupTimer: ReturnType<typeof setInterval> | null = null;
+/** Live push stream (null while disabled or in fallback-poll mode). */
+let stream: RelayStream | null = null;
+/** Relay base URL that 404'd on /stream this session — don't re-probe it
+ *  on every settings change; a DIFFERENT URL gets a fresh probe. */
+let streamUnsupportedUrl: string | null = null;
 let polling = false;
 /** msgIds already handled this session — guards against re-processing if a
- *  DELETE failed (the message would still be on the relay next poll). */
+ *  DELETE failed (the message would still be on the relay next poll), and
+ *  absorbs push/catch-up overlap (at-least-once delivery). */
 const consumed = new Set<string>();
 
 // ── Keystore (this machine's X25519 identity) ────────────────────────
@@ -119,6 +173,196 @@ function ks(): PairingKeystore {
     keystore = createPairingKeystore(path.join(app.getPath('userData'), 'pairing-keys.json'));
   }
   return keystore;
+}
+
+// ── Blog-account entitlement (persisted; dormant without PAIRING_AUTH) ─
+
+interface EntitlementState {
+  entitlement: string;
+  /** Epoch ms. */
+  expiresAt: number;
+  /** Member email the relay reported at connect/renewal ('' unknown). */
+  email: string;
+}
+
+let entitlementState: EntitlementState | null = null;
+let entitlementLoaded = false;
+/** Guards against overlapping renewal calls. */
+let renewing = false;
+
+function entitlementPath(): string {
+  return path.join(app.getPath('userData'), 'pairing-entitlement.json');
+}
+
+async function ensureEntitlementLoaded(): Promise<void> {
+  if (entitlementLoaded) return;
+  entitlementLoaded = true;
+  try {
+    const parsed = JSON.parse(await fs.readFile(entitlementPath(), 'utf8'));
+    if (
+      parsed &&
+      typeof parsed.entitlement === 'string' &&
+      typeof parsed.expiresAt === 'number'
+    ) {
+      entitlementState = {
+        entitlement: parsed.entitlement,
+        expiresAt: parsed.expiresAt,
+        email: typeof parsed.email === 'string' ? parsed.email : '',
+      };
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.warn('[pairing] Failed to read pairing-entitlement.json:', err);
+    }
+  }
+}
+
+async function persistEntitlement(): Promise<void> {
+  try {
+    if (entitlementState === null) {
+      await fs.unlink(entitlementPath()).catch(() => {});
+    } else {
+      await fs.writeFile(entitlementPath(), JSON.stringify(entitlementState));
+    }
+  } catch (err) {
+    console.warn('[pairing] Failed to persist entitlement:', err);
+  }
+}
+
+function entitlementIfValid(): EntitlementState | null {
+  // 60s slack so a token never expires mid-request.
+  if (entitlementState && entitlementState.expiresAt > Date.now() + 60_000) {
+    return entitlementState;
+  }
+  return null;
+}
+
+function accountStatus(): {
+  enabled: boolean;
+  connected: boolean;
+  expiresAt: number;
+  email: string;
+} {
+  return {
+    enabled: AUTH_FEATURE,
+    connected: entitlementIfValid() !== null,
+    expiresAt: entitlementState?.expiresAt ?? 0,
+    email: entitlementState?.email ?? '',
+  };
+}
+
+function broadcastEntitlement(extra?: { evicted?: boolean; lapsed?: boolean }): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) {
+      w.webContents.send('pairing:entitlement-changed', { ...accountStatus(), ...extra });
+    }
+  }
+}
+
+/** Structured result of a connect / renewal call against /relay/connect. */
+interface ConnectOutcome {
+  ok: boolean;
+  error?: string;
+  expiresAt?: number;
+  email?: string;
+  limit?: number;
+  wouldEvict?: { routingCode: string; boundAt: string };
+  retryCode?: string;
+}
+
+async function connectAccount(connectCode: string, confirmEvict: boolean): Promise<ConnectOutcome> {
+  await ensureEntitlementLoaded();
+  // Code-less renewal must prove continuity: present the stored
+  // entitlement (even a recently-expired one — the relay accepts a
+  // 30-day grace) as the bearer. A bare routing code mints nothing.
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (!connectCode.trim() && entitlementState) {
+    headers['Authorization'] = `Bearer ${entitlementState.entitlement}`;
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${relayUrl()}/connect`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        connectCode: connectCode.trim(),
+        routingCode: ks().ownRoutingId(),
+        confirmEvict,
+      }),
+    });
+  } catch (err) {
+    console.warn('[pairing] connect failed:', err);
+    return { ok: false, error: 'network' };
+  }
+  const body = (await res.json().catch(() => ({}))) as {
+    entitlement?: string;
+    expiresAt?: number;
+    email?: string;
+    detail?: { error?: string; limit?: number; wouldEvict?: { routingCode: string; boundAt: string }; retryCode?: string };
+  };
+  if (res.ok && typeof body.entitlement === 'string' && typeof body.expiresAt === 'number') {
+    entitlementState = {
+      entitlement: body.entitlement,
+      expiresAt: body.expiresAt,
+      // A renewal that failed the (fail-open) email lookup keeps the
+      // last-known email rather than blanking the status line.
+      email:
+        (typeof body.email === 'string' && body.email) || entitlementState?.email || '',
+    };
+    await persistEntitlement();
+    broadcastEntitlement();
+    return { ok: true, expiresAt: body.expiresAt, email: entitlementState.email };
+  }
+  const detail = body.detail;
+  if (res.status === 409 && detail?.error === 'seatLimit') {
+    return {
+      ok: false,
+      error: 'seatLimit',
+      limit: detail.limit,
+      wouldEvict: detail.wouldEvict,
+      retryCode: detail.retryCode,
+    };
+  }
+  if (res.status === 409 && detail?.error === 'youWereEvicted') {
+    entitlementState = null;
+    await persistEntitlement();
+    broadcastEntitlement({ evicted: true });
+    return { ok: false, error: 'evicted' };
+  }
+  if (res.status === 401) return { ok: false, error: 'badCode' };
+  if (res.status === 403) return { ok: false, error: 'subscription' };
+  if (res.status === 404) return { ok: false, error: 'unsupported' };
+  return { ok: false, error: `http ${res.status}` };
+}
+
+/** Renew the entitlement when it is inside its final 24h (or already
+ *  expired). Code-less renewal — the relay refreshes active bindings
+ *  freely; a 409 here means this machine's seat was taken. */
+async function maybeRenewEntitlement(): Promise<void> {
+  if (!AUTH_FEATURE || renewing || config.relayUrl.trim()) return;
+  await ensureEntitlementLoaded();
+  if (entitlementState === null) return;
+  // Renew inside the final 24h — or immediately when the stored state
+  // predates the email echo, so the status line fills in on launch.
+  if (
+    entitlementState.email &&
+    entitlementState.expiresAt - Date.now() > 24 * 3600 * 1000
+  ) {
+    return;
+  }
+  renewing = true;
+  try {
+    const outcome = await connectAccount('', false);
+    if (outcome.ok) {
+      console.log('[pairing] entitlement renewed');
+    } else if (outcome.error === 'evicted') {
+      console.warn('[pairing] this machine was unlinked from the blog account');
+    } else if (outcome.error === 'subscription') {
+      broadcastEntitlement({ lapsed: true });
+    }
+  } finally {
+    renewing = false;
+  }
 }
 
 // ── Inbox state (persisted, broadcast) ───────────────────────────────
@@ -228,23 +472,23 @@ function compareVersions(a: string, b: string): number {
 // ── Relay HTTP ───────────────────────────────────────────────────────
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
-  return { Authorization: `Bearer ${RELAY_TOKEN}`, ...extra };
+  return { Authorization: `Bearer ${relayToken()}`, ...extra };
 }
 
 function deleteMessage(msgId: string): void {
-  const url = `${RELAY_URL}/messages/${encodeURIComponent(msgId)}`;
+  const url = `${relayUrl()}/messages/${encodeURIComponent(msgId)}`;
   fetch(url, { method: 'DELETE', headers: authHeaders() }).catch((err) => {
     console.warn(`[pairing] DELETE ${msgId} failed:`, err);
   });
 }
 
-/** One poll cycle: pull our mailbox, decrypt, convert + dedupe + delete. */
+/** One catch-up/poll cycle: pull our mailbox and process it. */
 async function pollOnce(): Promise<void> {
   if (polling || !config.enabled) return;
+  void maybeRenewEntitlement();
   polling = true;
   try {
-    await ensureInboxLoaded();
-    const url = `${RELAY_URL}/messages?recipient=${encodeURIComponent(ks().ownRoutingId())}`;
+    const url = `${relayUrl()}/messages?recipient=${encodeURIComponent(ks().ownRoutingId())}`;
     const res = await fetch(url, { method: 'GET', headers: authHeaders() });
     if (!res.ok) {
       console.warn(`[pairing] GET inbox returned ${res.status}`);
@@ -253,9 +497,21 @@ async function pollOnce(): Promise<void> {
     const data = (await res.json()) as { messages?: RelayMessage[] };
     const messages = data.messages ?? [];
     if (messages.length === 0) return;
+    await processMessages(messages);
+  } catch (err) {
+    console.warn('[pairing] poll error:', err);
+  } finally {
+    polling = false;
+  }
+}
 
-    let changed = false;
-    for (const m of messages) {
+/** Decrypt + dedupe + inbox + ack one batch of relay messages. Shared by
+ *  the poll path and the live stream (which delivers the same per-message
+ *  shape one frame at a time). */
+async function processMessages(messages: RelayMessage[]): Promise<void> {
+  await ensureInboxLoaded();
+  let changed = false;
+  for (const m of messages) {
       if (!m || typeof m.msgId !== 'string') continue;
       if (consumed.has(m.msgId)) continue;
       consumed.add(m.msgId);
@@ -319,30 +575,89 @@ async function pollOnce(): Promise<void> {
       deleteMessage(m.msgId);
     }
 
-    if (changed) {
-      broadcastInbox();
-      await persistInbox();
-    }
-  } catch (err) {
-    console.warn('[pairing] poll error:', err);
-  } finally {
-    polling = false;
+  if (changed) {
+    broadcastInbox();
+    await persistInbox();
   }
 }
 
-function applyPoller(): void {
+// ── Delivery channel (push stream, poll catch-up, legacy fallback) ───
+
+function stopDelivery(): void {
   if (pollTimer !== null) {
     clearInterval(pollTimer);
     pollTimer = null;
   }
-  if (config.enabled) {
-    const ms = Math.max(5, config.pollSeconds) * 1000;
-    console.log(`[pairing] poller on: every ${ms / 1000}s for ${ks().ownRoutingId()}`);
-    void pollOnce();
-    pollTimer = setInterval(() => void pollOnce(), ms);
-  } else {
-    console.log('[pairing] poller off');
+  if (catchupTimer !== null) {
+    clearInterval(catchupTimer);
+    catchupTimer = null;
   }
+  stream?.stop();
+  stream = null;
+}
+
+/** Legacy mode — the relay has no /stream endpoint: today's interval
+ *  polling, at the configured cadence. */
+function startFallbackPolling(): void {
+  if (pollTimer !== null) return;
+  const ms = Math.max(5, config.pollSeconds) * 1000;
+  console.log(`[pairing] polling every ${ms / 1000}s for ${ks().ownRoutingId()}`);
+  void pollOnce();
+  pollTimer = setInterval(() => void pollOnce(), ms);
+}
+
+/** (Re)start the delivery channel to match `config`. Push-first: open the
+ *  SSE stream and run a catch-up poll on every (re)connect; a 404 from
+ *  /stream marks this relay URL legacy for the session and switches to
+ *  interval polling. While streaming, `pollSeconds` (floored to 5 min)
+ *  paces a low-frequency belt-and-suspenders catch-up. */
+function applyDelivery(): void {
+  stopDelivery();
+  if (!config.enabled) {
+    console.log('[pairing] delivery off');
+    return;
+  }
+  if (streamUnsupportedUrl !== null && streamUnsupportedUrl === relayUrl()) {
+    startFallbackPolling();
+    return;
+  }
+  void maybeRenewEntitlement();
+  console.log(`[pairing] connecting push stream for ${ks().ownRoutingId()}`);
+  stream = new RelayStream({
+    url: () => `${relayUrl()}/stream?recipient=${encodeURIComponent(ks().ownRoutingId())}`,
+    headers: () => authHeaders(),
+    label: 'pairing',
+    callbacks: {
+      onConnected: () => {
+        console.log('[pairing] push stream connected; running catch-up poll');
+        void pollOnce();
+      },
+      onMessage: (data) => {
+        if (data && typeof (data as RelayMessage).msgId === 'string') {
+          void processMessages([data as RelayMessage]).catch((err) => {
+            console.warn('[pairing] stream message error:', err);
+          });
+        }
+      },
+      onUnsupported: () => {
+        console.log('[pairing] relay has no /stream — falling back to interval polling');
+        streamUnsupportedUrl = relayUrl();
+        startFallbackPolling();
+      },
+      onUnauthorized: () => {
+        // Shared-token era: a 401 means the baked/self-host token doesn't
+        // match the relay. When subscription gating ships, this becomes
+        // the "connect your blog account" prompt.
+        console.warn(
+          '[pairing] relay rejected our token (401) — check the relay token ' +
+            '(Settings → Card sharing for a self-hosted relay)',
+        );
+      },
+    },
+  });
+  stream.start();
+  const catchupMs = Math.max(config.pollSeconds, 300) * 1000;
+  catchupTimer = setInterval(() => void pollOnce(), catchupMs);
 }
 
 // ── IPC ──────────────────────────────────────────────────────────────
@@ -351,9 +666,11 @@ export function registerPairingIpc(): void {
   // Configure returns this machine's public CODE (its X25519 public key), so
   // the renderer can display it and the user can share it. The private key
   // stays in main.
+  let configured = false;
   ipcMain.handle(
     'host:pairing-configure',
     (_event, cfg: Partial<PairingConfig>): { ownCode: string } => {
+      const prev = config;
       config = {
         enabled: !!cfg?.enabled,
         displayName: typeof cfg?.displayName === 'string' ? cfg.displayName : '',
@@ -364,22 +681,76 @@ export function registerPairingIpc(): void {
           typeof cfg?.pollSeconds === 'number' && Number.isFinite(cfg.pollSeconds)
             ? cfg.pollSeconds
             : 30,
+        relayUrl: typeof cfg?.relayUrl === 'string' ? cfg.relayUrl : '',
+        relayToken: typeof cfg?.relayToken === 'string' ? cfg.relayToken : '',
       };
       // Only materialize a keypair once the user actually turns sharing on,
       // so a fresh install that never enables it writes no key file.
       const ownCode = config.enabled ? ks().ownPublicCode() : '';
-      applyPoller();
+      // The renderer re-configures on EVERY settings change; only restart
+      // the delivery channel when a field it depends on actually moved —
+      // a display-name edit must not sever a live push stream.
+      const deliveryChanged =
+        !configured ||
+        prev.enabled !== config.enabled ||
+        prev.pollSeconds !== config.pollSeconds ||
+        prev.relayUrl !== config.relayUrl ||
+        prev.relayToken !== config.relayToken;
+      configured = true;
+      if (deliveryChanged) applyDelivery();
       return { ownCode };
     },
   );
 
   // Mint a fresh keypair (invalidates the old code for partners). Returns the
-  // new public code and re-points the poller at the new routing code.
+  // new public code and re-points delivery at the new routing code.
   ipcMain.handle('host:pairing-regenerate-key', (): { ownCode: string } => {
     const ownCode = ks().regenerate();
     consumed.clear();
-    applyPoller();
+    // The entitlement is bound to the OLD routing code — a new keypair
+    // needs a fresh connect from the blog page.
+    if (entitlementState !== null) {
+      entitlementState = null;
+      void persistEntitlement();
+      broadcastEntitlement();
+    }
+    applyDelivery();
     return { ownCode };
+  });
+
+  // Blog-account entitlement surface (inert without PAIRING_AUTH=1).
+  ipcMain.handle(
+    'host:pairing-connect-account',
+    async (_e, payload: { connectCode: string; confirmEvict?: boolean }) => {
+      if (!AUTH_FEATURE) return { ok: false, error: 'disabled' };
+      if (typeof payload?.connectCode !== 'string' || !payload.connectCode.trim()) {
+        return { ok: false, error: 'badCode' };
+      }
+      return connectAccount(payload.connectCode, !!payload.confirmEvict);
+    },
+  );
+  ipcMain.handle('host:pairing-account-status', async () => {
+    await ensureEntitlementLoaded();
+    return accountStatus();
+  });
+  ipcMain.handle('host:pairing-disconnect-account', async () => {
+    await ensureEntitlementLoaded();
+    if (entitlementState !== null) {
+      entitlementState = null;
+      await persistEntitlement();
+      broadcastEntitlement();
+    }
+    return accountStatus();
+  });
+
+  // Wake-from-sleep: the stream's socket may be silently dead — force a
+  // prompt reconnect (whose hello triggers the catch-up poll). In
+  // fallback-poll mode just poll immediately instead of waiting a cycle.
+  powerMonitor.on('resume', () => {
+    if (!config.enabled) return;
+    console.log('[pairing] system resumed — refreshing delivery channel');
+    if (stream) stream.restart();
+    else void pollOnce();
   });
 
   ipcMain.handle(
@@ -423,7 +794,7 @@ export function registerPairingIpc(): void {
               ...bundle,
             };
             const gz = gzipSync(Buffer.from(JSON.stringify(body), 'utf8'));
-            const res = await fetch(`${RELAY_URL}/messages`, {
+            const res = await fetch(`${relayUrl()}/messages`, {
               method: 'POST',
               headers: authHeaders({
                 'Content-Type': 'application/json',

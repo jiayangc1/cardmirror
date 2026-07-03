@@ -7,6 +7,51 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Card sharing v2 transport: SSE push + self-hosted relays**
+  (`relay-stream.ts` NEW, `pairing-ipc.ts`, `preload.ts`,
+  `electron-host.ts`, `pairing-wiring.ts`, `settings.ts`,
+  `dev/mock-relay/server.js`; server counterpart in the
+  scouting-assistant repo).
+  Replaces the 30-second receive poller with push delivery.
+  `RelayStream` (new module, zero deps — streamed undici fetch + hand
+  parser) subscribes to the relay's `GET /relay/stream?recipient=` SSE
+  channel: `event: hello` on connect, one `data:` frame per POSTed
+  bundle in the same wire shape as `GET /messages`, `: hb` heartbeat
+  comments every 25s. Reconnects forever with exponential backoff +
+  jitter; 404 → the relay predates push, so the session falls back to
+  today's interval polling (capability detection — old servers and old
+  clients both keep working; the server keeps `GET /messages`
+  unchanged); 401 → surfaced distinctly and retried at max backoff.
+  `pairing-ipc` gains a delivery manager: catch-up `pollOnce()` on
+  every (re)connect and on `powerMonitor` resume (dead-socket
+  restart), `pollSeconds` repurposed as the legacy-fallback cadence
+  and (floored to 5 min) the belt-and-suspenders catch-up while
+  streaming; delivery is at-least-once with the existing
+  `consumed`/`rx-<msgId>` dedupe absorbing push/catch-up overlap. The
+  decrypt→inbox path is untouched (extracted to `processMessages`,
+  shared by both paths). The renderer re-configures on every settings
+  change, so the configure handler now only restarts delivery when a
+  delivery-relevant field changed — a display-name edit must not sever
+  the stream. New settings `pairingRelayUrl`/`pairingRelayToken`
+  (Card Sharing tab) point at a self-hosted relay; URL/token
+  resolution is settings → env → baked default, with all requests
+  routing Authorization through one supplier function. The dev mock
+  relay grows a matching `/stream` (and `PAIRING_NO_STREAM=1` to
+  simulate a legacy relay). Server side (scouting-assistant): SSE
+  endpoint with per-connection asyncio queues + single-worker
+  registry, store-then-push on POST, the per-GET full-table sweep
+  replaced by a `created_at` cutoff filter (sweeper thread still owns
+  deletion), and a composite `(recipient_code, created_at)` index.
+  A standalone, self-hostable relay implementing the identical wire
+  contract ships in the new `relay/` folder (single-file FastAPI +
+  Postgres, Dockerfile + docker-compose, README) — the scouting
+  backend is not public, so self-hosters get the server from here.
+  Verified: 5 RelayStream tests against a live local HTTP server
+  (`tests/desktop/relay-stream.test.ts`), a 13-check contract suite
+  against the real backend on local Postgres (push, catch-up, ack,
+  auth, expiry semantics), and the same 13 checks against the
+  standalone `relay/` server.
+
 - **Standardize with exceptions** (`ribbon-commands.ts`, `ribbon-groups.ts`,
   `settings.ts`, `settings-ui.ts`, `index.ts`).
   Two new commands, `standardizeHighlightExcept` and
@@ -90,6 +135,48 @@ in each release, see `CHANGELOG.md`.
   the default composition, each option axis, cite collection, the
   heading-assembly rules, and the empty-selection guard.
 
+- **Hover fixes** (`style.css`). Recover Drafts: `…-row-btn-save` had
+  no hover rule and `…-row-btn-open:hover` filled with
+  `--pmd-c-accent-hover` under themed text (illegible dark-on-dark);
+  both now share `--pmd-c-hover` + accent border-color. Receive pill:
+  `.pmd-receive-bar:hover` joined the shared hover-scaffolding group
+  (dropzone-bar family). Send pill deliberately untouched — its
+  drag-over "hot" state is its affordance. Settings: the Receive-pill
+  flash row moved above the fallback-poll row in the Card Sharing tab.
+
+- **Custom acronym letters + Underline Acronym**
+  (`acronym-patterns.ts` NEW, `ribbon-commands.ts`, `ribbon-groups.ts`,
+  `settings.ts`, `settings-ui.ts`, `style.css`).
+  Feature request modeled on the acronym customization in
+  [shreerammodi/debate-scripts](https://github.com/shreerammodi/debate-scripts)
+  (GPLv3 — reimplemented from scratch, no code ported): the acronym
+  commands consult a user table before the
+  classic first-letter-per-word behavior. Where his VBA uses a
+  hardcoded phrase → "wordIdx:charSpec" DSL table, ours stores
+  `acronymPatterns: Array<{phrase, chars}>` — raw character offsets
+  picked by CLICKING letters in a settings letter-picker (new
+  "Acronym marking" section, Editing tab). Direct manipulation
+  deliberately replaces the DSL: positions come from clicks, so
+  nothing can be mistyped, no validation UI is needed, and the marked
+  cells double as the live preview. Phrase edits keep a pick only
+  where the character at that offset is unchanged. Command side: the
+  duplicated first-letter walks in `emphasizeAcronym` /
+  `highlightAcronym` are extracted into a shared
+  `acronymTargetRanges(state, skipBlocks)` which also builds the
+  expanded-selection text (inline leaves as `\0`); when the selection
+  lives in ONE textblock and its whole-word-expanded text equals a
+  phrase case-insensitively (exact spacing/punctuation — offsets then
+  map 1:1), the picked offsets are marked instead of first letters.
+  Multi-paragraph selections and non-matches keep classic behavior;
+  per-command semantics unchanged (emphasis strip rules, highlight
+  null-pen strip, structural-block skip differences). New
+  `underlineAcronym` command (unbound, Character styles group)
+  completes the trio, mirroring `emphasizeAcronym` with
+  `underline_mark`. Table ships empty by design. 10 tests in
+  `tests/editor/acronym-patterns.test.ts`: matching/sanitizing, all
+  three commands, partial-selection expansion, null pen,
+  multi-paragraph fallback.
+
 - **Background-color cue: faint dot grid** (`settings.ts`, `index.ts`,
   `marks.ts`, `style.css`).
   New Appearance toggle `distinguishShading` (default off) rendering a
@@ -112,6 +199,39 @@ in each release, see `CHANGELOG.md`.
   repaints on large docs. A 1px top "plate edge" variant was
   prototyped against a live mockup and cut: boxed emphasis draws 1px
   borders around runs, so a hairline reads as a stray box fragment.
+
+- **Fix: table cell borders vanished after any keybinding change**
+  (`table-plugins.ts` NEW, `index.ts`, `style.css`). The reported
+  main-editor case: prosemirror-tables' `columnResizing()` registers
+  its table nodeView — the one that wraps tables in `.tableWrapper`,
+  which ALL table CSS hangs off — by mutating its own plugin spec
+  inside `state.init`. The app reconfigures the editor with a fresh
+  `buildEditorPlugins()` on every `ribbonKeyOverrides` /
+  `keyboardMacros` change, and `reconfigure` skips `init` for
+  plugins whose key already exists — so the fresh instance's
+  `nodeViews` map stayed empty, the view rebuilt node views from it,
+  and every table re-rendered unwrapped: no cell borders, no
+  column-resize handles, stable until reload. Fix: `tableEditing()` /
+  `columnResizing()` are now module-level singletons
+  (`table-plugins.ts`) reused by every `buildEditorPlugins()` call —
+  the nodeView registered by the first `init` rides along through
+  every reconfigure. Verified by
+  `tests/editor/table-wrapper.test.ts` (2 jsdom tests): one
+  reproduces the upstream trap with fresh instances (if it ever
+  fails, prosemirror-tables fixed the side effect and the singleton
+  can be revisited), one proves the singletons keep the wrapper
+  across repeated reconfigures. An initial zoom/border-collapse
+  hypothesis was disproven by an Electron pixel-capture harness
+  (collapsed borders paint correctly at 12 zoom levels × DPR
+  1/1.25/1.5/2 on this Chromium), so the interim
+  `border-collapse: separate` change was reverted. Second, smaller
+  fix kept: the table rules were scoped to
+  `:is(#editor, .pmd-pane-editor) .tableWrapper`, so the Quick Cards
+  manage editor (`.pmd-qc-manage-editor` host) rendered tables with
+  no borders at all; rescoped to `.ProseMirror .tableWrapper`.
+  Border DATA was never involved — OOXML borders ride opaquely in
+  `rawTblPr`/`rawTcPr`; the editor paints its own uniform 1px grid.
+  Note: read mode hiding tables entirely is by design.
 
 - **Fix: condense-on-paste scoped to the cursor, not the paste**
   (`paste-plugin.ts`).

@@ -71,3 +71,7 @@ PERF_HOUSECLEANING_AUDIT.md
 repro-white-screen.ts
 COLOR_AUDIT.md
 PAIRING_V2_PLAN.md
+PAIRING_AUTH_TURNKEY.md
+
+# Python bytecode (relay/ smoke tests)
+__pycache__/

@@ -789,6 +789,10 @@ class SettingsModal {
       row.appendChild(text);
       row.appendChild(buildColorEditor(meta.key as keyof typeof SETTINGS_DEFAULTS));
       return row;
+    } else if (meta.kind === 'acronymPatterns') {
+      row.appendChild(text);
+      row.appendChild(buildAcronymPatternsEditor());
+      return row;
     } else if (meta.kind === 'createReferenceHighlightMode') {
       row.appendChild(text);
       row.appendChild(buildCreateReferenceHighlightModeEditor());
@@ -1063,6 +1067,10 @@ class SettingsModal {
     } else if (meta.kind === 'pairingOwnCode') {
       row.appendChild(text);
       row.appendChild(buildPairingOwnCodeEditor());
+      return row;
+    } else if (meta.kind === 'pairingAccount') {
+      row.appendChild(text);
+      row.appendChild(buildPairingAccountEditor(row));
       return row;
     } else if (meta.kind === 'pairingPartners') {
       row.appendChild(text);
@@ -1978,6 +1986,140 @@ function buildReadersEditor(): HTMLElement {
 
 /** Your own pairing code: shown read-only with Copy + Regenerate. Empty
  *  until card sharing is enabled (the wiring layer mints it on enable). */
+/** Blog-account row: hidden entirely unless the Electron main process
+ *  enables the entitlement flow (PAIRING_AUTH=1 — dormant in release
+ *  builds). Paste-a-connect-code UI with the seat-limit confirm flow:
+ *  a 409 names the oldest seat and carries a fresh retryCode (codes
+ *  are single-use), so the confirm retry never bounces the user back
+ *  to the blog page. */
+function buildPairingAccountEditor(row: HTMLElement): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-pairing-account';
+  row.style.display = 'none'; // shown only once main confirms the flow is enabled
+
+  const status = document.createElement('div');
+  status.className = 'pmd-pairing-account-status';
+  wrap.appendChild(status);
+
+  const controls = document.createElement('div');
+  controls.className = 'pmd-pairing-account-controls';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'pmd-settings-text';
+  input.placeholder = 'connect code from the blog page';
+  input.spellcheck = false;
+  controls.appendChild(input);
+  const connectBtn = document.createElement('button');
+  connectBtn.type = 'button';
+  connectBtn.className = 'pmd-settings-btn';
+  connectBtn.textContent = 'Connect';
+  controls.appendChild(connectBtn);
+  const disconnectBtn = document.createElement('button');
+  disconnectBtn.type = 'button';
+  disconnectBtn.className = 'pmd-settings-btn';
+  disconnectBtn.textContent = 'Disconnect';
+  controls.appendChild(disconnectBtn);
+  wrap.appendChild(controls);
+
+  const message = document.createElement('div');
+  message.className = 'pmd-pairing-account-message';
+  wrap.appendChild(message);
+
+  function renderStatus(connected: boolean, expiresAt: number, email = ''): void {
+    if (connected) {
+      const who = email ? ` as ${email}` : '';
+      status.textContent =
+        `Connected${who} — renews automatically (current authorization good ` +
+        `through ${new Date(expiresAt).toLocaleDateString()})`;
+      disconnectBtn.hidden = false;
+    } else {
+      status.textContent = 'Not connected';
+      disconnectBtn.hidden = true;
+    }
+  }
+
+  const ERROR_TEXT: Record<string, string> = {
+    badCode: 'That code is invalid or expired — generate a fresh one on the blog page.',
+    subscription: 'Your membership isn\u2019t active.',
+    evicted: 'Another machine took this seat. Generate a new code to re-link.',
+    unsupported: 'The relay doesn\u2019t support accounts.',
+    network: 'Couldn\u2019t reach the relay.',
+    disabled: 'Account linking isn\u2019t enabled in this build.',
+  };
+
+  async function connect(code: string, confirmEvict: boolean): Promise<void> {
+    const electron = getElectronHost();
+    if (!electron?.pairingConnectAccount) return;
+    connectBtn.disabled = true;
+    message.textContent = 'Connecting\u2026';
+    try {
+      const res = await electron.pairingConnectAccount({ connectCode: code, confirmEvict });
+      if (res.ok) {
+        message.textContent = '';
+        input.value = '';
+        renderStatus(true, res.expiresAt ?? 0, res.email ?? '');
+        settings.set('pairingConnectedUntil', res.expiresAt ?? 0);
+        showToast('Connected to Debate Decoded');
+        return;
+      }
+      if (res.error === 'seatLimit' && res.retryCode) {
+        const when = res.wouldEvict?.boundAt
+          ? new Date(res.wouldEvict.boundAt).toLocaleDateString()
+          : 'earlier';
+        const go = window.confirm(
+          `Your membership covers ${res.limit ?? 2} machines and both seats are taken. ` +
+            `Link this machine anyway and unlink the machine added ${when}?`,
+        );
+        if (go) {
+          await connect(res.retryCode, true);
+        } else {
+          message.textContent = 'Not linked — your existing machines keep their seats.';
+        }
+        return;
+      }
+      message.textContent = ERROR_TEXT[res.error ?? ''] ?? `Couldn\u2019t connect (${res.error}).`;
+    } finally {
+      connectBtn.disabled = false;
+    }
+  }
+
+  connectBtn.addEventListener('click', () => {
+    const code = input.value.trim();
+    if (code) void connect(code, false);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && input.value.trim()) void connect(input.value.trim(), false);
+  });
+  disconnectBtn.addEventListener('click', () => {
+    const electron = getElectronHost();
+    if (!electron?.pairingDisconnectAccount) return;
+    void electron.pairingDisconnectAccount().then((st) => {
+      renderStatus(false, 0);
+      settings.set('pairingConnectedUntil', 0);
+      message.textContent = '';
+      void st;
+    });
+  });
+
+  // Reveal the row only when main reports the flow enabled; keep the
+  // status live while the dialog is open.
+  const electron = getElectronHost();
+  if (electron?.pairingAccountStatus) {
+    void electron.pairingAccountStatus().then((st) => {
+      if (!st.enabled) return;
+      row.style.display = '';
+      renderStatus(st.connected, st.expiresAt, st.email);
+    });
+    const off = electron.onPairingEntitlementChanged?.((st) => {
+      renderStatus(st.connected, st.expiresAt, st.email);
+      if (st.evicted) message.textContent = ERROR_TEXT['evicted']!;
+    });
+    registerRowCleanup(row, () => off?.());
+  }
+
+  return wrap;
+}
+
 function buildPairingOwnCodeEditor(): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'pmd-pairing-owncode';
@@ -4360,6 +4502,146 @@ function buildFileObjectTypesEditor(): HTMLElement {
  * Shrink itself silently skips them at compile time, so a typo
  * doesn't break the command — the note is purely a UX hint.
  */
+/** Custom acronym letters: rows of phrase input + a letter picker.
+ *  The picker renders the phrase as clickable character cells —
+ *  clicking toggles that character into the marked set, and the
+ *  marked cells ARE the preview of what the acronym commands will
+ *  mark. Direct manipulation instead of a pattern syntax: positions
+ *  come from clicks, so there is nothing to mistype or validate.
+ *  Editing the phrase keeps a mark only where the character at that
+ *  offset is unchanged (appending an "s" keeps your picks; a rewrite
+ *  drops stale ones rather than drifting onto wrong letters). */
+function buildAcronymPatternsEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-acronym-editor';
+
+  const list = document.createElement('div');
+  list.className = 'pmd-acronym-list';
+  wrap.appendChild(list);
+
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'pmd-shrink-protections-add';
+  addBtn.textContent = '+ Add phrase';
+  wrap.appendChild(addBtn);
+
+  type Entry = { phrase: string; chars: number[] };
+  function commit(next: Entry[]): void {
+    settings.set('acronymPatterns', next);
+  }
+  function update(idx: number, entry: Entry): void {
+    const cur = settings.get('acronymPatterns');
+    commit(cur.map((e, i) => (i === idx ? entry : e)));
+  }
+
+  function renderPicker(picker: HTMLElement, idx: number, entry: Entry): void {
+    picker.innerHTML = '';
+    if (!entry.phrase) {
+      const hint = document.createElement('span');
+      hint.className = 'pmd-acronym-hint';
+      hint.textContent = 'Type a phrase, then click the letters to mark.';
+      picker.appendChild(hint);
+      return;
+    }
+    const marked = new Set(entry.chars);
+    for (let i = 0; i < entry.phrase.length; i++) {
+      const ch = entry.phrase[i]!;
+      if (/\s/.test(ch)) {
+        const gap = document.createElement('span');
+        gap.className = 'pmd-acronym-gap';
+        picker.appendChild(gap);
+        continue;
+      }
+      const cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = 'pmd-acronym-cell';
+      cell.textContent = ch;
+      cell.setAttribute('aria-pressed', marked.has(i) ? 'true' : 'false');
+      cell.classList.toggle('pmd-acronym-cell-on', marked.has(i));
+      const at = i;
+      cell.addEventListener('click', () => {
+        const next = new Set(entry.chars);
+        if (next.has(at)) next.delete(at);
+        else next.add(at);
+        const updated = { ...entry, chars: [...next].sort((a, b) => a - b) };
+        update(idx, updated);
+        entry = updated;
+        cell.classList.toggle('pmd-acronym-cell-on', next.has(at));
+        cell.setAttribute('aria-pressed', next.has(at) ? 'true' : 'false');
+      });
+      picker.appendChild(cell);
+    }
+  }
+
+  function render(): void {
+    list.innerHTML = '';
+    const entries = settings.get('acronymPatterns');
+    entries.forEach((entry, idx) => {
+      const row = document.createElement('div');
+      row.className = 'pmd-acronym-row';
+
+      const top = document.createElement('div');
+      top.className = 'pmd-acronym-row-top';
+      const phraseInput = document.createElement('input');
+      phraseInput.type = 'text';
+      phraseInput.className = 'pmd-settings-text pmd-acronym-phrase';
+      phraseInput.value = entry.phrase;
+      phraseInput.placeholder = 'phrase, e.g. nuclear weapons';
+      phraseInput.spellcheck = false;
+      top.appendChild(phraseInput);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'pmd-shrink-protection-delete';
+      removeBtn.textContent = '×';
+      removeBtn.title = 'Remove phrase';
+      removeBtn.addEventListener('click', () => {
+        commit(settings.get('acronymPatterns').filter((_, i) => i !== idx));
+        render();
+      });
+      top.appendChild(removeBtn);
+      row.appendChild(top);
+
+      const picker = document.createElement('div');
+      picker.className = 'pmd-acronym-picker';
+      renderPicker(picker, idx, entry);
+      row.appendChild(picker);
+
+      phraseInput.addEventListener('input', () => {
+        const old = settings.get('acronymPatterns')[idx];
+        if (!old) return;
+        const phrase = phraseInput.value;
+        // Keep a mark only where the character survived the edit.
+        const chars = old.chars.filter(
+          (c) => c < phrase.length && phrase[c] === old.phrase[c],
+        );
+        const updated = { phrase, chars };
+        update(idx, updated);
+        renderPicker(picker, idx, updated);
+      });
+
+      list.appendChild(row);
+    });
+    if (entries.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'pmd-acronym-hint';
+      empty.textContent =
+        'No phrases yet. Example: add "weapons of mass destruction" and click the w, m, and d — the acronym commands then mark those letters, reading "WMD".';
+      list.appendChild(empty);
+    }
+  }
+
+  addBtn.addEventListener('click', () => {
+    commit([...settings.get('acronymPatterns'), { phrase: '', chars: [] }]);
+    render();
+    const inputs = list.querySelectorAll<HTMLInputElement>('.pmd-acronym-phrase');
+    inputs[inputs.length - 1]?.focus();
+  });
+
+  render();
+  return wrap;
+}
+
 function buildShrinkProtectionsEditor(): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'pmd-shrink-protections-editor';

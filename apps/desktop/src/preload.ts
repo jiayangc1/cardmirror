@@ -41,12 +41,29 @@ interface QuickCardIpc {
   updatedAt: number;
 }
 
+interface PairingAccountStatusIpc {
+  enabled: boolean;
+  connected: boolean;
+  expiresAt: number;
+  email: string;
+}
+interface PairingConnectResultIpc {
+  ok: boolean;
+  error?: string;
+  expiresAt?: number;
+  email?: string;
+  limit?: number;
+  wouldEvict?: { routingCode: string; boundAt: string };
+  retryCode?: string;
+}
 interface PairingConfigIpc {
   enabled: boolean;
   displayName: string;
   schemaVersion: string;
   minReceiverVersion?: string;
   pollSeconds: number;
+  relayUrl?: string;
+  relayToken?: string;
 }
 interface PairingSendIpc {
   recipientCodes: string[];
@@ -556,6 +573,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ): void => handler(info);
     ipcRenderer.on('pairing:version-mismatch', listener);
     return () => ipcRenderer.removeListener('pairing:version-mismatch', listener);
+  },
+  /** Blog-account entitlement (dormant without PAIRING_AUTH=1 in main). */
+  pairingConnectAccount: (payload: { connectCode: string; confirmEvict?: boolean }) =>
+    ipcRenderer.invoke('host:pairing-connect-account', payload) as Promise<PairingConnectResultIpc>,
+  pairingAccountStatus: () =>
+    ipcRenderer.invoke('host:pairing-account-status') as Promise<PairingAccountStatusIpc>,
+  pairingDisconnectAccount: () =>
+    ipcRenderer.invoke('host:pairing-disconnect-account') as Promise<PairingAccountStatusIpc>,
+  onPairingEntitlementChanged(
+    handler: (status: PairingAccountStatusIpc & { evicted?: boolean; lapsed?: boolean }) => void,
+  ): () => void {
+    const listener = (
+      _evt: unknown,
+      status: PairingAccountStatusIpc & { evicted?: boolean; lapsed?: boolean },
+    ): void => handler(status);
+    ipcRenderer.on('pairing:entitlement-changed', listener);
+    return () => ipcRenderer.removeListener('pairing:entitlement-changed', listener);
   },
 
   /** List every open doc across every window. Each entry carries

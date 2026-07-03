@@ -447,6 +447,13 @@ click the button again.
 The **acronym variants** mark just the first letter of each word in the
 selection: **Alt-F10** (emphasis) and **Alt-F11** (highlight) — for
 marking the source letters of an acronym, like **U**nited **S**tates.
+An underline variant (*Underline Acronym*) is keybindable, unbound by
+default. And for phrases whose shorthand isn't first letters, teach
+them your own under **Settings → Editing → Acronym marking**: type the
+phrase, click the letters to mark — pick the w, m, and d of "weapons of
+mass destruction" and all three commands mark exactly those letters,
+reading "WMD" instead of the default "womd". Applies whenever the
+selection is exactly that phrase (case-insensitive).
 
 For cleanup, the Card/Doc menus include **Standardize Highlighting** (and
 background) to convert every color in scope to your active one (with the
@@ -985,11 +992,25 @@ the pill: **Mod-P** inserts it at the cursor, and **Mod-Alt-P** appends it at th
 end of the document. (Inserting leaves the card in the pill, so you can place it
 again; both shortcuts are rebindable in Settings → Keyboard shortcuts.)
 
+**Delivery.** New cards arrive **instantly**: your machine keeps a light
+push connection open to the relay, and every reconnect (including waking
+from sleep) runs a quick catch-up so nothing sent while you were offline is
+missed — cards wait on the relay for up to three hours. Against an older
+relay without push support, the app falls back to checking on the
+**Fallback poll** interval in settings.
+
 **Privacy.** Cards are end-to-end encrypted: only you and the recipient can
 read them. The relay server that passes them along sees only scrambled data —
 never the card, who it's from, or who it's going to — and it forgets every card
-after three hours. Your machine checks for new cards on an interval you set
-(default 30 seconds). Sharing is off until you turn it on.
+after three hours. Sharing is off until you turn it on.
+
+**Run your own relay.** The relay server ships with CardMirror — the
+`relay/` folder of the repo holds a standalone deployment (one
+`docker compose up`; see its README). To use your own server, set
+**Custom relay URL** (e.g. `https://relay.example.com/relay`) and
+**Custom relay token** (the `RELAY_TOKEN` you configured on it) in
+Settings → Card Sharing. Everyone sharing cards with each other must
+point at the same relay. Leave both empty to use the official relay.
 
 ---
 
@@ -1730,6 +1751,14 @@ Typing helpers and the behavior of the cutting and condense commands
 - **Background color exception** — the background color that "Standardize
   Background Color (with Exception)" leaves untouched. Any color; defaults
   to yellow.
+
+**Acronym marking**
+
+- **Custom acronym letters** — teach the acronym commands (Alt-F10
+  emphasize, Alt-F11 highlight, Underline Acronym) which letters to mark
+  for specific phrases instead of each word's first letter. Type a
+  phrase, then click its letters in the picker — the marked letters are
+  exactly what the commands will mark when your selection is that phrase.
 
 **Insert surfaces**
 

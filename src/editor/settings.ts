@@ -9,6 +9,7 @@
  */
 
 import { isWordHighlightName, isHex6 } from './color-palette.js';
+import { sanitizeAcronymPattern, type AcronymPattern } from './acronym-patterns.js';
 import type { RibbonCommandId } from './ribbon-commands.js';
 import { getHost } from './host/index.js';
 
@@ -937,6 +938,13 @@ export interface Settings {
    * Invalid regex sources are silently dropped at compile time.
    */
   shrinkCustomProtections: ShrinkProtection[];
+  /** Custom letter selections for the acronym commands: when an
+   *  acronym command's selection matches an entry's phrase, the
+   *  picked characters are marked instead of each word's first
+   *  letter (so "weapons of mass destruction" can read as "WMD",
+   *  skipping the "of"). Edited via the letter-picker in Settings →
+   *  Editing → Acronym marking. */
+  acronymPatterns: AcronymPattern[];
   /**
    * User-supplied overrides for ribbon-command key bindings. Each
    * entry maps a `RibbonCommandId` to its custom key spec — either a
@@ -1092,9 +1100,23 @@ export interface Settings {
    *  receive pills + the background poller). Off by default. Desktop only
    *  for v1. */
   pairingEnabled: boolean;
-  /** Pairing: how often (seconds) this machine polls the relay for
-   *  incoming cards. Clamped to [5, 3600]; default 30. */
+  /** Pairing: fallback poll cadence in seconds. New cards arrive by live
+   *  push; this paces the interval polling used against relays without
+   *  the push endpoint (and, floored to 5 min, the belt-and-suspenders
+   *  catch-up while streaming). Clamped to [5, 3600]; default 30. */
   pairingPollSeconds: number;
+  /** Pairing: self-hosted relay base URL (e.g. https://relay.example.com/relay).
+   *  Empty (default) = the official relay baked into the build. */
+  pairingRelayUrl: string;
+  /** Pairing: bearer token for a self-hosted relay (its RELAY_TOKEN).
+   *  Empty (default) = the official build token. Stored locally. */
+  pairingRelayToken: string;
+  /** Pairing: display mirror of the blog-account entitlement expiry
+   *  (epoch ms; 0 = not connected). The entitlement itself lives in
+   *  Electron main; this mirror only drives the settings row's status
+   *  line. The row is hidden unless the runtime enables the account
+   *  flow (PAIRING_AUTH=1). */
+  pairingConnectedUntil: number;
   /** Pairing: this machine's own shareable code — its relay address.
    *  Generated once (lazily on first enable) and shown in settings with
    *  Copy / Regenerate. Share it with a partner so they can send to you. */
@@ -1333,6 +1355,7 @@ const DEFAULTS: Settings = {
   condenseWarningCustomPauseMarker: '',
   condenseWarningCustomResumeMarker: '',
   shrinkCustomProtections: [],
+  acronymPatterns: [],
   ribbonKeyOverrides: {},
   keyboardMacros: [],
   commentAuthor: 'You',
@@ -1377,6 +1400,9 @@ const DEFAULTS: Settings = {
   cardCutterClarifyingQuestions: 'when-ambiguous',
   pairingEnabled: false,
   pairingPollSeconds: 30,
+  pairingRelayUrl: '',
+  pairingRelayToken: '',
+  pairingConnectedUntil: 0,
   pairingOwnCode: '',
   pairingDisplayName: '',
   pairingPartners: [],
@@ -1447,6 +1473,7 @@ export interface SettingMeta {
     | 'shrinkCustomProtections'
     | 'standardizeHighlightException'
     | 'standardizeShadingException'
+    | 'acronymPatterns'
     | 'createReferenceHighlightMode'
     | 'createReferenceDelimiter'
     | 'keybindings'
@@ -1489,6 +1516,7 @@ export interface SettingMeta {
     | 'cardCutterEnginePath'
     | 'cardCutterDisable'
     | 'pairingOwnCode'
+    | 'pairingAccount'
     | 'pairingPartners'
     | 'pairingGroups'
     | 'pairingReceiveFlash';
@@ -2447,6 +2475,16 @@ export const SETTING_METADATA: SettingMeta[] = [
     aliases: ['standardize background exception', 'protected background color', 'protected grey', 'protected gray'],
   },
   {
+    key: 'acronymPatterns',
+    label: 'Custom acronym letters',
+    description:
+      'Teach the acronym commands (Alt-F10 emphasize, Alt-F11 highlight, Underline Acronym) which letters to mark for specific phrases, instead of the default first letter of each word. Type a phrase, then click its letters: pick the w, m, and d of "weapons of mass destruction" and the marked text reads "WMD" (the default would also mark the o of "of"). Matching is case-insensitive and applies when the selection is exactly that phrase.',
+    kind: 'acronymPatterns',
+    category: 'editing',
+    section: 'Acronym marking',
+    aliases: ['acronym', 'acronyms', 'custom acronym', 'acronym letters'],
+  },
+  {
     key: 'showDropzonePill',
     label: 'Show dropzone shelf',
     description:
@@ -2662,6 +2700,16 @@ export const SETTING_METADATA: SettingMeta[] = [
     dependsOn: 'pairingEnabled',
   },
   {
+    key: 'pairingConnectedUntil',
+    label: 'Authorize with Debate Decoded',
+    description:
+      'Link this machine to your Debate Decoded membership: open the connect page on the blog, sign in, and paste the code it shows you here. Each membership covers two machines; linking a third asks before unlinking the oldest.',
+    kind: 'pairingAccount',
+    category: 'pairing',
+    electronOnly: true,
+    dependsOn: 'pairingEnabled',
+  },
+  {
     key: 'pairingDisplayName',
     label: 'Your display name',
     description:
@@ -2692,16 +2740,6 @@ export const SETTING_METADATA: SettingMeta[] = [
     dependsOn: 'pairingEnabled',
   },
   {
-    key: 'pairingPollSeconds',
-    label: 'Check for new cards every (seconds)',
-    description:
-      'How often this machine polls for incoming cards. Lower is snappier but chattier; default 30. Clamped to 5–3600.',
-    kind: 'number',
-    category: 'pairing',
-    electronOnly: true,
-    dependsOn: 'pairingEnabled',
-  },
-  {
     key: 'pairingReceiveFlash',
     label: 'Flash the Receive pill on a new card',
     description:
@@ -2710,6 +2748,38 @@ export const SETTING_METADATA: SettingMeta[] = [
     category: 'pairing',
     electronOnly: true,
     dependsOn: 'pairingEnabled',
+  },
+  {
+    key: 'pairingPollSeconds',
+    label: 'Fallback poll every (seconds)',
+    description:
+      'New cards normally arrive instantly by live push. This sets the polling cadence used only against relays without push support, and (at least every 5 minutes) the safety-net catch-up while push is connected. Default 30; clamped to 5–3600.',
+    kind: 'number',
+    category: 'pairing',
+    electronOnly: true,
+    dependsOn: 'pairingEnabled',
+  },
+  {
+    key: 'pairingRelayUrl',
+    label: 'Custom relay URL',
+    description:
+      'Point card sharing at your own relay server instead of the official one — e.g. https://relay.example.com/relay. The relay server ships in the CardMirror repo\'s relay/ folder (see its README); everyone sharing cards must use the same relay. Leave empty for the official relay.',
+    kind: 'text',
+    category: 'pairing',
+    electronOnly: true,
+    dependsOn: 'pairingEnabled',
+    aliases: ['self-hosted relay', 'relay server', 'custom server'],
+  },
+  {
+    key: 'pairingRelayToken',
+    label: 'Custom relay token',
+    description:
+      "The RELAY_TOKEN configured on your self-hosted relay. Only used when a custom relay URL is set; stored locally on this machine. Leave empty when using the official relay.",
+    kind: 'password',
+    category: 'pairing',
+    electronOnly: true,
+    dependsOn: 'pairingEnabled',
+    aliases: ['relay token', 'relay password'],
   },
 ];
 
@@ -3148,6 +3218,11 @@ function sanitize(s: Settings): Settings {
         ? s.condenseWarningCustomResumeMarker
         : DEFAULTS.condenseWarningCustomResumeMarker,
     shrinkCustomProtections: sanitizeShrinkProtections(s.shrinkCustomProtections),
+    acronymPatterns: Array.isArray(s.acronymPatterns)
+      ? (s.acronymPatterns as unknown[])
+          .map(sanitizeAcronymPattern)
+          .filter((p): p is AcronymPattern => p !== null)
+      : DEFAULTS.acronymPatterns,
     ribbonKeyOverrides: sanitizeRibbonKeyOverrides(s.ribbonKeyOverrides),
     keyboardMacros: sanitizeKeyboardMacros(s.keyboardMacros),
     commentAuthor:
@@ -3228,6 +3303,13 @@ function sanitize(s: Settings): Settings {
         ? s.cardCutterClarifyingQuestions
         : 'when-ambiguous',
     pairingEnabled: s.pairingEnabled === true,
+    pairingConnectedUntil: Number.isFinite(Number(s.pairingConnectedUntil))
+      ? Math.max(0, Number(s.pairingConnectedUntil))
+      : DEFAULTS.pairingConnectedUntil,
+    pairingRelayUrl:
+      typeof s.pairingRelayUrl === 'string' ? s.pairingRelayUrl : DEFAULTS.pairingRelayUrl,
+    pairingRelayToken:
+      typeof s.pairingRelayToken === 'string' ? s.pairingRelayToken : DEFAULTS.pairingRelayToken,
     pairingPollSeconds: Number.isFinite(Number(s.pairingPollSeconds))
       ? clamp(Math.round(Number(s.pairingPollSeconds)), 5, 3600)
       : 30,

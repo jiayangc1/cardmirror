@@ -9,6 +9,21 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Added
 
+- **Card sharing: instant delivery.** Sent cards now arrive in about a
+  second instead of on the next 30-second check: the app keeps a light
+  push connection open to the relay, with a quick catch-up sweep on every
+  reconnect and on waking from sleep, so nothing is missed while offline
+  (cards still wait on the relay for up to three hours). Older relays
+  without push support keep working — the app detects them and falls back
+  to interval polling ("Fallback poll every" in settings). Note:
+  **support for legacy card sharing will be deprecated soon** — older
+  CardMirror versions will eventually stop being able to send and
+  receive, so update to keep using the feature.
+- **Card sharing: bring your own relay.** Two new settings — **Custom
+  relay URL** and **Custom relay token** — point card sharing at a
+  self-hosted relay server. The relay now ships in this repo's `relay/`
+  folder as a standalone deployment (Docker compose, one command — see
+  `relay/README.md`). Leave the settings empty for the official relay.
 - **Standardize with exceptions.** Two new Doc-menu commands — **Standardize
   Highlighting (with Exception)** and **Standardize Background Color (with
   Exception)** — work exactly like the plain standardize commands but leave
@@ -30,6 +45,17 @@ see `DETAILED_CHANGELOG.md`.
   background (default), a background in the same color as the highlight,
   kept as highlights, or removed. The existing Gray-50% body text option
   moved into the same section.
+- **Custom acronym letters.** The acronym commands (Alt-F10 emphasize,
+  Alt-F11 highlight) can now be taught per-phrase letter selections: in
+  Settings → Editing → Acronym marking, type a phrase and click the
+  letters to mark — pick the w, m, and d of "weapons of mass
+  destruction" and the commands mark exactly those letters, reading
+  "WMD" instead of "womd". Also new: an **Underline Acronym** command
+  (keybindable,
+  unbound by default) completing the emphasize / highlight / underline
+  trio. Inspired by shreerammodi's
+  [debate-scripts](https://github.com/shreerammodi/debate-scripts) for
+  Verbatim, with click-to-pick letters replacing its pattern syntax.
 - **Tell background color apart from highlighting.** A new Appearance
   setting, **Distinguish background color from highlighting**, overlays
   a deliberately faint dot grid on background color. Off by default —
@@ -40,6 +66,15 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
+- **Hover polish.** The Recover Drafts pane's Save button gained a hover
+  state and Open/Reopen's hover no longer renders dark-on-dark; the
+  Receive pill now highlights on hover like its dropzone sibling.
+- **Table cell borders vanished after editing keyboard shortcuts.**
+  Changing any keybinding or macro silently broke table rendering for
+  the rest of the session: every table lost its cell borders (and
+  column-resize handles), while its contents stayed visible. Fixed —
+  borders now survive shortcut changes. Also fixed: tables edited
+  inside the Quick Cards manager never had cell borders at all.
 - **Condense after Paste Text (F2) now actually condenses what you
   pasted.** Previously the automatic condense ran against the cursor
   position after the paste, so pasting outside a card — the usual way of

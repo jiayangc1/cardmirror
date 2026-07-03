@@ -57,6 +57,7 @@ export const RIBBON_GROUPS: RibbonGroup[] = [
       'emphasizeAcronym',
       'applyHighlight',
       'highlightAcronym',
+      'underlineAcronym',
       'applyShading',
       'applyFontColor',
     ],

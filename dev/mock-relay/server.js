@@ -14,10 +14,13 @@
  * — no `npm install`. NOT part of any build or deploy.
  *
  * Env:
- *   PAIRING_PORT   (default 3200)
- *   PAIRING_TOKEN  (default 'dev-pairing-token' — must match the client's
- *                   baked dev token)
- *   PAIRING_TTL_MS (default 3h; lower it to test expiry)
+ *   PAIRING_PORT      (default 3200)
+ *   PAIRING_TOKEN     (default 'dev-pairing-token' — must match the client's
+ *                      baked dev token)
+ *   PAIRING_TTL_MS    (default 3h; lower it to test expiry)
+ *   PAIRING_NO_STREAM (set to 1 to 404 the /stream endpoint — simulates a
+ *                      legacy relay so the client's poll fallback can be
+ *                      exercised)
  */
 
 const http = require('node:http');
@@ -32,6 +35,10 @@ const MAX_PER_RECIPIENT = 100; // FIFO cap returned per poll
 
 /** Map<recipientCode, Array<{ msgId, receivedAt, ...payload }>> */
 const store = new Map();
+
+/** Map<recipientCode, Set<http.ServerResponse>> — open SSE streams. */
+const streams = new Map();
+const NO_STREAM = process.env.PAIRING_NO_STREAM === '1';
 
 function log(...args) {
   console.log(`[mock-relay]`, ...args);
@@ -123,12 +130,40 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, recipients: store.size });
   }
 
-  // Everything under /messages requires the bearer token.
-  if (path === '/messages' || path.startsWith('/messages/')) {
+  // Everything under /messages and /stream requires the bearer token.
+  if (path === '/messages' || path.startsWith('/messages/') || path === '/stream') {
     if (!authOk(req)) {
       log(`${method} ${path} -> 401`);
       return send(res, 401, { error: 'unauthorized' });
     }
+  }
+
+  // GET /stream?recipient=<code> — SSE push channel (mirrors the real
+  // relay's stream_messages: hello event, data frames per POSTed message,
+  // heartbeat comments).
+  if (method === 'GET' && path === '/stream') {
+    if (NO_STREAM) return send(res, 404, { error: 'not found' });
+    const recipient = url.searchParams.get('recipient');
+    if (!recipient) return send(res, 400, { error: 'missing recipient' });
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+    });
+    res.write('event: hello\ndata: {}\n\n');
+    if (!streams.has(recipient)) streams.set(recipient, new Set());
+    streams.get(recipient).add(res);
+    log(`GET /stream -> open recipient=${recipient}`);
+    const hb = setInterval(() => res.write(': hb\n\n'), 25_000);
+    req.on('close', () => {
+      clearInterval(hb);
+      const set = streams.get(recipient);
+      if (set) {
+        set.delete(res);
+        if (set.size === 0) streams.delete(recipient);
+      }
+      log(`stream closed recipient=${recipient}`);
+    });
+    return;
   }
 
   // POST /messages — store one addressed message.
@@ -149,6 +184,13 @@ const server = http.createServer(async (req, res) => {
     const record = { ...payload, msgId, receivedAt: Date.now() };
     if (!store.has(recipient)) store.set(recipient, []);
     store.get(recipient).push(record);
+    // Store-then-push: live-deliver to any open streams (real relay parity).
+    const set = streams.get(recipient);
+    if (set && set.size > 0) {
+      const frame = `data: ${JSON.stringify(record)}\n\n`;
+      for (const s of set) s.write(frame);
+      log(`pushed msgId=${msgId} to ${set.size} stream(s)`);
+    }
     log(`POST /messages -> 202 recipient=${recipient} msgId=${msgId}`);
     return send(res, 202, { msgId });
   }

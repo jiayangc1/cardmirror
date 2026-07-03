@@ -153,7 +153,7 @@ import { pilcrowSelectionPlugin } from './pilcrow-selection-plugin.js';
 import { buildMacroKeymap } from './keyboard-macros.js';
 import { FindReplaceBar } from './find-replace-ui.js';
 import { RepairParagraphBar } from './repair-paragraph-ui.js';
-import { tableEditing, columnResizing } from 'prosemirror-tables';
+import { tableEditingPlugin, columnResizingPlugin } from './table-plugins.js';
 import { buildPastePlugin } from './paste-plugin.js';
 import { buildImageNodeFromBlob, insertImageNode } from './image-insert.js';
 import { imageContextMenuPlugin } from './image-context-menu-plugin.js';
@@ -4069,8 +4069,10 @@ export function buildEditorPlugins(): Plugin[] {
     buildSimilarSelectionPlugin(effectivePtForNode),
     findReplacePlugin(),
     repairParagraphPlugin(),
-    tableEditing(),
-    columnResizing(),
+    // Shared singletons — fresh columnResizing() instances lose the
+    // table nodeView across reconfigure; see table-plugins.ts.
+    tableEditingPlugin,
+    columnResizingPlugin,
     // Tab / Shift-Tab indent — registered AFTER tableEditing so it
     // never fires while the cursor is inside a cell (cell Tab nav
     // takes precedence). Outside tables, Tab on a paragraph-spanning

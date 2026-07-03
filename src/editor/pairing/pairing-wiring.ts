@@ -45,6 +45,8 @@ function applyConfig(): void {
       schemaVersion: appVersion,
       minReceiverVersion: CARD_COMPAT_MIN_VERSION,
       pollSeconds: settings.get('pairingPollSeconds'),
+      relayUrl: settings.get('pairingRelayUrl'),
+      relayToken: settings.get('pairingRelayToken'),
     })
     .then(({ ownCode }) => {
       // Setting it re-fires the subscriber, but the value is now unchanged so
@@ -85,6 +87,25 @@ export function initPairingWiring(): void {
         `A shared card needs a newer CardMirror version${need} — ` +
           `update to receive it.`,
       );
+    });
+  }
+
+  // Blog-account entitlement (dormant unless main enables the flow):
+  // keep the settings mirror current and surface evictions — a user
+  // whose seat was taken should learn it from a toast, not from cards
+  // silently failing later.
+  if (electron?.onPairingEntitlementChanged) {
+    electron.onPairingEntitlementChanged((st) => {
+      const mirror = st.connected ? st.expiresAt : 0;
+      if (settings.get('pairingConnectedUntil') !== mirror) {
+        settings.set('pairingConnectedUntil', mirror);
+      }
+      if (st.evicted) {
+        showToast(
+          'This machine was unlinked from your Debate Decoded account ' +
+            '(another machine took the seat). Re-link from the connect page.',
+        );
+      }
     });
   }
 
