@@ -3091,12 +3091,16 @@ export function smartShrinkText(
     const tr = state.tr;
     for (const { from, to, pt } of edits) {
       tr.removeMark(from, to, fontSizeType);
-      tr.addMark(from, to, fontSizeType.create({ halfPoints: Math.round(pt * 2) }));
+      tr.addMark(
+        from,
+        to,
+        fontSizeType.create({ halfPoints: Math.round(pt * 2), origin: 'shrink' }),
+      );
     }
     const normalHp = Math.round(normalPt() * 2);
     for (const { from, to } of protectedRanges) {
       tr.removeMark(from, to, fontSizeType);
-      tr.addMark(from, to, fontSizeType.create({ halfPoints: normalHp }));
+      tr.addMark(from, to, fontSizeType.create({ halfPoints: normalHp, origin: 'shrink' }));
     }
     dispatch(tr);
     return true;
@@ -3167,7 +3171,7 @@ function sizeCycleCommand(
     const newHp = Math.round(newSize * 2);
     for (const { from, to } of eligible) {
       tr.removeMark(from, to, fontSizeType);
-      tr.addMark(from, to, fontSizeType.create({ halfPoints: newHp }));
+      tr.addMark(from, to, fontSizeType.create({ halfPoints: newHp, origin: 'shrink' }));
     }
 
     // Force protected ranges to Normal size. Done after the eligible
@@ -3175,7 +3179,7 @@ function sizeCycleCommand(
     const normalHp = Math.round(normal * 2);
     for (const { from, to } of protectedRanges) {
       tr.removeMark(from, to, fontSizeType);
-      tr.addMark(from, to, fontSizeType.create({ halfPoints: normalHp }));
+      tr.addMark(from, to, fontSizeType.create({ halfPoints: normalHp, origin: 'shrink' }));
     }
 
     dispatch(tr);

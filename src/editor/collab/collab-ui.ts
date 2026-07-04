@@ -21,6 +21,7 @@ import { showToast } from '../toast.js';
 import { promptForText } from '../text-prompt.js';
 import { markSyncOrigin } from '../sync-origin.js';
 import { setCollabPluginSource, setCollabTransactionTagger } from './collab-hooks.js';
+import { collabInvariantHealPlugin } from './collab-invariants.js';
 import { collabEnabled, collabDevRelay } from './collab-gate.js';
 import { decodeShareCode } from './collab-crypto.js';
 import { RoomsClient } from './room-client.js';
@@ -84,7 +85,11 @@ function collabTagger(tr: Parameters<typeof markSyncOrigin>[0]): void {
 function installSeams(session: CollabSession): void {
   setCollabTransactionTagger(collabTagger);
   setCollabPluginSource({
-    plugins: () => [...session.plugins(), LoroUndoPlugin({ doc: session.loroDoc })],
+    plugins: () => [
+      ...session.plugins(),
+      LoroUndoPlugin({ doc: session.loroDoc }),
+      collabInvariantHealPlugin(),
+    ],
     ownsUndo: () => true,
     undo: loroUndo,
     redo: loroRedo,

@@ -50,8 +50,14 @@ export interface LoroPeer {
 }
 
 /** N peers seeded with identical CRDT history (snapshot clone), each
- *  bound to its own EditorView — the bake-off adapter, loro-only. */
-export async function createLoroPeers(seed: PMNode, n: number): Promise<LoroPeer[]> {
+ *  bound to its own EditorView — the bake-off adapter, loro-only.
+ *  `extraPlugins` lets a test add per-peer session plugins (undo,
+ *  invariant heal) after the sync plugin. */
+export async function createLoroPeers(
+  seed: PMNode,
+  n: number,
+  extraPlugins?: (ldoc: LoroDoc) => Plugin[],
+): Promise<LoroPeer[]> {
   const seedDoc = new LoroDoc();
   seedDoc.configTextStyle(textStyleConfig());
   updateLoroToPmState(seedDoc as SyncDoc, new Map(), EditorState.create({ doc: seed }));
@@ -61,7 +67,10 @@ export async function createLoroPeers(seed: PMNode, n: number): Promise<LoroPeer
   for (let i = 0; i < n; i++) {
     const ldoc = new LoroDoc();
     ldoc.import(snapshot);
-    const view = mkView([LoroSyncPlugin({ doc: ldoc as SyncDoc })]);
+    const view = mkView([
+      LoroSyncPlugin({ doc: ldoc as SyncDoc }),
+      ...(extraPlugins ? extraPlugins(ldoc) : []),
+    ]);
     peers.push({
       view,
       ldoc,

@@ -7,6 +7,31 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Collab M2 (coediting branch): formatting-fusion heal — provenance-
+  tagged shrink sizes + session invariant plugin** (`schema/marks.ts`,
+  `ribbon-commands.ts`, `collab/collab-invariants.ts` NEW,
+  `collab-ui.ts`, tests). Field root cause (plan §14): Peritext range
+  marks cover text concurrently inserted INSIDE their range, so a
+  partner's underlined typing inside a shrunk span inherits the small
+  `font_size` at merge — on both replicas, with no op recording it —
+  and Loro's UndoManager compounds it by re-marking drifted ranges
+  across interleaved remote ops (undo also leaves residue by skipping
+  remote interior characters). Worse, fused runs are shrink-EXEMPT, so
+  regrow could never clear them. Fix: `font_size` gains an `origin`
+  attr — `'shrink'` when the protection-aware sizing machinery
+  (shrink/regrow cycle, smart shrink) applied it, `null` for anything
+  the user chose (size chip, ± nudge, pasted content; the attr is
+  deliberately not DOM-serialized, so clipboard round-trips demote to
+  manual). A session-only plugin then heals on the Loro binding's
+  transactions (remote imports, init replace, undo/redo): within
+  changed ranges, strip `font_size` where `origin === 'shrink'` AND
+  the run carries underline/emphasis. Both fusion paths copy the
+  enclosing mark's attrs verbatim, so provenance travels with every
+  fused copy; user-chosen sizes survive all of them (pinned by a
+  manual-wins regression test that doubles as the no-heal control).
+  Old saved docs parse fine (attr defaults in) but pre-upgrade shrink
+  marks are untagged and won't auto-heal.
+
 - **Collab M2 (coediting branch): field-test fixes — differ mark-kill
   patch, stale-instance watchdog, healer escalation, zombie-proof
   shutdown** (`patches/loro-prosemirror+0.4.3.patch` NEW + postinstall,
