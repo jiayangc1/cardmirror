@@ -102,26 +102,37 @@ describe('M4 presence cursors', () => {
     const bView = mkView([...b.plugins(), ...bCursors.plugins()]);
     await settle();
 
-    // Partner (A) advertises a lease over [5, 15).
-    const ad = { ranges: [{ from: 5, to: 15, label: 'AI' }] };
-    const payload = new TextEncoder().encode(JSON.stringify(ad));
-    const framed = new Uint8Array(payload.length + 1);
-    framed[0] = 0x02;
-    framed.set(payload, 1);
-    bCursors.applyRemote(framed);
+    const mkFrame = (ad: object) => {
+      const payload = new TextEncoder().encode(JSON.stringify(ad));
+      const framed = new Uint8Array(payload.length + 1);
+      framed[0] = 0x02;
+      framed.set(payload, 1);
+      return framed;
+    };
+
+    // Partner (A) advertises a lease over [5, 15) — the tag names them.
+    bCursors.applyRemote(
+      mkFrame({ peer: a.loroDoc.peerIdStr, name: 'Priya', ranges: [{ from: 5, to: 15, label: 'AI' }] }),
+    );
     await settle();
 
     const hasLeaseDeco = () =>
       bView.dom.querySelectorAll('.pmd-collab-lease-ad').length > 0 ||
       bView.dom.querySelectorAll('.pmd-collab-lease-ad-tag').length > 0;
     expect(hasLeaseDeco()).toBe(true);
+    expect(bView.dom.querySelector('.pmd-collab-lease-ad-tag')?.textContent).toContain('Priya');
+
+    // B's OWN echoed advertisement must NOT render (the relay fans
+    // presence back to the poster; the local machine already shows the
+    // real AI-working box).
+    bCursors.applyRemote(
+      mkFrame({ peer: b.loroDoc.peerIdStr, name: 'Me', ranges: [{ from: 1, to: 4, label: 'AI' }] }),
+    );
+    await settle();
+    expect(bView.dom.querySelectorAll('.pmd-collab-lease-ad-tag').length).toBe(1); // still just Priya's
 
     // A cleared its leases → empty ad wipes the decorations.
-    const clear = new TextEncoder().encode(JSON.stringify({ ranges: [] }));
-    const clearFramed = new Uint8Array(clear.length + 1);
-    clearFramed[0] = 0x02;
-    clearFramed.set(clear, 1);
-    bCursors.applyRemote(clearFramed);
+    bCursors.applyRemote(mkFrame({ peer: a.loroDoc.peerIdStr, name: 'Priya', ranges: [] }));
     await settle();
     expect(hasLeaseDeco()).toBe(false);
 

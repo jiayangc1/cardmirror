@@ -30,7 +30,7 @@
  * truncate the log and joins stay fast on long sessions.
  */
 
-import { LoroDoc, VersionVector } from 'loro-crdt';
+import { LoroDoc, VersionVector, decodeImportBlobMeta } from 'loro-crdt';
 import type { Node as PMNode } from 'prosemirror-model';
 import type { Plugin } from 'prosemirror-state';
 import { EditorState } from 'prosemirror-state';
@@ -97,6 +97,8 @@ export interface CollabSessionOptions {
   snapshotEvery?: number;
   /** Self-echo watchdog deadline (see field docs); injectable for tests. */
   echoTimeoutMs?: number;
+  /** Delay before the first room-history audit; injectable for tests. */
+  auditDelayMs?: number;
 }
 
 export class CollabSession {
@@ -111,6 +113,7 @@ export class CollabSession {
   private readonly catchUpMs: number;
   private readonly snapshotEvery: number;
   private readonly echoTimeoutMs: number;
+  private readonly auditDelayMs: number;
 
   private stream: RoomStream | null = null;
   private lastSeq = 0;
@@ -125,6 +128,8 @@ export class CollabSession {
   private sending = false;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private catchUpTimer: ReturnType<typeof setInterval> | null = null;
+  private auditTimer: ReturnType<typeof setInterval> | null = null;
+  private auditKickoff: ReturnType<typeof setTimeout> | null = null;
   private sendRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private connected = false;
   private ended = false;
@@ -138,6 +143,14 @@ export class CollabSession {
    *  nobody listens). Hard-restart reconnects to the live instance. */
   private awaitingEcho: { seq: number; at: number } | null = null;
   private maxStreamSeq = 0;
+  /** True while imported ops sit in Loro's causal-dependency queue.
+   *  COMPACTION MUST NOT RUN in this state: the snapshot would omit the
+   *  pending ops while its coversThroughSeq truncates their stored
+   *  blobs — destroying them from the room permanently (field bug: the
+   *  joiner's edits stopped reaching the host FOREVER, surviving
+   *  restarts, because a host compaction ate their causal ancestors).
+   *  Cleared only when a full-resync import integrates cleanly. */
+  private pendingImports = false;
 
   private constructor(opts: CollabSessionOptions & { loroDoc: LoroDoc }) {
     this.loroDoc = opts.loroDoc;
@@ -150,6 +163,7 @@ export class CollabSession {
     this.catchUpMs = opts.catchUpMs ?? 300_000;
     this.snapshotEvery = opts.snapshotEvery ?? 50;
     this.echoTimeoutMs = opts.echoTimeoutMs ?? 8000;
+    this.auditDelayMs = opts.auditDelayMs ?? 15_000;
     this.lastSentVersion = this.loroDoc.version();
     this.ackedVersion = this.lastSentVersion;
     this.streamOpts = {
@@ -340,6 +354,8 @@ export class CollabSession {
       this.checkEcho();
     }, this.flushMs);
     this.catchUpTimer = setInterval(() => void this.catchUp(), this.catchUpMs);
+    this.auditKickoff = setTimeout(() => void this.auditRoomHistory(), this.auditDelayMs);
+    this.auditTimer = setInterval(() => void this.auditRoomHistory(), 30 * 60_000);
   }
 
   /** Leave the session (participant) or just stop syncing: final flush
@@ -349,8 +365,11 @@ export class CollabSession {
     await this.drainQueue().catch(() => {});
     if (this.flushTimer) clearInterval(this.flushTimer);
     if (this.catchUpTimer) clearInterval(this.catchUpTimer);
+    if (this.auditTimer) clearInterval(this.auditTimer);
+    if (this.auditKickoff) clearTimeout(this.auditKickoff);
     if (this.sendRetryTimer) clearTimeout(this.sendRetryTimer);
-    this.flushTimer = this.catchUpTimer = null;
+    this.flushTimer = this.catchUpTimer = this.auditTimer = null;
+    this.auditKickoff = null;
     this.sendRetryTimer = null;
     this.stream?.stop();
     this.stream = null;
@@ -385,6 +404,7 @@ export class CollabSession {
     queued: number;
     lastSeq: number;
     awaitingEchoSeq: number | null;
+    pendingImports: boolean;
     ended: boolean;
   } {
     return {
@@ -394,6 +414,7 @@ export class CollabSession {
       queued: this.outQueue.length,
       lastSeq: this.lastSeq,
       awaitingEchoSeq: this.awaitingEcho?.seq ?? null,
+      pendingImports: this.pendingImports,
       ended: this.ended,
     };
   }
@@ -512,6 +533,7 @@ export class CollabSession {
     }
     this.flush(); // capture local diff before import (see module doc)
     const status = this.loroDoc.importBatch([plain]);
+    if (status.pending && status.pending.size > 0) this.pendingImports = true;
     this.lastSentVersion = this.loroDoc.version();
     this.lastSeq = u.seq;
     this.sendRetryMs = 1000;
@@ -558,6 +580,7 @@ export class CollabSession {
           const status = this.loroDoc.importBatch(blobs);
           this.lastSentVersion = this.loroDoc.version();
           pendingLeft = !!status.pending && status.pending.size > 0;
+          if (pendingLeft) this.pendingImports = true;
         }
         if (page.lastSeq > this.lastSeq) this.lastSeq = page.lastSeq;
         if (!page.more) break;
@@ -579,8 +602,10 @@ export class CollabSession {
         }
         if (blobs.length > 0) {
           this.flush();
-          this.loroDoc.importBatch(blobs);
+          const status = this.loroDoc.importBatch(blobs);
           this.lastSentVersion = this.loroDoc.version();
+          // A clean full-resync proves every known op integrated.
+          this.pendingImports = !!status.pending && status.pending.size > 0;
         }
         if (page.lastSeq > this.lastSeq) this.lastSeq = page.lastSeq;
       }
@@ -603,6 +628,74 @@ export class CollabSession {
     }
   }
 
+  // --- history assurance ---
+
+  /** Verify the ROOM still holds every op the relay has acknowledged
+   *  from this replica; repost the full history if not. Insurance for
+   *  compaction-destroyed ops (see `pendingImports`): a room that lost
+   *  a peer's causal ancestors can never integrate that peer's future
+   *  edits — a permanent one-way split that LOOKS synced on both ends.
+   *  The audit reads only blob METADATA (no full import) and reposting
+   *  is idempotent, so a false positive costs one oversized update. */
+  async auditRoomHistory(): Promise<void> {
+    if (this.ended || this.outQueue.length > 0) return;
+    try {
+      const roomMax = new Map<string, number>();
+      let after = 0;
+      for (;;) {
+        const page = await this.client.fetchUpdates(this.roomId, after);
+        const blobs: Uint8Array[] = [];
+        if (page.snapshot && after < page.snapshot.coversThroughSeq) {
+          try {
+            blobs.push(await decryptBlob(this.key, page.snapshot.blob));
+          } catch {
+            /* undecryptable snapshot — audit what we can */
+          }
+        }
+        for (const u of page.updates) {
+          try {
+            blobs.push(await decryptBlob(this.key, u.blob));
+          } catch {
+            /* skip */
+          }
+        }
+        for (const b of blobs) {
+          try {
+            const meta = decodeImportBlobMeta(b, false);
+            for (const [peer, counter] of meta.partialEndVersionVector.toJSON()) {
+              if ((roomMax.get(peer) ?? 0) < counter) roomMax.set(peer, counter);
+            }
+          } catch {
+            /* undecodable blob */
+          }
+        }
+        after = page.lastSeq;
+        if (!page.more) break;
+      }
+      // Compare against what the relay ACKNOWLEDGED (not the live doc:
+      // freshly-typed unflushed ops would false-positive), covering all
+      // peers we hold — including our own pre-restart peer ids.
+      if (this.outQueue.length > 0) return; // raced a flush mid-audit
+      let missing = false;
+      for (const [peer, counter] of this.ackedVersion.toJSON()) {
+        if ((roomMax.get(peer) ?? 0) < counter) {
+          missing = true;
+          break;
+        }
+      }
+      if (!missing) return;
+      console.warn(
+        '[collab] the room lost ops this replica holds (compacted away?) — reposting full history',
+      );
+      this.loroDoc.commit();
+      const full = this.loroDoc.export({ mode: 'update' });
+      const seq = await this.client.postUpdate(this.roomId, await encryptBlob(this.key, full));
+      if (this.stream?.connected) this.awaitingEcho = { seq, at: Date.now() };
+    } catch {
+      /* advisory — the next scheduled audit retries */
+    }
+  }
+
   // --- presence ---
 
   async sendPresence(blob: Uint8Array): Promise<void> {
@@ -617,6 +710,10 @@ export class CollabSession {
   // --- compaction ---
 
   private async uploadSnapshot(): Promise<void> {
+    // NEVER compact over ops that haven't integrated: coversThroughSeq
+    // truncates the stored log, and a snapshot exported while imports
+    // pend does NOT contain them — the room loses them permanently.
+    if (this.pendingImports) return;
     try {
       this.loroDoc.commit();
       const covers = this.lastSeq;
@@ -637,8 +734,11 @@ export class CollabSession {
     this.ended = true;
     if (this.flushTimer) clearInterval(this.flushTimer);
     if (this.catchUpTimer) clearInterval(this.catchUpTimer);
+    if (this.auditTimer) clearInterval(this.auditTimer);
+    if (this.auditKickoff) clearTimeout(this.auditKickoff);
     if (this.sendRetryTimer) clearTimeout(this.sendRetryTimer);
-    this.flushTimer = this.catchUpTimer = null;
+    this.flushTimer = this.catchUpTimer = this.auditTimer = null;
+    this.auditKickoff = null;
     this.sendRetryTimer = null;
     this.stream?.stop();
     this.stream = null;

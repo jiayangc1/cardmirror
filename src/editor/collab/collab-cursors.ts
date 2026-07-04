@@ -53,6 +53,11 @@ function frame(type: number, payload: Uint8Array): Uint8Array {
 }
 
 interface LeaseAd {
+  /** Sender's loro peer id — the receiver drops its own echoes (the
+   *  relay's presence fan-out includes the poster's own stream). */
+  peer: string;
+  /** Sender's display name for the tag ("Priya's AI"). */
+  name: string;
   ranges: { from: number; to: number; label: string }[];
 }
 
@@ -95,6 +100,11 @@ export function installCursorPresence(
     if (local) store.setLocal(local);
   }, KEEPALIVE_MS);
 
+  const user = {
+    name: settings.get('pairingDisplayName').trim() || 'Partner',
+    color: peerColor(peerId),
+  };
+
   // --- outbound: lease ads on a slow heartbeat ---
   let lastLeaseCount = 0;
   const leaseTimer = setInterval(() => {
@@ -104,14 +114,19 @@ export function installCursorPresence(
     const ranges = leasedRanges(view.state).map((r) => ({ ...r, label: 'AI' }));
     if (ranges.length === 0 && lastLeaseCount === 0) return; // nothing, and nothing to clear
     lastLeaseCount = ranges.length;
-    const payload = new TextEncoder().encode(JSON.stringify({ ranges } satisfies LeaseAd));
-    void session.sendPresence(frame(FRAME_LEASE, payload));
+    const ad: LeaseAd = { peer: peerId, name: user.name, ranges };
+    void session.sendPresence(frame(FRAME_LEASE, new TextEncoder().encode(JSON.stringify(ad))));
   }, LEASE_MS);
 
   // --- inbound lease rendering ---
   const applyLeaseAd = (ad: LeaseAd): void => {
+    // The relay fans presence back to the poster's own stream — the
+    // sender must not render its own advertisement on top of the real
+    // local AI-working box (field: "partner's AI" on the running machine).
+    if (ad.peer === peerId) return;
     const view = getView();
     if (!view || view.isDestroyed) return;
+    const who = (ad.name || 'Partner').trim() || 'Partner';
     const decos = ad.ranges
       .filter((r) => r.from >= 0 && r.to > r.from && r.to <= view.state.doc.content.size)
       .flatMap((r) => [
@@ -119,7 +134,7 @@ export function installCursorPresence(
         Decoration.widget(r.from, () => {
           const tag = document.createElement('span');
           tag.className = 'pmd-collab-lease-ad-tag';
-          tag.textContent = `✦ partner's ${r.label}`;
+          tag.textContent = `✦ ${who}'s ${r.label}`;
           return tag;
         }),
       ]);
@@ -145,11 +160,6 @@ export function installCursorPresence(
       },
     },
   });
-
-  const user = {
-    name: settings.get('pairingDisplayName').trim() || 'Partner',
-    color: peerColor(peerId),
-  };
 
   return {
     plugins(): Plugin[] {

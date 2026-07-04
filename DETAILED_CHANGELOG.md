@@ -7,6 +7,38 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Collab field fixes (stress-test round 2): compaction data loss +
+  minimal-diff imports + lease-ad polish**
+  (`collab-session.ts`, `patches/loro-prosemirror+0.4.3.patch`,
+  `collab-cursors.ts`, `style.css`, tests). (a) *The one-way sync
+  split.* The host's compaction snapshot covered `lastSeq`
+  unconditionally — but the delivery cursor advances even when imports
+  park in Loro's causal-dependency queue, so a compaction fired while
+  the partner's ops were pending exported a snapshot WITHOUT them
+  while its truncation deleted their stored blobs: the room
+  permanently lost the partner's causal ancestors, every later edit of
+  theirs parked forever, and both chips honestly said "synced"
+  (surviving restarts — the room itself was damaged). Two-part fix:
+  compaction now refuses to run while any import is pending
+  (`pendingImports`, cleared only by a clean full-resync), and a
+  ROOM-HISTORY AUDIT (15s after start, then every 30min) compares the
+  room's blob metadata (decodeImportBlobMeta — no full import) against
+  this replica's relay-ACKNOWLEDGED version and reposts full history
+  when the room lost ops — which also self-heals rooms already
+  damaged, including live field sessions, once the affected peer runs
+  this build (P14 regression). (b) *AI routines survive partner
+  edits.* The binding replaced the WHOLE doc on every import, so
+  `tr.mapping` collapsed and every tracked position (AI-lease regions,
+  decorations) broke whenever the partner typed — "card moved — cut
+  not applied" during AI runs. Patched to a MINIMAL-DIFF replace
+  (findDiffStart/findDiffEnd, verify-result-and-fallback for
+  structural edge cases): remote edits now map like local ones. (c)
+  *Lease-ad polish*: sender identity travels in the ad — your own
+  echo no longer renders on the machine running the AI; the tag names
+  the partner ("Priya's AI"); and the advisory region uses the same
+  outline+fill box treatment as the local AI-working affordance, in
+  the collab blue.
+
 - **Collab field fixes (stress-test round): viewport stability +
   joiner doc naming** (`patches/loro-prosemirror+0.4.3.patch`,
   `collab-ui.ts`, `index.ts`, tests). (a) *Remote edits no longer
