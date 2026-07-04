@@ -48,6 +48,12 @@ export interface CollabUiDeps {
    *  desktop, 2026-07-03). Resolves false if the user cancelled out of
    *  overwriting unsaved edits. */
   newSessionDoc(): boolean | Promise<boolean>;
+  /** Name the (unsaved) session doc in this window: window title, the
+   *  filename chip, and the save-as default. Joiners get the host's
+   *  title through the room's meta map — without this the window and
+   *  the Sessions list just say "collaboration session" (field bug,
+   *  2026-07-03). */
+  setDocTitle?(title: string): void;
 }
 
 interface ActiveState {
@@ -116,7 +122,9 @@ function installSeams(session: CollabSession, deps: CollabUiDeps): void {
   // M3: crash-surviving session record (the home screen's Sessions
   // list resumes from it). Cleared only on explicit end/leave or a
   // remote tombstone — a crash leaving it behind is the feature.
-  persist = attachSessionPersistence(session, active!.shareCode, sessionDocTitle);
+  persist = attachSessionPersistence(session, active!.shareCode, () =>
+    sessionDocTitle() || sharedDocTitle(session),
+  );
   cursors = installCursorPresence(session, () => deps.getView());
   // Concurrent new comments must not collide on the shared map key —
   // both peers advance the same small-int counter otherwise.
@@ -225,8 +233,11 @@ export async function startSessionFlow(deps: CollabUiDeps): Promise<void> {
     active = { session, shareCode };
     installSeams(session, deps);
     // Seed before start(): the first flush then carries the host's
-    // existing comment threads alongside the seeded doc.
+    // existing comment threads alongside the seeded doc — and the doc
+    // title, so joiners can name their unsaved copy.
     commentsSync!.seedFromView(view);
+    session.loroDoc.getMap('meta').set('title', sessionDocTitle());
+    session.loroDoc.commit();
     deps.refreshPlugins();
     session.start();
     updateChip({ connected: true, queuedUpdates: 0 });
@@ -320,8 +331,9 @@ export async function joinSessionWithCode(deps: CollabUiDeps, code: string): Pro
       return;
     }
     // The join snapshot already carries the host's thread map — land it
-    // in the fresh pane's plugin state.
+    // in the fresh pane's plugin state; same for the published title.
     commentsSync!.pull();
+    adoptSharedTitle(deps, session);
     session.start();
     updateChip({ connected: !joinedOffline, queuedUpdates: 0 });
     showToast(
@@ -392,6 +404,7 @@ export async function resumeSessionFlow(deps: CollabUiDeps, roomId: string): Pro
       return;
     }
     commentsSync!.pull();
+    adoptSharedTitle(deps, session);
     session.start();
     updateChip({ connected: false, queuedUpdates: session.queuedUpdates });
     showToast('Session resumed — syncing');
@@ -413,6 +426,19 @@ export async function copyShareCodeFlow(): Promise<void> {
     () => false,
   );
   showToast(ok ? 'Share code copied' : 'Could not copy the share code');
+}
+
+/** The host-published doc title from the room's meta map ('' when the
+ *  host predates title publishing or hasn't named the doc). */
+function sharedDocTitle(session: CollabSession): string {
+  const t = session.loroDoc.getMap('meta').get('title');
+  return typeof t === 'string' ? t.trim() : '';
+}
+
+/** Adopt the shared title in this window (joiner/resume paths). */
+function adoptSharedTitle(deps: CollabUiDeps, session: CollabSession): void {
+  const title = sharedDocTitle(session);
+  if (title) deps.setDocTitle?.(title);
 }
 
 /** Current doc title for invite labels: document.title is

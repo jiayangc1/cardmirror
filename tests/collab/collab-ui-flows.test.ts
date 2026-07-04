@@ -97,9 +97,14 @@ describe('collab UI flows through the editor seams', () => {
       },
     });
 
-    // Start a session on the host's current doc.
+    // Start a session on the host's current doc (window titled like a
+    // real host: the flow publishes the doc name to the room's meta map).
+    document.title = 'Aff Updates — CardMirror';
     await collabUi.startSessionFlow(deps);
     expect(collabUi.activeSession()).not.toBeNull();
+    // Joiners name their unsaved copy from this (field bug: windows and
+    // Sessions-list rows just said "collaboration session").
+    expect(collabUi.activeSession()!.loroDoc.getMap('meta').get('title')).toBe('Aff Updates');
     expect(collabPluginSource()?.ownsUndo()).toBe(true);
     await settle();
     const chip = document.getElementById('collab-chip')!;

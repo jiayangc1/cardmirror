@@ -960,6 +960,13 @@ const collabDeps = {
   refreshPlugins: () => {
     if (view) view.updateState(view.state.reconfigure({ plugins: buildEditorPlugins() }));
   },
+  // Name the (unsaved) session doc: window title, filename chip, and
+  // the save-as default all follow currentDocFilename. No handle — the
+  // first save still prompts for a location, pre-filled with this name.
+  setDocTitle: (title: string) => {
+    currentDocFilename = title;
+    updateWindowTitle();
+  },
   // Joining a session opens a new unsaved doc IN THIS WINDOW — never
   // via ribbonContext.newDocument(), which SPAWNS a window on desktop
   // and would strand the session binding in a window that never gets

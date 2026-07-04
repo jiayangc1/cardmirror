@@ -46,6 +46,41 @@ async function converge(a: LoroPeer, b: LoroPeer): Promise<void> {
   expect(() => a.doc().check()).not.toThrow();
 }
 
+describe('remote updates preserve the local selection (viewport stability)', () => {
+  it('P13: partner typing never moves my caret — not even transiently', async () => {
+    const [a, b] = await merged();
+    // B parks its caret right after "lazy" and watches every transaction.
+    const anchorWord = 'lazy';
+    const r = findText(b.doc(), anchorWord);
+    b.view.dispatch(b.view.state.tr.setSelection(TextSelection.create(b.view.state.doc, r.to)));
+    const violations: string[] = [];
+    const origDispatch = b.view.dispatch.bind(b.view);
+    (b.view as { dispatch: typeof origDispatch }).dispatch = (tr) => {
+      origDispatch(tr);
+      // After EVERY transaction (including the binding's whole-doc
+      // replace on import), the caret must still sit after "lazy".
+      // The pre-patch binding left the remapped bogus selection live
+      // until a setTimeout — caret/nav flicker and keystrokes landing
+      // at the REMOTE edit's position (field: viewport ping-pong).
+      const sel = b.view.state.selection;
+      const before = b.view.state.doc.textBetween(Math.max(0, sel.from - anchorWord.length), sel.from);
+      if (before !== anchorWord) violations.push(before);
+    };
+    // A types away at the start of the sentence, multiple rounds.
+    for (let i = 0; i < 3; i++) {
+      typeAfter(a.view, 'quick', ` r${i}`);
+      await converge(a, b);
+    }
+    expect(violations).toEqual([]);
+    const selBefore = b.view.state.doc.textBetween(
+      Math.max(0, b.view.state.selection.from - anchorWord.length),
+      b.view.state.selection.from,
+    );
+    expect(selBefore).toBe(anchorWord);
+    a.destroy(); b.destroy();
+  });
+});
+
 describe('Peritext criteria (inline marks)', () => {
   it('P1: same-color highlight overlap merges to the union', async () => {
     const [a, b] = await merged();

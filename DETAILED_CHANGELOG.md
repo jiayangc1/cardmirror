@@ -7,6 +7,30 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Collab field fixes (stress-test round): viewport stability +
+  joiner doc naming** (`patches/loro-prosemirror+0.4.3.patch`,
+  `collab-ui.ts`, `index.ts`, tests). (a) *Remote edits no longer
+  fight the local caret/viewport.* The binding's remote-update path
+  replaces the whole doc, remapping the local selection to a bogus
+  boundary position, and only restored it in a `setTimeout` — under
+  continuous partner typing that bogus-selection window flickered the
+  nav-pane indicator twice a second and let local keystrokes land (and
+  scroll) at the PARTNER's position: the field's viewport ping-pong.
+  Worse, the restore itself was drift-prone: it captured the selection
+  as loro cursors AFTER the import, anchoring against already-shifted
+  text (caret drifted by the inserted length per batch). Patched: the
+  selection is stashed as loro cursors on every LOCAL transaction
+  (while PM and loro agree) and restored ON the import transaction —
+  no async window, no drift (P13 regression: caret pinned through
+  every imported batch, checked after every transaction). Also dropped
+  an upstream bug where rendering a partner's stale cursor WROTE the
+  re-encoded position under the LOCAL peer's store key, teleporting
+  your advertised cursor to the partner's location. (b) *Joiners now
+  know the doc's name.* The host publishes the title into the room's
+  `meta` map with the seed; join/resume adopt it for the window title,
+  filename chip, save-as default, and the Sessions-list rows (which
+  previously just said "collaboration session").
+
 - **Collab M4 (coediting branch): presence cursors, lease
   advertisement, read-mode undo clamps** (`collab/collab-cursors.ts`
   NEW, `collab-ui.ts`, `ai/edit-coordinator.ts`, `settings.ts`,

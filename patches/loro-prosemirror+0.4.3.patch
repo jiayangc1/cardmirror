@@ -1,5 +1,5 @@
 diff --git a/node_modules/loro-prosemirror/dist/index.cjs b/node_modules/loro-prosemirror/dist/index.cjs
-index 74c4b30..f6f59f2 100644
+index 74c4b30..8dd4db0 100644
 --- a/node_modules/loro-prosemirror/dist/index.cjs
 +++ b/node_modules/loro-prosemirror/dist/index.cjs
 @@ -83,19 +83,70 @@ function createLoroText(parentList, pos, nodes, mapping) {
@@ -96,8 +96,92 @@ index 74c4b30..f6f59f2 100644
  }
  function getLoroMapChildren(obj) {
  	return obj.getOrCreateContainer(CHILDREN_KEY, new loro_crdt.LoroList());
+@@ -425,24 +478,13 @@ function createDecorations(state, store, _plugin, createSelection, createCursor)
+ 		const [focus, focusCursorUpdate] = cursorToAbsolutePosition(cursor.focus, doc, loroState.mapping);
+ 		d.push(prosemirror_view.Decoration.widget(focus, createCursor(peer)));
+ 		if (!cursorEq(cursor.anchor, cursor.focus)) {
+-			const [anchor, anchorCursorUpdate] = cursorToAbsolutePosition(cursor.anchor, doc, loroState.mapping);
++			const [anchor] = cursorToAbsolutePosition(cursor.anchor, doc, loroState.mapping);
+ 			d.push(prosemirror_view.Decoration.inline(Math.min(anchor, focus), Math.max(anchor, focus), createSelection(peer)));
+-			if (focusCursorUpdate || anchorCursorUpdate) {
+-				const existingLocalState = store.getLocal();
+-				store.setLocal({
+-					...existingLocalState?.user && { user: existingLocalState.user },
+-					anchor: anchorCursorUpdate || cursor.anchor,
+-					focus: focusCursorUpdate || cursor.focus
+-				});
+-			}
+-		} else if (focusCursorUpdate) {
+-			const existingLocalState = store.getLocal();
+-			store.setLocal({
+-				...existingLocalState?.user && { user: existingLocalState.user },
+-				focus: focusCursorUpdate,
+-				anchor: focusCursorUpdate
+-			});
+ 		}
++		// PATCHED (cardmirror): dropped the stale-cursor "update" writes —
++		// they stored the REMOTE peer's re-encoded positions under the
++		// LOCAL peer's key (setLocal), teleporting this peer's advertised
++		// cursor to wherever the partner's stale cursor resolved.
+ 	}
+ 	return prosemirror_view.DecorationSet.create(state.doc, d);
+ }
+@@ -587,6 +629,19 @@ const LoroSyncPlugin = (props) => {
+ 						break;
+ 					default: break;
+ 				}
++				// PATCHED (cardmirror): stash the selection as loro cursors
++				// while PM and loro AGREE (any local transaction — the
++				// doc-changed sync above just ran, or nothing changed).
++				// Capturing at import time (upstream) anchors the caret
++				// against text the remote ops already shifted — the caret
++				// drifts by the inserted length on every imported batch.
++				if (state.changedBy === "local") {
++					try {
++						state.selectionCursors = convertPmSelectionToCursors(newEditorState.doc, newEditorState.selection, state);
++					} catch (e) {
++						state.selectionCursors = void 0;
++					}
++				}
+ 				return state;
+ 			}
+ 		},
+@@ -650,14 +705,28 @@ function updateNodeOnLoroEvent(view, event) {
+ 	const mapping = state.mapping;
+ 	clearChangedNodes(state.doc, event, mapping);
+ 	const node = createNodeFromLoroObj(view.state.schema, state.containerId ? state.doc.getContainerById(state.containerId) : state.doc.getMap(ROOT_DOC_KEY), mapping);
+-	const { anchor, focus } = convertPmSelectionToCursors(view.state.doc, view.state.selection, state);
++	// PATCHED (cardmirror): restore from the cursors stashed on the
++	// last LOCAL transaction (PM and loro agreed then) — capturing here,
++	// after the import, anchors against already-shifted text.
++	const { anchor, focus } = state.selectionCursors ?? { anchor: null, focus: null };
+ 	let tr = view.state.tr.replace(0, view.state.doc.content.size, new prosemirror_model.Slice(prosemirror_model.Fragment.from(node), 0, 0));
++	// PATCHED (cardmirror): restore the local selection ON THIS
++	// TRANSACTION instead of a follow-up setTimeout dispatch (see the
++	// ESM build for the full rationale — bogus-selection window makes
++	// caret/nav indicators flicker and keystrokes land at the remote
++	// edit's position).
++	if (anchor != null) {
++		const anchorPos = cursorToAbsolutePosition(anchor, state.doc, mapping)[0];
++		const focusPos = focus ? cursorToAbsolutePosition(focus, state.doc, mapping)[0] : anchorPos;
++		if (anchorPos != null) {
++			const size = tr.doc.content.size;
++			const a = Math.max(0, Math.min(anchorPos, size));
++			const h = Math.max(0, Math.min(focusPos != null ? focusPos : anchorPos, size));
++			tr = tr.setSelection(prosemirror_state.TextSelection.between(tr.doc.resolve(a), tr.doc.resolve(h)));
++		}
++	}
+ 	tr.setMeta(loroSyncPluginKey, { type: "non-local-updates" });
+ 	view.dispatch(tr);
+-	if (anchor == null) return;
+-	setTimeout(() => {
+-		syncCursorsToPmSelection(view, anchor, focus);
+-	});
+ }
+ /**
+ * Update ProseMirror selection based on the given Loro cursors.
 diff --git a/node_modules/loro-prosemirror/dist/index.js b/node_modules/loro-prosemirror/dist/index.js
-index e41095d..783fbb7 100644
+index e41095d..4cd6126 100644
 --- a/node_modules/loro-prosemirror/dist/index.js
 +++ b/node_modules/loro-prosemirror/dist/index.js
 @@ -82,19 +82,70 @@ function createLoroText(parentList, pos, nodes, mapping) {
@@ -193,3 +277,90 @@ index e41095d..783fbb7 100644
  }
  function getLoroMapChildren(obj) {
  	return obj.getOrCreateContainer(CHILDREN_KEY, new LoroList());
+@@ -424,24 +477,13 @@ function createDecorations(state, store, _plugin, createSelection, createCursor)
+ 		const [focus, focusCursorUpdate] = cursorToAbsolutePosition(cursor.focus, doc, loroState.mapping);
+ 		d.push(Decoration.widget(focus, createCursor(peer)));
+ 		if (!cursorEq(cursor.anchor, cursor.focus)) {
+-			const [anchor, anchorCursorUpdate] = cursorToAbsolutePosition(cursor.anchor, doc, loroState.mapping);
++			const [anchor] = cursorToAbsolutePosition(cursor.anchor, doc, loroState.mapping);
+ 			d.push(Decoration.inline(Math.min(anchor, focus), Math.max(anchor, focus), createSelection(peer)));
+-			if (focusCursorUpdate || anchorCursorUpdate) {
+-				const existingLocalState = store.getLocal();
+-				store.setLocal({
+-					...existingLocalState?.user && { user: existingLocalState.user },
+-					anchor: anchorCursorUpdate || cursor.anchor,
+-					focus: focusCursorUpdate || cursor.focus
+-				});
+-			}
+-		} else if (focusCursorUpdate) {
+-			const existingLocalState = store.getLocal();
+-			store.setLocal({
+-				...existingLocalState?.user && { user: existingLocalState.user },
+-				focus: focusCursorUpdate,
+-				anchor: focusCursorUpdate
+-			});
+ 		}
++		// PATCHED (cardmirror): dropped the stale-cursor "update" writes —
++		// they stored the REMOTE peer's re-encoded positions under the
++		// LOCAL peer's key (setLocal), teleporting this peer's advertised
++		// cursor to wherever the partner's stale cursor resolved.
+ 	}
+ 	return DecorationSet.create(state.doc, d);
+ }
+@@ -586,6 +628,19 @@ const LoroSyncPlugin = (props) => {
+ 						break;
+ 					default: break;
+ 				}
++				// PATCHED (cardmirror): stash the selection as loro cursors
++				// while PM and loro AGREE (any local transaction — the
++				// doc-changed sync above just ran, or nothing changed).
++				// Capturing at import time (upstream) anchors the caret
++				// against text the remote ops already shifted — the caret
++				// drifts by the inserted length on every imported batch.
++				if (state.changedBy === "local") {
++					try {
++						state.selectionCursors = convertPmSelectionToCursors(newEditorState.doc, newEditorState.selection, state);
++					} catch (e) {
++						state.selectionCursors = void 0;
++					}
++				}
+ 				return state;
+ 			}
+ 		},
+@@ -649,14 +704,31 @@ function updateNodeOnLoroEvent(view, event) {
+ 	const mapping = state.mapping;
+ 	clearChangedNodes(state.doc, event, mapping);
+ 	const node = createNodeFromLoroObj(view.state.schema, state.containerId ? state.doc.getContainerById(state.containerId) : state.doc.getMap(ROOT_DOC_KEY), mapping);
+-	const { anchor, focus } = convertPmSelectionToCursors(view.state.doc, view.state.selection, state);
++	// PATCHED (cardmirror): restore from the cursors stashed on the
++	// last LOCAL transaction (PM and loro agreed then) — capturing here,
++	// after the import, anchors against already-shifted text.
++	const { anchor, focus } = state.selectionCursors ?? { anchor: null, focus: null };
+ 	let tr = view.state.tr.replace(0, view.state.doc.content.size, new Slice(Fragment.from(node), 0, 0));
++	// PATCHED (cardmirror): restore the local selection ON THIS
++	// TRANSACTION instead of a follow-up setTimeout dispatch. The
++	// whole-doc replace remaps the selection to the replace boundary;
++	// leaving that bogus selection live until a macrotask later makes
++	// caret/nav indicators flicker to wherever the remote edit landed
++	// on EVERY imported batch, and a keystroke arriving inside the
++	// window lands — and scrolls — at the wrong position (field:
++	// viewport ping-pong while both peers type).
++	if (anchor != null) {
++		const anchorPos = cursorToAbsolutePosition(anchor, state.doc, mapping)[0];
++		const focusPos = focus ? cursorToAbsolutePosition(focus, state.doc, mapping)[0] : anchorPos;
++		if (anchorPos != null) {
++			const size = tr.doc.content.size;
++			const a = Math.max(0, Math.min(anchorPos, size));
++			const h = Math.max(0, Math.min(focusPos != null ? focusPos : anchorPos, size));
++			tr = tr.setSelection(TextSelection.between(tr.doc.resolve(a), tr.doc.resolve(h)));
++		}
++	}
+ 	tr.setMeta(loroSyncPluginKey, { type: "non-local-updates" });
+ 	view.dispatch(tr);
+-	if (anchor == null) return;
+-	setTimeout(() => {
+-		syncCursorsToPmSelection(view, anchor, focus);
+-	});
+ }
+ /**
+ * Update ProseMirror selection based on the given Loro cursors.
