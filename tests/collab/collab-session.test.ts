@@ -297,3 +297,71 @@ describe('large documents (413 avoidance via chunked updates)', () => {
     }
   }, 25_000);
 });
+
+describe('delivery-cursor discipline (shed frames must not create gaps)', () => {
+  it('P16: a shed push is recovered by catch-up even when later frames arrive', async () => {
+    const mock = await startRoomsMock();
+    const client = new RoomsClient({ baseUrl: () => mock.url, token: () => mock.token });
+    try {
+      const { session: a, shareCode } = await CollabSession.host({
+        pmDoc: simpleDoc('three peer shed test'),
+        client,
+        flushMs: 40,
+        minBackoffMs: 30,
+        maxBackoffMs: 60,
+      });
+      const aView = mkView(a.plugins());
+      await settle();
+      a.start();
+      const decoded = decodeShareCode(shareCode)!;
+      const mkPeer = async () => {
+        const s = await CollabSession.join({
+          ...decoded,
+          client,
+          flushMs: 40,
+          minBackoffMs: 30,
+          maxBackoffMs: 60,
+          catchUpMs: 600_000, // no periodic catch-up — the test drives it
+        });
+        const v = mkView(s.plugins());
+        await settle();
+        s.start();
+        return { s, v };
+      };
+      const b = await mkPeer();
+      const c = await mkPeer();
+      await sleep(300);
+
+      // A's edit posts while pushes are muted: stored in the room,
+      // delivered to NOBODY's stream.
+      mock.mutePush(true);
+      typeAfter(aView, 'three', ' LOST-EDIT');
+      await sleep(250);
+      mock.mutePush(false);
+
+      // B's edit (causally independent of A's) pushes normally — C's
+      // stream sees a frame ABOVE the shed one. The old cursor logic
+      // jumped past the shed row here, making it unfetchable forever.
+      typeAfter(b.v, 'peer', ' AFTER');
+      await sleep(300);
+      expect(docText(c.v.state.doc)).toContain('AFTER');
+
+      // Catch-up must still find the shed row (cursor never jumped it).
+      await c.s.catchUp();
+      await settle();
+      expect(docText(c.v.state.doc)).toContain('LOST-EDIT');
+      await b.s.catchUp();
+      await settle();
+      expect(docText(b.v.state.doc)).toContain('LOST-EDIT');
+
+      await c.s.stop();
+      await b.s.stop();
+      await a.stop();
+      aView.destroy();
+      b.v.destroy();
+      c.v.destroy();
+    } finally {
+      await mock.close();
+    }
+  }, 25_000);
+});

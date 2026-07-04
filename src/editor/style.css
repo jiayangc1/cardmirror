@@ -12222,6 +12222,10 @@ body.pmd-multi-doc .pmd-cardcutter-trim {
   position: absolute;
   top: -1.35em;
   left: -2px;
+  /* Above every other in-document decoration (AI working box sits at
+     z-index 40) — the partner's name flag must never hide under
+     highlights/boxes. */
+  z-index: 50;
   font-size: 0.62rem;
   font-weight: 600;
   line-height: 1.25;

@@ -571,18 +571,24 @@ export class CollabSession {
     try {
       plain = await decryptBlob(this.key, u.blob);
     } catch {
-      // Wrong key or corrupt ciphertext: skip the frame but do NOT
-      // advance the cursor past it silently — mark it consumed so one
-      // bad frame can't wedge the stream, and rely on the doc's causal
-      // dependency queue to surface real gaps.
-      this.lastSeq = u.seq;
+      // Wrong key or corrupt ciphertext — drop the frame. The cursor
+      // is deliberately untouched (see below).
       return;
     }
     this.flush(); // capture local diff before import (see module doc)
     const status = this.loroDoc.importBatch([plain]);
     if (status.pending && status.pending.size > 0) this.pendingImports = true;
     this.lastSentVersion = this.loroDoc.version();
-    this.lastSeq = u.seq;
+    // The cursor does NOT advance from stream frames — ONLY from
+    // catch-up pages. A pushed frame proves nothing about the rows
+    // below it: pushes are shed under backpressure and dropped by
+    // dying connections (field: ERR_NETWORK_CHANGED flaps), and a
+    // cursor that jumps past an unfetched row makes every later
+    // catch-up ("give me rows after N") skip it FOREVER — a permanent
+    // silent gap when the lost content has no later causal reference,
+    // and a compaction hazard (coversThroughSeq trusts this cursor).
+    // The stream is the fast path; the paginated catch-up is the
+    // correctness path.
     this.sendRetryMs = 1000;
     // Ops whose causal dependencies we lack (a shed push frame, or a
     // window the cursor skipped) sit pending until the deps arrive —
@@ -635,17 +641,27 @@ export class CollabSession {
       if (expectMissingDeps && !importedAny) pendingLeft = true;
       if (pendingLeft) {
         // Deps live below our cursor (skipped or compacted) — one full
-        // resync from zero: the snapshot fast-path bounds the size, and
-        // importing already-known history is a no-op.
-        const page = await this.client.fetchUpdates(this.roomId, 0);
+        // resync from zero, PAGINATED: a long session holds more rows
+        // than one page, and a resync that stops at page 1 never
+        // reaches the deps it exists to fetch (field: the one-way
+        // desync recurred because the healer read 200 rows of a bigger
+        // log and parked forever).
+        let after = 0;
         const blobs: Uint8Array[] = [];
-        if (page.snapshot) blobs.push(await decryptBlob(this.key, page.snapshot.blob));
-        for (const u of page.updates) {
-          try {
-            blobs.push(await decryptBlob(this.key, u.blob));
-          } catch {
-            /* skip undecryptable frame */
+        for (;;) {
+          const page = await this.client.fetchUpdates(this.roomId, after);
+          if (page.snapshot && after < page.snapshot.coversThroughSeq) {
+            blobs.push(await decryptBlob(this.key, page.snapshot.blob));
           }
+          for (const u of page.updates) {
+            try {
+              blobs.push(await decryptBlob(this.key, u.blob));
+            } catch {
+              /* skip undecryptable frame */
+            }
+          }
+          after = page.lastSeq;
+          if (!page.more) break;
         }
         if (blobs.length > 0) {
           this.flush();
@@ -654,7 +670,7 @@ export class CollabSession {
           // A clean full-resync proves every known op integrated.
           this.pendingImports = !!status.pending && status.pending.size > 0;
         }
-        if (page.lastSeq > this.lastSeq) this.lastSeq = page.lastSeq;
+        if (after > this.lastSeq) this.lastSeq = after;
       }
       if (importedCount >= 25) this.callbacks.onBacklogMerged?.(importedCount);
       // "Connected" is the STREAM's state (live push flowing) — a

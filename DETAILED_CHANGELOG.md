@@ -7,6 +7,27 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Collab: delivery-cursor discipline — the recurring one-way desync
+  and the permanent gap, both closed** (`collab-session.ts`,
+  `patches/`, `style.css`, tests). Field round 3, triggered by network
+  flaps (ERR_NETWORK_CHANGED): (a) *Stream frames no longer advance
+  the delivery cursor.* A pushed frame proves nothing about the rows
+  below it — pushes are shed under backpressure and dropped by dying
+  connections — and a cursor that jumped past an unfetched row made
+  every later catch-up ("rows after N") skip it FOREVER: the field's
+  "specific set of changes never recovered", plus a compaction hazard
+  (coversThroughSeq trusts this cursor). The cursor now advances ONLY
+  from catch-up pages (server-confirmed contiguous coverage); the
+  stream stays the fast path. P16 regression, verified to fail against
+  the old logic. (b) *The pending-deps healer's full resync now
+  PAGINATES* — it read one page (200 rows) of what can be a much
+  longer log and parked forever short of the deps it needed: why the
+  one-way desync recurred despite the compaction guard. (c) The
+  import-transaction selection restore skips endpoints outside inline
+  content (silences PM's "TextSelection endpoint…(table)" warning and
+  its surprise caret hop). (d) Partner cursor name flags render above
+  all other document decorations (z-index over the AI box).
+
 - **Collab: click-to-invite Send pill, chunked large-doc sync, quieter
   console** (`send-pill-ui.ts`, `collab-hooks.ts`, `collab-ui.ts`,
   `collab-session.ts`, `patches/`, tests). (a) *The Send pill is now
