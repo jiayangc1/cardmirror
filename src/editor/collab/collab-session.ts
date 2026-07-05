@@ -465,6 +465,28 @@ export class CollabSession {
 
   // --- outbound ---
 
+  /** Advance the sent frontier over ops IMPORTED from the relay (so we
+   *  never echo them back) WITHOUT absorbing our own un-flushed local
+   *  ops. Our own peer's sent counter advances ONLY through flush().
+   *
+   *  ROOT CAUSE of the field one-way desync: the import paths used to
+   *  set `lastSentVersion = loroDoc.version()`, which silently marked
+   *  our own un-posted ops as "sent" — including plugin-generated
+   *  repair/heal ops that land on a microtask AFTER the import, so a
+   *  later import absorbed them. flush() then saw "nothing new" and
+   *  early-returned; those ops never reached the relay, the queue
+   *  emptied, `ackedVersion` claimed them sent, and the chip read
+   *  "synced" while other peers could never catch up. Preserving our
+   *  own counter here keeps the invariant "our own ops are sent only
+   *  once flush() exports them." */
+  private markImportedSent(): void {
+    const full = this.loroDoc.version().toJSON();
+    const own = this.loroDoc.peerIdStr as `${number}`;
+    const sentOwn = this.lastSentVersion.toJSON().get(own) ?? 0;
+    full.set(own, sentOwn);
+    this.lastSentVersion = new VersionVector(full);
+  }
+
   /** Export any local ops since the last flush into the send queue.
    *  Synchronous by design so `applyRemote` can call it pre-import. */
   flush(): void {
@@ -578,7 +600,7 @@ export class CollabSession {
     this.flush(); // capture local diff before import (see module doc)
     const status = this.loroDoc.importBatch([plain]);
     if (status.pending && status.pending.size > 0) this.pendingImports = true;
-    this.lastSentVersion = this.loroDoc.version();
+    this.markImportedSent();
     // The cursor does NOT advance from stream frames — ONLY from
     // catch-up pages. A pushed frame proves nothing about the rows
     // below it: pushes are shed under backpressure and dropped by
@@ -631,7 +653,7 @@ export class CollabSession {
           importedCount += blobs.length;
           this.flush();
           const status = this.loroDoc.importBatch(blobs);
-          this.lastSentVersion = this.loroDoc.version();
+          this.markImportedSent();
           pendingLeft = !!status.pending && status.pending.size > 0;
           if (pendingLeft) this.pendingImports = true;
         }
@@ -666,7 +688,7 @@ export class CollabSession {
         if (blobs.length > 0) {
           this.flush();
           const status = this.loroDoc.importBatch(blobs);
-          this.lastSentVersion = this.loroDoc.version();
+          this.markImportedSent();
           // A clean full-resync proves every known op integrated.
           this.pendingImports = !!status.pending && status.pending.size > 0;
         }
@@ -735,12 +757,21 @@ export class CollabSession {
         after = page.lastSeq;
         if (!page.more) break;
       }
-      // Compare against what the relay ACKNOWLEDGED (not the live doc:
-      // freshly-typed unflushed ops would false-positive), covering all
-      // peers we hold — including our own pre-restart peer ids.
-      if (this.outQueue.length > 0) return; // raced a flush mid-audit
+      // Compare against the LIVE doc version, not `ackedVersion`.
+      // ackedVersion is bookkeeping this very audit exists to backstop —
+      // if a send-completeness bug ever advances it past un-posted ops
+      // (the field one-way desync, root-caused 2026-07-05), comparing
+      // against it would hide exactly the loss we must catch. The live
+      // version is ground truth for "ops this replica holds"; the
+      // guards below rule out the benign false-positive (fresh unflushed
+      // ops): the queue must be empty AND flush must have exported
+      // everything (doc version == lastSentVersion), so any residual gap
+      // is genuinely lost from the room, not merely in-flight.
+      this.flush();
+      if (this.outQueue.length > 0) return; // unsent local ops in flight — not a room loss
+      if (this.loroDoc.version().compare(this.lastSentVersion) !== 0) return; // flush left work
       let missing = false;
-      for (const [peer, counter] of this.ackedVersion.toJSON()) {
+      for (const [peer, counter] of this.loroDoc.version().toJSON()) {
         if ((roomMax.get(peer) ?? 0) < counter) {
           missing = true;
           break;

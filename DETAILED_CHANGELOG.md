@@ -7,6 +7,29 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Collab: fixed the one-way desync (silent send-drop) + invalid-mark
+  merges** (`collab-session.ts`, `doc-repair.ts`, `collab-repair.ts`,
+  tests). Root-caused via an adversarial stress study (up to 10 peers,
+  latency/loss/partitions, real editor macros). **The desync:** on a
+  merge, plugin-generated repair/heal transactions land a microtask
+  after the import, and the sync layer's post-import
+  `lastSentVersion = version()` absorbed those un-posted local ops into
+  the "already sent" frontier — so the next flush saw nothing to send,
+  the queue emptied, the status read "synced," and those ops never
+  reached the relay, leaving other peers permanently unable to catch up
+  (nothing was ever destroyed — the author's replica held the truth,
+  which is why re-hosting recovered it). Fix: our own peer's sent
+  counter now advances ONLY when flush actually exports, never absorbed
+  by an import; the room-history audit was hardened to compare against
+  the live doc version rather than the (previously self-corrupting)
+  acked bookkeeping. **The invalid marks:** concurrent underline-vs-
+  emphasis (and the bold/super-sub pairs) over overlapping text merged
+  to a schema-illegal combination; the resolver now runs on every peer
+  (not just the session leader) using a schema-derived priority order
+  (cite > emphasis > underline), so a follower never holds an invalid
+  run waiting on a leader's fix. Regression tests pin both (P17 verified
+  to fail against the pre-fix code).
+
 - **Collab: tables/cards repair pass wired into sessions (§4.4
   complete)** (`collab/collab-repair.ts` NEW, `collab-cursors.ts`,
   `collab-ui.ts`, tests). The M0 repair (`buildDocRepairTr`:

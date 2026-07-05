@@ -365,3 +365,135 @@ describe('delivery-cursor discipline (shed frames must not create gaps)', () => 
     }
   }, 25_000);
 });
+
+describe('send-completeness (the field one-way desync)', () => {
+  it('P17: plugin-generated repair/heal ops always reach the relay (no silent send-drop)', async () => {
+    const { LoroDoc } = await import('loro-crdt');
+    const { LoroUndoPlugin } = await import('loro-prosemirror');
+    const { collabInvariantHealPlugin } = await import(
+      '../../src/editor/collab/collab-invariants.js'
+    );
+    const { collabRepairPlugin } = await import('../../src/editor/collab/collab-repair.js');
+    const { importRoomKey, decryptBlob } = await import(
+      '../../src/editor/collab/collab-crypto.js'
+    );
+    const { schema } = await import('../../src/schema/index.js');
+    const { TextSelection } = await import('prosemirror-state');
+    const { EditorState } = await import('prosemirror-state');
+    const { EditorView } = await import('prosemirror-view');
+
+    const mock = await startRoomsMock();
+    const client = new RoomsClient({ baseUrl: () => mock.url, token: () => mock.token });
+    try {
+      // Seed a card whose body text peers will concurrently underline /
+      // emphasize — overlapping exclusive marks trigger the repair sweep,
+      // whose appendTransaction-generated ops were the ones that leaked.
+      const seed = schema.node('doc', null, [
+        schema.node('card', null, [
+          schema.node('tag', { id: 'h1' }, [schema.text('the tag line for this card')]),
+          schema.node('card_body', null, [
+            schema.text('a fairly long body sentence that both debaters will mark up concurrently now'),
+          ]),
+        ]),
+      ]);
+      const { session: host, shareCode } = await CollabSession.host({
+        pmDoc: seed,
+        client,
+        flushMs: 40,
+        catchUpMs: 100000,
+        minBackoffMs: 30,
+        maxBackoffMs: 60,
+        snapshotEvery: 100000,
+      });
+      const decoded = decodeShareCode(shareCode)!;
+      const sessions = [host];
+      for (let i = 1; i < 3; i++) {
+        sessions.push(
+          await CollabSession.join({
+            ...decoded,
+            client,
+            flushMs: 40,
+            catchUpMs: 100000,
+            minBackoffMs: 30,
+            maxBackoffMs: 60,
+          }),
+        );
+      }
+      // FULL production plugin stack (heal + every-peer repair) — the
+      // stack that surfaced the leak; bare LoroSyncPlugin does not.
+      const views = sessions.map((s) => {
+        const el = document.createElement('div');
+        document.body.appendChild(el);
+        return new EditorView(el, {
+          state: EditorState.create({
+            schema,
+            plugins: [
+              ...s.plugins(),
+              LoroUndoPlugin({ doc: s.loroDoc }),
+              collabInvariantHealPlugin(),
+              collabRepairPlugin(() => true),
+            ],
+          }),
+        });
+      });
+      await settle();
+      for (const s of sessions) s.start();
+      await sleep(200);
+
+      // Concurrent overlapping marks, faster than the flush window.
+      const marks = [schema.marks['underline_mark']!, schema.marks['emphasis_mark']!];
+      for (let round = 0; round < 20; round++) {
+        for (let i = 0; i < views.length; i++) {
+          const v = views[i]!;
+          const r = findText(v.state.doc, 'body sentence');
+          const from = r.from + (round % 5);
+          v.dispatch(v.state.tr.addMark(from, from + 6, marks[i % 2]!.create()));
+        }
+        await sleep(12);
+      }
+      // Drain.
+      for (let i = 0; i < 60; i++) {
+        for (const s of sessions) s.flush();
+        await sleep(100);
+        if (sessions.every((s) => s.debugState().queued === 0 && !s.debugState().pendingImports)) break;
+      }
+      for (const s of sessions) await s.catchUp().catch(() => {});
+      await sleep(300);
+
+      // Reconstruct the relay's full doc from seq 0.
+      const key = await importRoomKey(decoded.keyBytes);
+      const relayDoc = new LoroDoc();
+      let after = 0;
+      for (;;) {
+        const page = await client.fetchUpdates(host.roomId, after);
+        const blobs: Uint8Array[] = [];
+        if (page.snapshot && after < page.snapshot.coversThroughSeq) {
+          blobs.push(await decryptBlob(key, page.snapshot.blob));
+        }
+        for (const u of page.updates) blobs.push(await decryptBlob(key, u.blob));
+        if (blobs.length) relayDoc.importBatch(blobs);
+        after = page.lastSeq;
+        if (!page.more) break;
+      }
+      const relayVer = relayDoc.version().toJSON() as Map<string, number>;
+
+      // THE INVARIANT: the relay holds every op each peer authored. A
+      // leak shows as relayVer[peer] < the peer's own counter.
+      for (const s of sessions) {
+        const peer = s.loroDoc.peerIdStr;
+        const own = (s.loroDoc.version().toJSON() as Map<string, number>).get(peer as never) ?? 0;
+        const atRelay = relayVer.get(peer as never) ?? 0;
+        expect(atRelay, `relay missing ${own - atRelay} of peer ${peer.slice(0, 5)}'s ops`).toBe(own);
+      }
+      // And with the relay complete, the peers converge and stay valid.
+      expect(views[1]!.state.doc.eq(views[0]!.state.doc)).toBe(true);
+      expect(views[2]!.state.doc.eq(views[0]!.state.doc)).toBe(true);
+      for (const v of views) expect(() => v.state.doc.check()).not.toThrow();
+
+      for (const s of sessions) await s.stop();
+      for (const v of views) v.destroy();
+    } finally {
+      await mock.close();
+    }
+  }, 25_000);
+});

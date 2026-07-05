@@ -27,7 +27,7 @@
 import { Plugin } from 'prosemirror-state';
 import type { Transaction } from 'prosemirror-state';
 import { loroSyncPluginKey, loroUndoPluginKey } from 'loro-prosemirror';
-import { buildDocRepairTr } from '../../doc-repair.js';
+import { buildDocRepairTr, buildMarkRepairTr } from '../../doc-repair.js';
 import { guardNormalizerTr } from '../normalizer-guard.js';
 
 function isBindingTransaction(tr: Transaction): boolean {
@@ -38,8 +38,16 @@ export function collabRepairPlugin(isLeader: () => boolean): Plugin {
   return new Plugin({
     appendTransaction(trs, _oldState, newState) {
       if (!trs.some((tr) => tr.docChanged && isBindingTransaction(tr))) return null;
-      if (!isLeader()) return null;
-      const tr = buildDocRepairTr(newState);
+      // The exclusive-marks resolution runs on EVERY peer: it's
+      // mark-level and deterministic (every peer picks the same winner
+      // via the schema-derived total order), so double-application
+      // converges under LWW — and a follower must not hold a
+      // schema-invalid underline+emphasis run waiting on the leader's
+      // fix to arrive. The STRUCTURAL half (tables + container
+      // first-child) stays leader-gated: those are insertions, and two
+      // peers repairing the same merged state emit concurrent ops with
+      // distinct identities that would duplicate content.
+      const tr = isLeader() ? buildDocRepairTr(newState) : buildMarkRepairTr(newState);
       if (!tr) return null;
       return guardNormalizerTr(trs, tr);
     },
