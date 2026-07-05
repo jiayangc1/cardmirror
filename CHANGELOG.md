@@ -12,7 +12,7 @@ see `DETAILED_CHANGELOG.md`.
 - **Word-style image resizing.** Click an image to get eight resize
   handles: corners resize proportionally, edges stretch one axis —
   exactly like Word. Sizes round-trip to .docx, so a resize here is
-  the same resize in Word. (Thanks to Neo Cai.)
+  the same resize in Word. (Thanks to [Neo Cai](https://github.com/caineoyuan).)
 
 - **Open Developer Console command.** The command bar can now open the
   built-in developer console on desktop (search "Open Developer
