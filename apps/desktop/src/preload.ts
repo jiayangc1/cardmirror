@@ -582,6 +582,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('pairing:version-mismatch', listener);
     return () => ipcRenderer.removeListener('pairing:version-mismatch', listener);
   },
+  onPairingUnauthorized(handler: () => void) {
+    const listener = () => handler();
+    ipcRenderer.on('pairing:unauthorized', listener);
+    return () => ipcRenderer.removeListener('pairing:unauthorized', listener);
+  },
   /** Blog-account entitlement (dormant without PAIRING_AUTH=1 in main). */
   pairingConnectAccount: (payload: { connectCode: string; confirmEvict?: boolean }) =>
     ipcRenderer.invoke('host:pairing-connect-account', payload) as Promise<PairingConnectResultIpc>,

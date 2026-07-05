@@ -412,6 +412,16 @@ function broadcastInbox(): void {
   }
 }
 
+let lastUnauthorizedBroadcast = 0;
+function broadcastUnauthorized(): void {
+  const now = Date.now();
+  if (now - lastUnauthorizedBroadcast < 60_000) return; // at most once a minute
+  lastUnauthorizedBroadcast = now;
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('pairing:unauthorized');
+  }
+}
+
 function broadcastVersionMismatch(
   partnerVersion: string,
   localVersion: string,
@@ -645,13 +655,13 @@ function applyDelivery(): void {
         startFallbackPolling();
       },
       onUnauthorized: () => {
-        // Shared-token era: a 401 means the baked/self-host token doesn't
-        // match the relay. When subscription gating ships, this becomes
-        // the "connect your blog account" prompt.
-        console.warn(
-          '[pairing] relay rejected our token (401) — check the relay token ' +
-            '(Settings → Card sharing for a self-hosted relay)',
-        );
+        // A 401 means the relay rejected our credentials — a wrong
+        // self-host token today, or (once gating enforces) a missing
+        // subscription. Surface it to the user, throttled, so it never
+        // spams: the two paths forward are connect an account or run
+        // your own relay.
+        console.warn('[pairing] relay rejected our token (401)');
+        broadcastUnauthorized();
       },
     },
   });

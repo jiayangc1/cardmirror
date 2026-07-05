@@ -283,6 +283,8 @@ interface ElectronAPI {
       requiredVersion: string;
     }) => void,
   ): () => void;
+  /** Relay rejected our credentials (401) — throttled in main. */
+  onPairingUnauthorized?(handler: () => void): () => void;
   pairingConnectAccount?(payload: {
     connectCode: string;
     confirmEvict?: boolean;
@@ -795,6 +797,10 @@ export class ElectronHost implements Host {
     }) => void,
   ): () => void {
     return api().onPairingVersionMismatch?.(handler) ?? (() => {});
+  }
+
+  onPairingUnauthorized(handler: () => void): () => void {
+    return api().onPairingUnauthorized?.(handler) ?? (() => {});
   }
 
   async pairingConnectAccount(payload: {

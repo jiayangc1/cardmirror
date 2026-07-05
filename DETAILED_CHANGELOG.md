@@ -7,6 +7,13 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Relay auth messaging offers self-hosting as a first-class option.**
+  Both the co-editing session-start 401 and the card-sharing relay-401
+  (previously a dev-only console warning, now a throttled user toast)
+  say "connect your Debate Decoded account **or set up your own relay**"
+  — not just "connect your account" — since a self-hosted relay is a
+  supported path to using either feature.
+
 - **Collab: gating-aware session-start error (co-editing auth parity)**
   (`collab-ui.ts`, test). With subscription gating live (§5.4: paid
   accounts initiate sessions, free accounts join), a free user's
