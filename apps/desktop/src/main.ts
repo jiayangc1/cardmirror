@@ -292,6 +292,43 @@ function createWindow(initialDoc?: InitialDocPayload): BrowserWindow {
     }
   });
 
+  // Renderer-crash recovery + telemetry. A NATIVE renderer death — the
+  // Electron 42 / Chromium 148 accessibility CHECK
+  // (blink::AXBlockFlowData::ComputeNeighborOnLine, confirmed from field
+  // crash dumps), a GPU-process crash, or an OOM — otherwise leaves a
+  // permanently blank window with no way back: the journal/autosave timers
+  // die with the renderer, so unsaved work is stranded. We record the
+  // reason (we capture NOTHING for these in-app today — only Crashpad
+  // minidumps the user has to dig out) and reload, turning a terminal
+  // white screen into a blink-and-recover: the reloaded renderer's startup
+  // flow restores unsaved work from the crash journal.
+  const recentReloads: number[] = [];
+  win.webContents.on('render-process-gone', (_event, details) => {
+    if (details.reason === 'clean-exit') return;
+    const stamp =
+      `${new Date().toISOString()} render-process-gone reason=${details.reason} ` +
+      `exitCode=${details.exitCode ?? '?'} title=${JSON.stringify(win.isDestroyed() ? '' : win.getTitle())}`;
+    console.error(`[main:renderer-crash] ${stamp}`);
+    void fs
+      .appendFile(path.join(app.getPath('userData'), 'renderer-crashes.log'), stamp + '\n')
+      .catch(() => {});
+    if (win.isDestroyed()) return;
+    // Loop guard: if the doc deterministically re-crashes on load, don't
+    // spin — preserve the journal and tell the user to restart.
+    const now = Date.now();
+    while (recentReloads.length > 0 && now - recentReloads[0]! > 30_000) recentReloads.shift();
+    recentReloads.push(now);
+    if (recentReloads.length > 3) {
+      dialog.showErrorBox(
+        'CardMirror kept crashing',
+        'The editor window crashed several times in a row. Your unsaved work is preserved ' +
+          'in the recovery journal — please quit and reopen CardMirror.',
+      );
+      return;
+    }
+    win.webContents.reload();
+  });
+
   // Stash the initial doc (if any) BEFORE loading the renderer so
   // the renderer's `host:get-initial-doc` call at boot finds it.
   if (initialDoc) {
