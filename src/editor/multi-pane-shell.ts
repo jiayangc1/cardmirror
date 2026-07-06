@@ -2595,6 +2595,13 @@ function buildDocRecord(
   // we also nudge the shared chrome (font-size chip etc.) via
   // `setActiveView` so the ribbon stays in sync as the cursor / doc
   // changes.
+  // `mounted` guards against a transaction dispatched DURING construction:
+  // a plugin that dispatches from its own `view()` setup (the highlight-
+  // frequency mount scan is one) fires before `const view` is assigned, so
+  // `dispatchTransaction` reading `view` would hit a temporal-dead-zone
+  // ReferenceError. Drop those (the mount scan re-runs on the first real
+  // edit / settings toggle); real transactions arrive after `mounted` flips.
+  let mounted = false;
   const view: EditorView = new EditorView(editorEl, {
     state,
     nodeViews: editorNodeViews,
@@ -2602,6 +2609,7 @@ function buildDocRecord(
     // served by the custom viewport checker (viewport-spellcheck.ts).
     attributes: { spellcheck: 'false' },
     dispatchTransaction(tx) {
+      if (!mounted) return;
       // Stamp collab metas (sync-origin on the Loro binding's remote
       // transactions) BEFORE apply, mirroring the single-doc dispatch.
       tagCollabTransaction(tx);
@@ -2701,6 +2709,9 @@ function buildDocRecord(
       }
     },
   });
+  // View is fully constructed and `view` is now bound — real transactions
+  // may flow. (Construction-time plugin dispatches were dropped above.)
+  mounted = true;
 
   // Per-pane nav panel with an INDEPENDENT outline-level filter
   // (`localMaxLevel`). Each section's 1/2/3/4 buttons act locally.

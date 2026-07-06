@@ -269,6 +269,9 @@ export const highlightFrequencyPlugin = new Plugin<FreqState>({
   view(view) {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let lastRenderedGeneration = -1;
+    // Set in destroy() so the deferred mount scan below skips a view that
+    // was torn down before its microtask ran (e.g. a fast re-mount).
+    let disposed = false;
 
     function applyStylesheet(): void {
       timer = null;
@@ -338,9 +341,18 @@ export const highlightFrequencyPlugin = new Plugin<FreqState>({
       lastActivation = active;
     }
 
-    // Initial activation check at mount: if the feature is on
-    // already (persisted state), kick off the scan now.
-    syncActivation();
+    // Initial activation check at mount: if the feature is on already
+    // (persisted state), kick off the scan. Deferred to a microtask so it
+    // dispatches AFTER `new EditorView(...)` returns and the host (single-
+    // doc `mountView` / multi-pane `buildDocRecord`) has bound its `view`.
+    // Dispatching synchronously here fires mid-construction, where the
+    // editor's dispatchTransaction can't yet route the transaction to this
+    // view — on a re-mount that surfaced as "Applying a mismatched
+    // transaction"; on first mount it was silently dropped, so the frequency
+    // colors never populated until the first edit. The microtask fixes both.
+    queueMicrotask(() => {
+      if (!disposed) syncActivation();
+    });
     scheduleApply();
 
     // Settings subscription — handle slot changes (no rescan
@@ -381,6 +393,7 @@ export const highlightFrequencyPlugin = new Plugin<FreqState>({
         }
       },
       destroy() {
+        disposed = true;
         if (timer !== null) clearTimeout(timer);
         unsubSettings();
         // Tear down the stylesheet so a destroyed view doesn't

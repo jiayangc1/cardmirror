@@ -4383,8 +4383,22 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
     // served by the custom viewport checker (viewport-spellcheck.ts),
     // which also catches imported text and renders under Wayland.
     attributes: { spellcheck: 'false' },
-    dispatchTransaction(tx) {
-      if (!view) return;
+    dispatchTransaction(this: EditorView, tx) {
+      // Only the current, fully-mounted view processes transactions. PM
+      // invokes this as `dispatchTransaction.call(theView, tx)`, so `this`
+      // is the view the transaction was dispatched to. During a re-mount
+      // the module-level `view` still points at the PREVIOUS (just
+      // destroyed) view while the replacement is under construction — and
+      // a plugin that dispatches from its own `view()` setup (the
+      // highlight-frequency mount scan is one) fires right then. Reading
+      // the stale `view` would apply that fresh-doc transaction to the old
+      // view's state and throw "Applying a mismatched transaction" (the
+      // home-screen New/Open failure). The same guard also drops a late
+      // dispatch from a torn-down view (a pending timer/rAF) so it can't
+      // write into its replacement. Until `view` is assigned to this
+      // instance, drop the transaction — matching the historical
+      // first-mount behavior where `view` was null and the dispatch no-op'd.
+      if (this !== view) return;
       // Stamp collab metas (sync-origin on the Loro binding's remote
       // transactions) BEFORE apply so every filterTransaction sees them.
       // No-op when no session is active.
