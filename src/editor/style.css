@@ -12481,6 +12481,44 @@ body.pmd-multi-doc .pmd-cardcutter-trim {
   opacity: 0.4;
   cursor: default;
 }
+
+/* Blocked-senders editor: a friendly label (nickname or short tail) beside
+   the raw code, plus a "Recent senders" quick-block list under the input. */
+.pmd-pairing-blocked-name {
+  flex: 0 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pmd-pairing-blocked-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--pmd-font-mono, monospace);
+  font-size: 0.75rem;
+  color: var(--pmd-c-text-muted);
+}
+.pmd-pairing-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.pmd-pairing-recent:not(:empty) {
+  margin-top: 0.2rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--pmd-c-border-soft);
+}
+.pmd-pairing-recent-heading {
+  color: var(--pmd-c-text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pmd-pairing-recent .pmd-pairing-blocked-name {
+  flex: 1 1 auto;
+}
 .pmd-pairing-group {
   display: flex;
   flex-direction: column;

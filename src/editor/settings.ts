@@ -1142,6 +1142,11 @@ export interface Settings {
   pairingPartners: PairingPartner[];
   /** Pairing: named groups of partners for one-drop fan-out sends. */
   pairingGroups: PairingGroup[];
+  /** Pairing: sender codes to block. Cards and room invites from any of
+   *  these codes are dropped silently — they never appear in the Receive
+   *  inbox or its unread count. The sender code is self-declared, so this
+   *  is a convenience filter, not a security boundary. */
+  pairingBlockedCodes: string[];
   /** Pairing: the single starred send target — a partner (by code) or a group
    *  (by id) — that the "Send to Starred" shortcut sends to. null when nothing is
    *  starred. Sanitize clears it if it no longer points at a live recipient. */
@@ -1425,6 +1430,7 @@ const DEFAULTS: Settings = {
   collabShowCursors: true,
   pairingPartners: [],
   pairingGroups: [],
+  pairingBlockedCodes: [],
   pairingStarred: null,
   pairingReceiveFlash: 'once',
   cleanProtectedStyles: [],
@@ -1537,6 +1543,7 @@ export interface SettingMeta {
     | 'pairingAccount'
     | 'pairingPartners'
     | 'pairingGroups'
+    | 'pairingBlocked'
     | 'pairingReceiveFlash';
   /** Which tab this setting lives under in the settings dialog. */
   category: SettingsCategory;
@@ -2808,6 +2815,17 @@ export const SETTING_METADATA: SettingMeta[] = [
     dependsOn: 'pairingEnabled',
   },
   {
+    key: 'pairingBlockedCodes',
+    label: 'Blocked senders',
+    description:
+      'Cards and room invites from these senders never appear — they are dropped silently from the Receive inbox and its unread count. Paste a code to block it, or block someone who recently shared with you. The sender code is self-declared, so this is a convenience filter, not a security guarantee.',
+    kind: 'pairingBlocked',
+    category: 'pairing',
+    electronOnly: true,
+    dependsOn: 'pairingEnabled',
+    aliases: ['block', 'blocklist', 'ignore sender', 'mute sender'],
+  },
+  {
     key: 'pairingReceiveFlash',
     label: 'Flash the Receive pill on a new card',
     description:
@@ -3403,6 +3421,19 @@ function sanitize(s: Settings): Settings {
     collabShowCursors: s.collabShowCursors !== false,
     pairingPartners: sanitizePairingPartners(s.pairingPartners),
     pairingGroups: sanitizePairingGroups(s.pairingGroups, s.pairingPartners),
+    pairingBlockedCodes: Array.isArray(s.pairingBlockedCodes)
+      ? Array.from(
+          new Set(
+            s.pairingBlockedCodes
+              .filter((x): x is string => typeof x === 'string')
+              // Match the normalization the sender code goes through
+              // (trim + strip all internal whitespace) so a pasted code
+              // compares equal to the one stamped on an inbox item.
+              .map((x) => x.trim().replace(/\s+/g, ''))
+              .filter((x) => x.length > 0),
+          ),
+        )
+      : [],
     pairingStarred: sanitizePairingStarred(s.pairingStarred, s.pairingPartners, s.pairingGroups),
     pairingReceiveFlash: PAIRING_RECEIVE_FLASHES.includes(s.pairingReceiveFlash)
       ? s.pairingReceiveFlash

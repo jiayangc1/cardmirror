@@ -35,6 +35,7 @@ import {
 } from './settings.js';
 import { CATEGORY_TABS, visibleCategoryTabs, type SettingsTarget } from './settings-categories.js';
 import { generateGroupId, normalizePairingCode } from './pairing/pairing-ids.js';
+import { inboxStore } from './pairing/inbox-store.js';
 import { regenerateOwnCode } from './pairing/pairing-wiring.js';
 import { isFontAvailable } from './font-detect.js';
 import {
@@ -1079,6 +1080,10 @@ class SettingsModal {
     } else if (meta.kind === 'pairingGroups') {
       row.appendChild(text);
       row.appendChild(buildPairingGroupsEditor());
+      return row;
+    } else if (meta.kind === 'pairingBlocked') {
+      row.appendChild(text);
+      row.appendChild(buildPairingBlockedEditor());
       return row;
     } else if (meta.kind === 'pairingReceiveFlash') {
       row.appendChild(text);
@@ -2336,6 +2341,159 @@ function buildPairingPartnersEditor(): HTMLElement {
   render();
   const unsub = settings.subscribe(() => render());
   registerRowCleanup(wrap, () => unsub());
+  return wrap;
+}
+
+/** Blocked senders: a list of codes whose cards and room invites are
+ *  dropped from the Receive inbox. Two ways to add: paste a code, or block
+ *  one of the people who recently shared with you (derived from the inbox).
+ *  Codes are self-declared, so this is a convenience filter, not security. */
+function buildPairingBlockedEditor(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-pairing-editor';
+
+  const block = (rawCode: string): void => {
+    const code = normalizePairingCode(rawCode);
+    if (!code) return;
+    const cur = settings.get('pairingBlockedCodes');
+    if (cur.some((c) => normalizePairingCode(c) === code)) return; // already blocked
+    settings.set('pairingBlockedCodes', [...cur, code]);
+  };
+  const unblock = (rawCode: string): void => {
+    const code = normalizePairingCode(rawCode);
+    settings.set(
+      'pairingBlockedCodes',
+      settings.get('pairingBlockedCodes').filter((c) => normalizePairingCode(c) !== code),
+    );
+  };
+  // Your nickname for the code if it's a known recipient, else a short tail.
+  const nicknameFor = (code: string): string | null => {
+    const partner = settings
+      .get('pairingPartners')
+      .find((p) => p.code && normalizePairingCode(p.code) === code);
+    return partner?.name?.trim() || null;
+  };
+
+  // --- Currently blocked ---
+  const list = document.createElement('div');
+  list.className = 'pmd-pairing-list';
+  wrap.appendChild(list);
+
+  // --- Paste-a-code-to-block row ---
+  const addRow = document.createElement('div');
+  addRow.className = 'pmd-pairing-row';
+  const codeInput = document.createElement('input');
+  codeInput.type = 'text';
+  codeInput.className = 'pmd-pairing-code';
+  codeInput.placeholder = 'paste a code to block (cmk1.…)';
+  codeInput.spellcheck = false;
+  codeInput.autocomplete = 'off';
+  const blockBtn = document.createElement('button');
+  blockBtn.type = 'button';
+  blockBtn.className = 'pmd-readers-add';
+  blockBtn.textContent = 'Block';
+  const submitCode = (): void => {
+    block(codeInput.value);
+    codeInput.value = '';
+  };
+  blockBtn.addEventListener('click', submitCode);
+  codeInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitCode();
+    }
+  });
+  addRow.appendChild(codeInput);
+  addRow.appendChild(blockBtn);
+  wrap.appendChild(addRow);
+
+  // --- Block a recent sender ---
+  const recentWrap = document.createElement('div');
+  recentWrap.className = 'pmd-pairing-recent';
+  wrap.appendChild(recentWrap);
+
+  function render(): void {
+    // Blocked list.
+    list.innerHTML = '';
+    const blocked = settings.get('pairingBlockedCodes');
+    if (blocked.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'pmd-pairing-empty';
+      empty.textContent = 'No one is blocked. Paste a code, or block a recent sender below.';
+      list.appendChild(empty);
+    }
+    blocked.forEach((code) => {
+      const row = document.createElement('div');
+      row.className = 'pmd-pairing-row';
+
+      const name = document.createElement('span');
+      name.className = 'pmd-pairing-blocked-name';
+      const nick = nicknameFor(normalizePairingCode(code));
+      name.textContent = nick ?? `…${normalizePairingCode(code).slice(-6)}`;
+      row.appendChild(name);
+
+      const codeSpan = document.createElement('span');
+      codeSpan.className = 'pmd-pairing-blocked-code';
+      codeSpan.textContent = code;
+      codeSpan.title = code;
+      row.appendChild(codeSpan);
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'pmd-pairing-delete';
+      setIcon(del, 'close');
+      del.title = 'Unblock';
+      del.addEventListener('click', () => unblock(code));
+      row.appendChild(del);
+
+      list.appendChild(row);
+    });
+
+    // Recent senders — distinct, newest-first, excluding already-blocked.
+    // inboxStore.list() already omits blocked senders and is newest-last, so
+    // walk it backward and dedupe by code.
+    recentWrap.innerHTML = '';
+    const seen = new Set<string>();
+    const recents: { code: string; label: string }[] = [];
+    const items = inboxStore.list();
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]!;
+      const code = normalizePairingCode(it.senderCode);
+      if (!code || seen.has(code)) continue;
+      seen.add(code);
+      const label = nicknameFor(code) || (it.senderName || '').trim() || `…${code.slice(-6)}`;
+      recents.push({ code: it.senderCode, label });
+    }
+    if (recents.length > 0) {
+      const heading = document.createElement('div');
+      heading.className = 'pmd-pairing-recent-heading';
+      heading.textContent = 'Recent senders';
+      recentWrap.appendChild(heading);
+      recents.forEach(({ code, label }) => {
+        const row = document.createElement('div');
+        row.className = 'pmd-pairing-row';
+        const name = document.createElement('span');
+        name.className = 'pmd-pairing-blocked-name';
+        name.textContent = label;
+        row.appendChild(name);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pmd-readers-add';
+        btn.textContent = 'Block';
+        btn.addEventListener('click', () => block(code));
+        row.appendChild(btn);
+        recentWrap.appendChild(row);
+      });
+    }
+  }
+
+  render();
+  const unsub = settings.subscribe(() => render());
+  const unsubInbox = inboxStore.subscribe(() => render());
+  registerRowCleanup(wrap, () => {
+    unsub();
+    unsubInbox();
+  });
   return wrap;
 }
 

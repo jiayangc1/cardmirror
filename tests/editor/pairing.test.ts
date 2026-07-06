@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SettingsStore } from '../../src/editor/settings.js';
 import { resolveStarredTarget } from '../../src/editor/pairing/send-to-starred.js';
+import { filterBlockedItems, type InboxItem } from '../../src/editor/pairing/inbox-store.js';
 
 // SettingsStore.replaceAll runs everything through sanitize(), so these exercise
 // the pairing sanitizers (sanitizePairingPartners/Groups/Starred).
@@ -67,6 +68,65 @@ describe('pairing settings sanitize', () => {
     const s = new SettingsStore();
     s.replaceAll({ pairingStarred: 'nonsense' });
     expect(s.get('pairingStarred')).toBeNull();
+  });
+});
+
+describe('blocked-senders sanitize', () => {
+  it('trims, strips internal whitespace, dedupes, and drops empties', () => {
+    const s = new SettingsStore();
+    s.replaceAll({
+      pairingBlockedCodes: ['  cmk1.aaa  ', 'cmk1.a aa', 'cmk1.bbb', '', '   ', 'cmk1.bbb'],
+    });
+    // 'cmk1.aaa' (trimmed) and 'cmk1.a aa' (space stripped) collapse to one;
+    // 'cmk1.bbb' dedupes; blank/whitespace-only entries drop.
+    expect(s.get('pairingBlockedCodes')).toEqual(['cmk1.aaa', 'cmk1.bbb']);
+  });
+
+  it('defaults to an empty list and rejects non-arrays', () => {
+    const s = new SettingsStore();
+    expect(s.get('pairingBlockedCodes')).toEqual([]);
+    s.replaceAll({ pairingBlockedCodes: 'nope' as unknown as string[] });
+    expect(s.get('pairingBlockedCodes')).toEqual([]);
+  });
+});
+
+describe('filterBlockedItems', () => {
+  const item = (id: string, senderCode: string, type = 'card'): InboxItem => ({
+    id,
+    label: id,
+    type,
+    sliceJson: {},
+    senderName: '',
+    senderCode,
+    receivedAt: Number(id),
+    read: false,
+  });
+
+  it('drops cards and room invites from blocked senders', () => {
+    const items = [
+      item('1', 'cmk1.aaa'),
+      item('2', 'cmk1.bbb'),
+      item('3', 'cmk1.bbb', 'room-invite'),
+      item('4', 'cmk1.ccc'),
+    ];
+    const out = filterBlockedItems(items, ['cmk1.bbb']);
+    expect(out.map((i) => i.id)).toEqual(['1', '4']); // both bbb items (card + invite) gone
+  });
+
+  it('matches regardless of stray whitespace on either side', () => {
+    const items = [item('1', '  cmk1.aaa '), item('2', 'cmk1.bbb')];
+    expect(filterBlockedItems(items, ['cmk1.a aa']).map((i) => i.id)).toEqual(['2']);
+  });
+
+  it('returns the same array reference when nothing is blocked', () => {
+    const items = [item('1', 'cmk1.aaa')];
+    expect(filterBlockedItems(items, [])).toBe(items);
+  });
+
+  it('never blocks empty sender codes just because a blank slipped through', () => {
+    const items = [item('1', ''), item('2', 'cmk1.aaa')];
+    // A stray '' in the block list must not vacuum up unsigned items.
+    expect(filterBlockedItems(items, ['', 'cmk1.aaa']).map((i) => i.id)).toEqual(['1']);
   });
 });
 

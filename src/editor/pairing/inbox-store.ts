@@ -18,6 +18,7 @@
  */
 
 import { getElectronHost } from '../host/index.js';
+import { settings } from '../settings.js';
 
 export interface InboxItem {
   /** Local id minted on receipt — stable identity within this machine. */
@@ -48,6 +49,8 @@ class InboxStore {
   private items: InboxItem[] = [];
   private listeners: Set<Listener> = new Set();
   private hostUnsubscribe: (() => void) | null = null;
+  private settingsUnsubscribe: (() => void) | null = null;
+  private lastBlockedKey = '';
   private initialized = false;
 
   /** Eagerly load from whichever backend is active. Idempotent. */
@@ -74,18 +77,37 @@ class InboxStore {
         this.fire();
       });
     }
+    // Re-render the inbox view when the block list changes, so blocking or
+    // unblocking a sender hides/reveals their cards immediately — without a
+    // new card having to arrive. Guard on the actual value so unrelated
+    // settings changes (fonts, zoom, …) don't churn the pill.
+    this.lastBlockedKey = blockedKey();
+    this.settingsUnsubscribe = settings.subscribe(() => {
+      const key = blockedKey();
+      if (key === this.lastBlockedKey) return;
+      this.lastBlockedKey = key;
+      this.fire();
+    });
     this.fire();
   }
 
-  /** Snapshot, newest-last (main/storage order). The UI reverses. */
-  list(): InboxItem[] {
-    return this.items;
+  /** Drop items whose sender is blocked. Blocked cards stay in the raw
+   *  persisted list (so unblocking restores them) but never surface in any
+   *  view — list, unread count, or subscriber snapshots. */
+  private visible(items: InboxItem[]): InboxItem[] {
+    return filterBlockedItems(items, settings.get('pairingBlockedCodes'));
   }
 
-  /** Count of cards the user hasn't seen yet. */
+  /** Snapshot, newest-last (main/storage order), blocked senders removed.
+   *  The UI reverses. */
+  list(): InboxItem[] {
+    return this.visible(this.items);
+  }
+
+  /** Count of visible cards the user hasn't seen yet (blocked excluded). */
   unreadCount(): number {
     let n = 0;
-    for (const it of this.items) if (!it.read) n++;
+    for (const it of this.visible(this.items)) if (!it.read) n++;
     return n;
   }
 
@@ -132,9 +154,38 @@ class InboxStore {
   }
 
   private fire(): void {
-    const snapshot = this.items;
+    const snapshot = this.visible(this.items);
     for (const fn of this.listeners) fn(snapshot);
   }
+}
+
+/** Normalize a code the way settings sanitize does (trim + strip all
+ *  internal whitespace) so a blocked entry matches the `senderCode` stamped
+ *  on an inbox item regardless of stray spaces. */
+function normalizeCode(c: string): string {
+  return c.trim().replace(/\s+/g, '');
+}
+
+/** Drop items whose sender code is blocked (compared after normalization).
+ *  Type-agnostic, so it covers both received cards and room invites — both
+ *  are inbox items carrying a `senderCode`. Returns the same array reference
+ *  when nothing is blocked, so the common case allocates nothing. Exported
+ *  for unit testing; the store calls it via `visible()`. */
+export function filterBlockedItems(items: InboxItem[], blockedCodes: string[]): InboxItem[] {
+  // Drop empty entries: an unsigned item (senderCode '') must never be
+  // matched by a stray blank in the block list.
+  const blocked = new Set(blockedCodes.map(normalizeCode).filter((c) => c.length > 0));
+  if (blocked.size === 0) return items;
+  return items.filter((it) => {
+    const code = normalizeCode(it.senderCode);
+    return code.length === 0 || !blocked.has(code);
+  });
+}
+
+/** Stable key for the block list, used to detect real changes and skip
+ *  re-firing on unrelated settings updates. */
+function blockedKey(): string {
+  return settings.get('pairingBlockedCodes').join('\n');
 }
 
 function readLocal(): InboxItem[] {
