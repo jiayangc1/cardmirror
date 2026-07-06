@@ -13,6 +13,10 @@ import {
   toggleableSettingMetas,
   cleanToggleLabel,
   toggleCommandName,
+  CYCLABLE_SETTINGS,
+  cyclableSettings,
+  nextCycleValue,
+  cycleCommandName,
   type Settings,
 } from '../../src/editor/settings.js';
 
@@ -100,5 +104,60 @@ describe('toggle command labels', () => {
     );
     expect(toggleCommandName(bySrcKey('smartQuotes'))).toBe('Toggle Smart quotes');
     expect(toggleCommandName(bySrcKey('aiFeaturesEnabled'))).toBe('Toggle AI features');
+  });
+});
+
+describe('cyclable settings', () => {
+  it('every cyclable setting is real, and every listed value is valid', () => {
+    for (const c of CYCLABLE_SETTINGS) {
+      const meta = SETTING_METADATA.find((m) => m.key === c.key);
+      expect(meta, `${String(c.key)} in registry`).toBeDefined();
+      expect(c.values.length, `${String(c.key)} value count`).toBeGreaterThanOrEqual(2);
+      const store = new SettingsStore();
+      // Each listed value must survive sanitize (i.e. be a real domain value),
+      // else the cycle command would set something that gets reset.
+      for (const v of c.values) {
+        store.set(c.key, v.value as never);
+        expect(store.get(c.key), `${String(c.key)} = ${v.value}`).toBe(v.value);
+      }
+      // The default must be one of the listed values, so the current-value
+      // label and the "next" computation always resolve.
+      const def = new SettingsStore().get(c.key);
+      expect(c.values.map((v) => v.value), `${String(c.key)} default listed`).toContain(def);
+    }
+  });
+
+  it('nextCycleValue advances and wraps', () => {
+    const iconSet = CYCLABLE_SETTINGS.find((c) => c.key === 'iconSet')!;
+    expect(nextCycleValue(iconSet, 'modern').value).toBe('classic');
+    expect(nextCycleValue(iconSet, 'classic').value).toBe('modern'); // wrap
+    // Unknown current value falls back to the first entry.
+    expect(nextCycleValue(iconSet, 'bogus').value).toBe(iconSet.values[0]!.value);
+  });
+
+  it('gates on host + dependency like toggles', () => {
+    const mk = (over: { isWindows?: boolean; store?: SettingsStore } = {}) => {
+      const store = over.store ?? new SettingsStore();
+      return { hostKind: 'electron', isWindows: over.isWindows ?? false, get: (k: keyof Settings) => store.get(k) };
+    };
+    const keys = () => cyclableSettings(mk()).map((e) => String(e.setting.key));
+    expect(keys()).toContain('iconSet');
+    expect(keys()).toContain('headingMode');
+
+    // multiDocLayoutMode dependsOn multiDocWorkspace.
+    const store = new SettingsStore();
+    store.set('multiDocWorkspace', false);
+    expect(cyclableSettings(mk({ store })).map((e) => String(e.setting.key))).not.toContain(
+      'multiDocLayoutMode',
+    );
+    store.set('multiDocWorkspace', true);
+    expect(cyclableSettings(mk({ store })).map((e) => String(e.setting.key))).toContain(
+      'multiDocLayoutMode',
+    );
+  });
+
+  it('names cycle commands from the cleaned label', () => {
+    const meta = SETTING_METADATA.find((m) => m.key === 'iconSet')!;
+    expect(cycleCommandName(meta)).toBe('Cycle Icon style');
   });
 });

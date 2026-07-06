@@ -2893,17 +2893,119 @@ export interface ToggleEnv {
  *  toggleable in the future, the cleanest lever is to add an opt-out flag to
  *  SettingMeta and filter it here; for now the set is exactly the visible
  *  toggles.) */
-export function toggleableSettingMetas(env: ToggleEnv): SettingMeta[] {
-  return SETTING_METADATA.filter(
-    (m) =>
-      m.kind === 'toggle' &&
-      !m.searchHidden &&
-      (!m.electronOnly || env.hostKind === 'electron') &&
-      (!m.windowsOnly || env.isWindows) &&
-      (!m.webOnly || env.hostKind === 'browser') &&
-      (!m.revealWhen || env.get(m.revealWhen) === true) &&
-      (!m.dependsOn || !!env.get(m.dependsOn)),
+/** Whether a setting's command-bar action should be offered right now:
+ *  visible in search, applicable on this host, and not inert because a
+ *  dependency / reveal condition is unmet. Shared by the toggle and cycle
+ *  derivations so both gate identically to the settings dialog. */
+function isSettingActionable(m: SettingMeta, env: ToggleEnv): boolean {
+  return (
+    !m.searchHidden &&
+    (!m.electronOnly || env.hostKind === 'electron') &&
+    (!m.windowsOnly || env.isWindows) &&
+    (!m.webOnly || env.hostKind === 'browser') &&
+    (!m.revealWhen || env.get(m.revealWhen) === true) &&
+    (!m.dependsOn || !!env.get(m.dependsOn))
   );
+}
+
+export function toggleableSettingMetas(env: ToggleEnv): SettingMeta[] {
+  return SETTING_METADATA.filter((m) => m.kind === 'toggle' && isSettingActionable(m, env));
+}
+
+/** An enum/mode setting the command bar can cycle through, with each value's
+ *  display label (for the command's toast + search terms). This is the
+ *  curated set — the revision surface for "Cycle <setting>" commands. Only
+ *  small, ordered domains that read well as a one-key cycle belong here;
+ *  boolean settings use the toggle path instead, and `theme` already has the
+ *  built-in `cycleTheme` ribbon command. */
+export interface CyclableSetting {
+  key: keyof Settings;
+  /** Ordered values; the command advances to the next (wrapping). */
+  values: readonly { value: string; label: string }[];
+}
+
+export const CYCLABLE_SETTINGS: readonly CyclableSetting[] = [
+  {
+    key: 'headingMode',
+    values: [
+      { value: 'strict', label: 'Strict' },
+      { value: 'respect', label: 'Respect' },
+      { value: 'demolish', label: 'Demolish' },
+    ],
+  },
+  {
+    key: 'formattingPanelMode',
+    values: [
+      { value: 'labels', label: 'Labels' },
+      { value: 'shortcuts', label: 'Shortcuts' },
+      { value: 'both', label: 'Both' },
+      { value: 'hidden', label: 'Hidden' },
+    ],
+  },
+  {
+    key: 'ribbonTooltipMode',
+    values: [
+      { value: 'none', label: 'None' },
+      { value: 'tooltip', label: 'Tooltip' },
+      { value: 'shortcut', label: 'Shortcut' },
+      { value: 'both', label: 'Both' },
+    ],
+  },
+  {
+    key: 'iconSet',
+    values: [
+      { value: 'modern', label: 'Modern' },
+      { value: 'classic', label: 'Classic' },
+    ],
+  },
+  {
+    key: 'reduceMotion',
+    values: [
+      { value: 'auto', label: 'Auto' },
+      { value: 'on', label: 'On' },
+      { value: 'off', label: 'Off' },
+    ],
+  },
+  {
+    key: 'timerPosition',
+    values: [
+      { value: 'left', label: 'Left' },
+      { value: 'right', label: 'Right' },
+    ],
+  },
+  {
+    key: 'multiDocLayoutMode',
+    values: [
+      { value: 'compact', label: 'Compact' },
+      { value: 'wide', label: 'Wide-scroll' },
+    ],
+  },
+];
+
+/** The cyclable settings actionable right now (same host/dependency gating as
+ *  toggles). Each result pairs the cycle table entry with its live metadata. */
+export function cyclableSettings(env: ToggleEnv): { setting: CyclableSetting; meta: SettingMeta }[] {
+  const out: { setting: CyclableSetting; meta: SettingMeta }[] = [];
+  for (const setting of CYCLABLE_SETTINGS) {
+    const meta = SETTING_METADATA.find((m) => m.key === setting.key);
+    if (meta && isSettingActionable(meta, env)) out.push({ setting, meta });
+  }
+  return out;
+}
+
+/** The value the cycle command should move to, given the current value. Wraps;
+ *  falls back to the first value if the current one isn't in the list. */
+export function nextCycleValue(
+  setting: CyclableSetting,
+  current: unknown,
+): { value: string; label: string } {
+  const i = setting.values.findIndex((v) => v.value === current);
+  return setting.values[(i + 1) % setting.values.length] ?? setting.values[0]!;
+}
+
+/** Display label for the current value (for a command's secondary text). */
+export function currentCycleLabel(setting: CyclableSetting, current: unknown): string {
+  return setting.values.find((v) => v.value === current)?.label ?? String(current);
 }
 
 /** Sections whose setting labels are context-free outside the settings
@@ -2929,6 +3031,11 @@ export function toggleCommandName(m: SettingMeta): string {
   const prefixed =
     m.section && TOGGLE_CONTEXT_SECTIONS.has(m.section) ? `${m.section}: ${base}` : base;
   return `Toggle ${prefixed}`;
+}
+
+/** Display name for a setting's cycle command — "Cycle <clean label>". */
+export function cycleCommandName(m: SettingMeta): string {
+  return `Cycle ${cleanToggleLabel(m.label)}`;
 }
 
 /** Origin info handed to settings subscribers. `remote` is true when

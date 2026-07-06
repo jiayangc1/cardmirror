@@ -40,6 +40,11 @@ import {
   toggleableSettingMetas,
   toggleCommandName,
   cleanToggleLabel,
+  cyclableSettings,
+  cycleCommandName,
+  nextCycleValue,
+  currentCycleLabel,
+  CYCLABLE_SETTINGS,
   type Settings,
   type SettingsCategory,
 } from './settings.js';
@@ -258,7 +263,15 @@ export interface QuickCardSearchOptions {
 /** A unified palette row — a quick card, dropzone item, command,
  *  settings shortcut, a file, or an object within a file. */
 interface PaletteResult {
-  source: 'quickcard' | 'dropzone' | 'command' | 'settingtoggle' | 'settings' | 'file' | 'fileobject';
+  source:
+    | 'quickcard'
+    | 'dropzone'
+    | 'command'
+    | 'settingtoggle'
+    | 'settingcycle'
+    | 'settings'
+    | 'file'
+    | 'fileobject';
   name: string;
   /** Right-aligned secondary text: card tags / command keybinding /
    *  the settings tab / the file's subfolder / a cite's owning tag. */
@@ -271,6 +284,8 @@ interface PaletteResult {
   commandId?: RibbonCommandId;
   /** Boolean setting to flip in place (settingtoggle source). */
   toggleSettingKey?: keyof Settings;
+  /** Enum/mode setting to advance to its next value (settingcycle source). */
+  cycleSettingKey?: keyof Settings;
   /** Settings deep-link (settings source). */
   settingsTarget?: SettingsTarget;
   /** Absolute path to open (file source). */
@@ -466,6 +481,55 @@ function searchSettingToggleSource(query: string): PaletteResult[] {
   });
 }
 
+/** Setting-cycle source — a "Cycle <label>" command for each enum/mode
+ *  setting in the curated CYCLABLE_SETTINGS table. Selecting one advances to
+ *  the next value (wrapping). Same search surfaces and gating as the toggle
+ *  source. */
+function searchSettingCycleSource(query: string): PaletteResult[] {
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const entries = cyclableSettings({
+    hostKind: getHost().kind,
+    isWindows: isWindowsHost(),
+    get: (k) => settings.get(k),
+  });
+  // Haystack: "cycle <label> <section> <value labels> <aliases>" — the value
+  // names let a query like "cycle icons classic" match; the leading "cycle"
+  // lists them all on a bare `cycle` query.
+  const haystack = (e: (typeof entries)[number]): string => {
+    const parts = ['cycle', e.meta.label.toLowerCase(), e.setting.values.map((v) => v.label).join(' ').toLowerCase()];
+    if (e.meta.section) parts.push(e.meta.section.toLowerCase());
+    if (e.meta.aliases && e.meta.aliases.length) parts.push(e.meta.aliases.join(' '));
+    return parts.join(' ');
+  };
+  const matched =
+    tokens.length === 0
+      ? entries
+      : entries.filter((e) => tokens.every((t) => haystack(e).includes(t)));
+  const t0 = tokens[0];
+  const rank = (e: (typeof entries)[number]): number => {
+    if (!t0) return 0;
+    const i = e.meta.label.toLowerCase().indexOf(t0);
+    return i === -1 ? Infinity : i;
+  };
+  const sorted = [...matched].sort((a, b) => {
+    const d = rank(a) - rank(b);
+    if (d !== 0) return d;
+    return a.meta.label.localeCompare(b.meta.label);
+  });
+  return sorted.map((e) => ({
+    source: 'settingcycle' as const,
+    name: cycleCommandName(e.meta),
+    // Current value + where a cycle lands next, so the row is self-explaining.
+    meta: `${categoryLabel(e.meta.category)} · ${currentCycleLabel(
+      e.setting,
+      settings.get(e.setting.key),
+    )} → ${nextCycleValue(e.setting, settings.get(e.setting.key)).label}`,
+    matchedName: true,
+    snippet: null,
+    cycleSettingKey: e.setting.key,
+  }));
+}
+
 /** Whether the dropzone is on — gates its `d` prefix, hint, and
  *  inclusion in everything-search (mirrors the pill's visibility). */
 const dropzoneOn = (): boolean => settings.get('showDropzonePill');
@@ -616,6 +680,8 @@ function badgeText(r: PaletteResult): string {
       return 'CMD';
     case 'settingtoggle':
       return 'TOG';
+    case 'settingcycle':
+      return 'CYC';
     case 'settings':
       return 'SET';
     case 'file':
@@ -646,6 +712,8 @@ function enterVerb(source: PaletteResult['source']): string {
       return 'run';
     case 'settingtoggle':
       return 'toggle';
+    case 'settingcycle':
+      return 'cycle';
     case 'settings':
       return 'open';
     case 'file':
@@ -941,9 +1009,14 @@ class QuickCardSearchUI {
           : 'The dropzone is empty.';
       }
     } else if (prefix === 'c') {
-      // Commands include the auto-generated setting toggles, so the `c`
-      // prefix covers "Toggle <setting>" the way the user searches commands.
-      this.results = [...searchCommandSource(query), ...searchSettingToggleSource(query)];
+      // Commands include the auto-generated setting toggles + cycles, so the
+      // `c` prefix covers "Toggle/Cycle <setting>" the way the user searches
+      // for commands.
+      this.results = [
+        ...searchCommandSource(query),
+        ...searchSettingToggleSource(query),
+        ...searchSettingCycleSource(query),
+      ];
       this.emptyText = 'No matching commands.';
     } else if (prefix === 's') {
       this.results = searchSettingsSource(query);
@@ -969,6 +1042,7 @@ class QuickCardSearchUI {
         ...(dropzoneOn() ? searchDropzoneSource(query) : []),
         ...searchCommandSource(query),
         ...searchSettingToggleSource(query),
+        ...searchSettingCycleSource(query),
         ...searchSettingsSource(query),
         ...(this.fileList && filePins
           ? searchFiles(filterFilesByFormatSetting(this.fileList), query).map((f) =>
@@ -1505,6 +1579,21 @@ class QuickCardSearchUI {
       const applied = settings.get(key) === true;
       const raw = SETTING_METADATA.find((m) => m.key === key)?.label ?? String(key);
       showToast(`${cleanToggleLabel(raw)}: ${applied ? 'On' : 'Off'}`);
+      return;
+    }
+    // Setting cycle: advance the enum/mode setting to its next value.
+    if (result.source === 'settingcycle') {
+      const key = result.cycleSettingKey!;
+      this.close();
+      const setting = CYCLABLE_SETTINGS.find((c) => c.key === key);
+      if (setting) {
+        const next = nextCycleValue(setting, settings.get(key));
+        settings.set(key, next.value as never);
+        // Read back the actual value in case a subscriber rejected the change.
+        const applied = currentCycleLabel(setting, settings.get(key));
+        const raw = SETTING_METADATA.find((m) => m.key === key)?.label ?? String(key);
+        showToast(`${cleanToggleLabel(raw)}: ${applied}`);
+      }
       return;
     }
     // Settings: close the palette, then open the dialog to the tab and
