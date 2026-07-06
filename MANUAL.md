@@ -149,7 +149,7 @@ covered in full in the section linked.
 - **[Shrink protections and Condense with warning](#shrink-mod-8)** —
   Shrink can keep omission notes, warning markers, and your own custom
   strings at normal size while everything else shrinks.
-- **[Repair paragraph integrity](#repair-paragraph-integrity-workflow)** —
+- **[Repair paragraph integrity](#repair-paragraph-integrity)** —
   rebuild a card's paragraph breaks one at a time when a PDF or a paste
   collapsed them into a single run.
 - **[Create Reference](#citations)** — copy a formatted reference for the

@@ -80,7 +80,7 @@ read/write path is synchronous and runs in the renderer + browser builds
 where `node:zlib` is absent. Inflation happens only on open/dive, never on
 the command-bar listing or repeated in-file search. (In alpha this shipped
 one-shot — read + write together — plus a temporary Home-screen
-bulk-compress tool to migrate existing libraries in place; §16-adjacent.)
+bulk-compress tool to migrate existing libraries in place.)
 
 ## 4. Schema
 
@@ -375,7 +375,7 @@ eventual persistent on-disk index with a file watcher and schema-aware
 queries across the whole library ("all cites by author Y", "all cards
 under hat X") — superseding the standalone Block Search tool. Staged this
 way to find the performance ceiling before investing in full indexing.
-The same search UI will double as the transclusion target picker (§14).
+The same search UI will double as the transclusion target picker (§19).
 
 ## 12. Editing semantics at node boundaries
 
@@ -523,7 +523,7 @@ call, so the document can move between capturing a target position and
 dispatching the edit — another AI op finishing, or the user typing.
 `edit-coordinator.ts` resolves this with **leases**. A per-view plugin holds
 each in-flight op's claimed region and remaps it through `tr.mapping` on
-every transaction (the anchoring pattern §6 comments marks and the voice
+every transaction (the anchoring pattern comments marks and the voice
 plugin use). Two guarantees compose: edits *outside* a lease remap it, so the
 op reads `lease.region()` (or a uniform `delta()`) at apply time instead of a
 stale offset; edits *inside* a lease are blocked — `filterTransaction` (plus
