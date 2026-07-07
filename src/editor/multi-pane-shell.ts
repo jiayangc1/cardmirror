@@ -28,6 +28,7 @@
 
 import { EditorState, TextSelection } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
+import { setViewDocPath } from './transclusion-doc-path.js';
 import { Node as PMNode } from 'prosemirror-model';
 import { schema, newHeadingId } from '../schema/index.js';
 import { fromDocxFull, parseNative, serializeNativeAsync, NATIVE_FILE_EXTENSION } from '../index.js';
@@ -1948,6 +1949,7 @@ class MultiPaneShell {
     // owned by us and the old one is released.
     syncDocPathClaim(rec.handle, file.handle);
     rec.handle = file.handle;
+    setViewDocPath(rec.view, typeof file.handle === 'string' ? file.handle : null);
     rec.format = file.format;
     slot.refreshChipFilename();
     pushPaneDocInfo(rec.uid, rec.filename);
@@ -2734,6 +2736,11 @@ function buildDocRecord(
   // tap into an empty doc unless I aim at its tiny rendered line"
   // gap for per-pane editors too.
   attachClickBelowToEnd(editorEl, () => view);
+
+  // Register this pane's view→docPath so transclusion create/refresh can resolve
+  // its doc-relative source refs — multi-pane parity with the single-doc path
+  // (setCurrentDocHandle in index.ts). Kept in sync on Save-As (setFocusedFile).
+  setViewDocPath(view, typeof opts.handle === 'string' ? opts.handle : null);
 
   const record: DocRecord = {
     uid: opts.uid ?? newDocUid(),

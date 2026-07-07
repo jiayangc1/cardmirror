@@ -21,7 +21,7 @@ import {
   detachZoneAtPos,
   insertZoneAtSelection,
 } from '../../src/editor/transclusion-actions.js';
-import { collectHeadings, computeHeadingRange } from '../../src/editor/headings.js';
+import { collectHeadings, computeHeadingRange, zoneRangeForEntry } from '../../src/editor/headings.js';
 import { transclusionSelectionGuard } from '../../src/editor/transclusion-selection-guard.js';
 
 function card(tag: string, body: string): PMNode {
@@ -237,7 +237,7 @@ describe('enclosingZonePos (drag/move boundary primitive)', () => {
     view.destroy();
   });
 
-  it('dragging a transcluded heading targets the whole zone as one unit', () => {
+  it('drag grabs the whole zone (zoneRangeForEntry); context-menu ops the single card', () => {
     const view = makeView([
       schema.nodes['block']!.create({ id: newHeadingId() }, schema.text('Outside Block')),
       freshZone([card('Transcluded', 'ev')]),
@@ -255,13 +255,19 @@ describe('enclosingZonePos (drag/move boundary primitive)', () => {
     const entries = collectHeadings(doc);
     const transcluded = entries.find((e) => e.text === 'Transcluded')!;
     expect(transcluded.zonePos).toBe(zonePos);
-    const range = computeHeadingRange(doc, transcluded)!;
-    expect(range.from).toBe(zonePos);
-    expect(range.to).toBe(zoneEnd);
-    expect(range.useNodeSelection).toBe(true);
-    // A heading outside the zone is unaffected — it drags itself, not the zone.
+    // Drag path → the WHOLE zone.
+    const zoneRange = zoneRangeForEntry(doc, transcluded)!;
+    expect(zoneRange.from).toBe(zonePos);
+    expect(zoneRange.to).toBe(zoneEnd);
+    expect(zoneRange.useNodeSelection).toBe(true);
+    // Context-menu path (delete/select/copy) → just the transcluded card, INSIDE
+    // the zone — not a surprise grab of the whole zone.
+    const cardRange = computeHeadingRange(doc, transcluded)!;
+    expect(cardRange.from).toBeGreaterThan(zonePos);
+    expect(cardRange.to).toBeLessThan(zoneEnd);
+    // A heading outside any zone has no zone range.
     const outside = entries.find((e) => e.text === 'Outside Block')!;
-    expect(computeHeadingRange(doc, outside)!.from).not.toBe(zonePos);
+    expect(zoneRangeForEntry(doc, outside)).toBeNull();
     view.destroy();
   });
 });

@@ -123,15 +123,6 @@ export function computeHeadingRange(
   const node = doc.nodeAt(entry.pos);
   if (!node) return null;
 
-  // A heading INSIDE a live zone drags the WHOLE zone as one opaque unit: you
-  // can't pull a single transcluded card out, and the zone moves intact.
-  if (entry.zonePos != null) {
-    const zone = doc.nodeAt(entry.zonePos);
-    if (zone && zone.type.name === 'transclusion_ref') {
-      return { from: entry.zonePos, to: entry.zonePos + zone.nodeSize, useNodeSelection: true };
-    }
-  }
-
   const parentName = $pos.parent.type.name;
   if (entry.type === 'tag') {
     const from = $pos.before();
@@ -163,6 +154,23 @@ export function computeHeadingRange(
     return true;
   });
   return { from, to, useNodeSelection: false };
+}
+
+/**
+ * The whole-zone range when `entry` is inside a live zone, else null. Used ONLY
+ * by the drag path so a transcluded heading drags the whole zone as one unit
+ * (with its visual indicator). Per-heading operations — nav delete / select /
+ * copy — deliberately keep using `computeHeadingRange`, which returns just the
+ * single heading, so they don't surprise-grab the entire zone.
+ */
+export function zoneRangeForEntry(
+  doc: PMNode,
+  entry: HeadingEntry,
+): { from: number; to: number; useNodeSelection: boolean } | null {
+  if (entry.zonePos == null) return null;
+  const zone = doc.nodeAt(entry.zonePos);
+  if (!zone || zone.type.name !== 'transclusion_ref') return null;
+  return { from: entry.zonePos, to: entry.zonePos + zone.nodeSize, useNodeSelection: true };
 }
 
 /**

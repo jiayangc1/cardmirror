@@ -22,6 +22,7 @@ import { preciseScrollIntoView } from './precise-scroll.js';
 import {
   collectHeadings,
   computeHeadingRange,
+  zoneRangeForEntry,
   headingInsertPos,
   TYPE_LABEL,
   type HeadingEntry,
@@ -1234,7 +1235,10 @@ export class NavigationPanel {
 
     const items: DragItem[] = [];
     for (const e of entriesToDrag) {
-      const range = this.computeHeadingRange(e);
+      // Dragging a transcluded heading moves the WHOLE zone as one unit (with a
+      // visual indicator); other nav ops act on the single heading.
+      const range =
+        (this.view && zoneRangeForEntry(this.view.state.doc, e)) || this.computeHeadingRange(e);
       if (!range) continue;
       items.push({
         from: range.from,

@@ -1711,6 +1711,13 @@ class QuickCardSearchUI {
     const view = this.view;
     if (!view || !this.inFile || !result.fileRange) return;
     const inFile = this.inFile;
+    // Capture everything the insert needs BEFORE any await: the `.docx` anchor
+    // flow shows an async confirm dialog, and clicking it fires the palette's
+    // outside-pointer close — which nulls this.docPath / this.inFile / this.root
+    // (a native `window.confirm` was synchronous, so it never did). Working off
+    // captured locals lets the zone still land after OK.
+    const docPath = this.docPath;
+    const rePickTarget = this.rePickTarget;
     const headingNode = inFile.doc.nodeAt(result.fileRange.from);
     const headingId =
       headingNode && typeof headingNode.attrs['id'] === 'string' ? headingNode.attrs['id'] : '';
@@ -1720,7 +1727,7 @@ class QuickCardSearchUI {
       inFile.doc,
       headingId,
       inFile.name,
-      this.docPath,
+      docPath,
       inFile.path,
       roots,
     );
@@ -1739,17 +1746,18 @@ class QuickCardSearchUI {
         headingNode?.textContent ?? '',
         outcome.attrs,
         roots,
+        docPath,
+        inFile.name,
       );
-      if (!ready) return; // messaged inside
-      // The palette may have closed while we awaited the read/confirm/write.
-      if (!this.root || this.view !== view) return;
+      if (!ready) return; // messaged inside (the palette may have closed during
+      // the confirm — the captured `view` / `outcome` below still insert).
     }
-    if (this.rePickTarget != null) {
+    if (rePickTarget != null) {
       // Re-pick source: re-target the existing zone in place (one-shot → close).
       const ok = replaceZoneAtPos(
         view,
-        this.rePickTarget.pos,
-        this.rePickTarget.identity,
+        rePickTarget.pos,
+        rePickTarget.identity,
         outcome.attrs,
         outcome.content,
       );
@@ -1759,7 +1767,7 @@ class QuickCardSearchUI {
     }
     insertZoneAtSelection(view, outcome.attrs, outcome.content);
     showToast(`Inserted live zone "${outcome.headingLabel}".`);
-    this.input.focus();
+    this.input?.focus();
   }
 
   /** Ensure a `.docx` source's picked heading carries a `pmd-heading` bookmark
@@ -1776,15 +1784,17 @@ class QuickCardSearchUI {
     expectedText: string,
     attrs: TransclusionAttrs,
     roots: string[],
+    docPath: string | null,
+    fileName: string,
   ): Promise<boolean> {
     const electron = getElectronHost();
-    if (!electron || !this.docPath) {
+    if (!electron || !docPath) {
       showToast('Live zones from Word files need the desktop app.');
       return false;
     }
     const sourceAbs = attrs.source_abs ?? '';
     const file = await electron.readCmirFile(
-      this.docPath,
+      docPath,
       attrs.source_ref,
       attrs.source_ref_base,
       roots,
@@ -1821,7 +1831,7 @@ class QuickCardSearchUI {
     // A new bookmark must be written back — get explicit consent first, since
     // this modifies a file the user may share.
     const consented = await showConfirm({
-      title: `Add a live-update anchor to “${this.inFile?.name ?? 'this Word file'}”?`,
+      title: `Add a live-update anchor to “${fileName}”?`,
       message:
         'This writes a small bookmark to the Word file so this section can be ' +
         'refreshed later. Nothing else in the file changes.',
@@ -1833,7 +1843,7 @@ class QuickCardSearchUI {
       return false;
     }
     const written = await electron.writeSourceAnchor(
-      this.docPath,
+      docPath,
       attrs.source_ref,
       attrs.source_ref_base,
       roots,
