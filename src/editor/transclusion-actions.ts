@@ -21,19 +21,22 @@ import {
 } from './transclusion.js';
 import { getViewDocPath } from './transclusion-doc-path.js';
 import { resolveTransclusion, type ResolveOutcome } from './transclusion-resolve.js';
+import { showConfirm } from './confirm-dialog.js';
 
 /** " › " with explicit code points (space, U+203A, space). */
 const CRUMB_SEP = ' › ';
 
 /** Confirm discarding a zone's local edits before a refresh overwrites them.
- *  Returns true only on an explicit OK. When there's no window to prompt in
- *  (headless / tests / any future batch caller), returns FALSE — we refuse
- *  rather than silently discard edits, since this guards real data loss. */
-function confirmDiscardEdits(): boolean {
-  if (typeof window === 'undefined') return false;
-  return window.confirm(
-    'Refresh will replace your local edits to this live zone with the current source. Continue?',
-  );
+ *  Resolves true only on an explicit OK. Headless (no `document`) resolves
+ *  FALSE — we refuse rather than silently discard edits, since this guards real
+ *  data loss. Uses the in-editor dialog, not a native `window.confirm`. */
+function confirmDiscardEdits(): Promise<boolean> {
+  return showConfirm({
+    title: 'Discard your edits?',
+    message: 'Refreshing replaces your local edits to this live zone with the current source.',
+    confirmLabel: 'Refresh',
+    cancelLabel: 'Keep edits',
+  });
 }
 
 /** Breadcrumb label: "SourceFile › Heading" (drops the `.cmir` extension). */
@@ -145,7 +148,7 @@ export async function refreshZoneAtPos(
   // Fast path: if the clicked zone is already edited, confirm up front so a
   // large source read isn't done only to be discarded on cancel.
   const preEdited = isZoneEdited(node);
-  if (preEdited && !confirmDiscardEdits()) return { ok: false, reason: 'cancelled' };
+  if (preEdited && !(await confirmDiscardEdits())) return { ok: false, reason: 'cancelled' };
 
   const docPath = getViewDocPath(view);
   const outcome = await resolveTransclusion(
@@ -171,7 +174,7 @@ export async function refreshZoneAtPos(
   // If we didn't already confirm and the zone became edited DURING the read (the
   // user typed into it in the async window), confirm now — otherwise those
   // just-made edits would be replaced with no prompt.
-  if (!preEdited && isZoneEdited(live) && !confirmDiscardEdits()) {
+  if (!preEdited && isZoneEdited(live) && !(await confirmDiscardEdits())) {
     return { ok: false, reason: 'cancelled' };
   }
 

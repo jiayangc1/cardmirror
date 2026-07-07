@@ -53,6 +53,7 @@ import { CATEGORY_TABS, visibleCategoryTabs, type SettingsTarget } from './setti
 import { appVersion } from './install-info.js';
 import { getHost, getElectronHost, isWindowsHost } from './host/index.js';
 import { showToast } from './toast.js';
+import { showConfirm } from './confirm-dialog.js';
 import {
   insertZoneAtSelection,
   replaceZoneAtPos,
@@ -1819,13 +1820,14 @@ class QuickCardSearchUI {
     if (!anchor.added) return true; // already anchored — nothing to write.
     // A new bookmark must be written back — get explicit consent first, since
     // this modifies a file the user may share.
-    const consented =
-      typeof window !== 'undefined' &&
-      window.confirm(
-        `Add a live-update anchor to “${this.inFile?.name ?? 'this Word file'}”?\n\n` +
-          'This writes a small bookmark to the Word file so this section can be ' +
-          'refreshed later. Nothing else in the file changes.',
-      );
+    const consented = await showConfirm({
+      title: `Add a live-update anchor to “${this.inFile?.name ?? 'this Word file'}”?`,
+      message:
+        'This writes a small bookmark to the Word file so this section can be ' +
+        'refreshed later. Nothing else in the file changes.',
+      confirmLabel: 'Add anchor',
+      cancelLabel: 'Cancel',
+    });
     if (!consented) {
       showToast('Live zone not created — the Word file was left unchanged.');
       return false;

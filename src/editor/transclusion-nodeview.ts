@@ -24,6 +24,7 @@ import {
   openZoneSourceAtPos,
 } from './transclusion-actions.js';
 import { transclusionSupported, refreshFailMessage } from './transclusion-resolve.js';
+import { showConfirm } from './confirm-dialog.js';
 
 /** " › " with explicit code points (space, U+203A, space) — matches crumbLabel. */
 const CRUMB_SEP = ' › ';
@@ -198,7 +199,7 @@ class TransclusionView implements NodeView {
     menu.appendChild(
       this.menuItem('search', 'Re-pick source…', () => {
         this.closeMenu();
-        this.onRePick();
+        void this.onRePick();
       }),
     );
     menu.appendChild(
@@ -296,7 +297,7 @@ class TransclusionView implements NodeView {
     detachZoneAtPos(this.view, pos);
   }
 
-  private onRePick(): void {
+  private async onRePick(): Promise<void> {
     const pos = this.getPos();
     if (pos == null) return;
     if (!transclusionSupported()) {
@@ -306,16 +307,19 @@ class TransclusionView implements NodeView {
     }
     // Re-picking replaces the zone's content, so confirm first when it's edited —
     // symmetric with Refresh (which prompts before discarding local edits).
-    if (
-      isZoneEdited(this.node) &&
-      typeof window !== 'undefined' &&
-      !window.confirm(
-        'Re-picking the source will replace your local edits to this live zone. Continue?',
-      )
-    ) {
-      return;
+    if (isZoneEdited(this.node)) {
+      const ok = await showConfirm({
+        title: 'Discard your edits?',
+        message: 'Re-picking the source replaces your local edits to this live zone.',
+        confirmLabel: 'Re-pick',
+        cancelLabel: 'Keep edits',
+      });
+      if (!ok) return;
     }
-    rePickZoneAtPos(this.view, pos);
+    // The zone may have moved while the dialog was open; re-read its position.
+    const livePos = this.getPos();
+    if (livePos == null) return;
+    rePickZoneAtPos(this.view, livePos);
   }
 
   private onOpenSource(): void {

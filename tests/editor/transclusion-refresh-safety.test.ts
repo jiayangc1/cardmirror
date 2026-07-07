@@ -14,12 +14,18 @@ import { EditorView } from 'prosemirror-view';
 import { Fragment, Node as PMNode } from 'prosemirror-model';
 import { schema, newHeadingId } from '../../src/schema/index.js';
 
-// Control the source read so we can drive the async gap deterministically.
-const { resolveMock } = vi.hoisted(() => ({ resolveMock: vi.fn() }));
+// Control the source read + the discard confirm so we can drive the async gaps
+// deterministically. The refresh flow now uses the in-editor `showConfirm`
+// dialog (not window.confirm), so mock that module.
+const { resolveMock, confirmMock } = vi.hoisted(() => ({
+  resolveMock: vi.fn(),
+  confirmMock: vi.fn(() => Promise.resolve(true)),
+}));
 vi.mock('../../src/editor/transclusion-resolve.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/editor/transclusion-resolve.js')>();
   return { ...actual, resolveTransclusion: resolveMock };
 });
+vi.mock('../../src/editor/confirm-dialog.js', () => ({ showConfirm: confirmMock }));
 
 import {
   createTransclusionNode,
@@ -60,9 +66,10 @@ const REF = { source_ref: 'S.cmir', source_ref_base: 'doc' as const, source_head
 
 beforeEach(() => {
   resolveMock.mockReset();
-  // Never let a real prompt block; if a path DID try to confirm we'd rather it
-  // proceed than hang — the tests assert on outcome, not the confirm.
-  vi.stubGlobal('confirm', vi.fn(() => true));
+  // Default: confirm resolves true so a refresh proceeds; individual tests
+  // override for the cancel path.
+  confirmMock.mockReset();
+  confirmMock.mockResolvedValue(true);
 });
 
 describe('deepZoneIdentities', () => {
@@ -147,8 +154,7 @@ describe('refreshZoneAtPos — safety', () => {
     const view = makeView([zoneNode([card('T', 'clean-ev')], REF)]);
     const d = deferred<unknown>();
     resolveMock.mockReturnValue(d.promise);
-    const confirmSpy = vi.fn(() => false); // user cancels the re-confirm
-    vi.stubGlobal('confirm', confirmSpy);
+    confirmMock.mockResolvedValue(false); // user cancels the re-confirm
 
     const pending = refreshZoneAtPos(view, 0);
     // Edit the (clean) zone DURING the read → it becomes edited. Type into the
@@ -166,7 +172,7 @@ describe('refreshZoneAtPos — safety', () => {
     });
     const outcome = await pending;
 
-    expect(confirmSpy).toHaveBeenCalled();          // it asked before discarding
+    expect(confirmMock).toHaveBeenCalled();         // it asked before discarding
     expect(outcome.reason).toBe('cancelled');       // user said no
     expect(view.state.doc.textContent).toContain('ZZZ');          // the edit survived
     expect(view.state.doc.textContent).not.toContain('from-source'); // source not applied

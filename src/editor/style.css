@@ -2509,6 +2509,77 @@ code {
   background: var(--pmd-c-bg-soft);
 }
 
+/* In-editor confirm dialog (confirm-dialog.ts) — replaces window.confirm so
+   transclusion prompts read as part of the app, not an OS alert. */
+.pmd-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--pmd-c-overlay, rgba(0, 0, 0, 0.4));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.pmd-confirm {
+  background: var(--pmd-c-bg);
+  color: var(--pmd-c-text);
+  border: 1px solid var(--pmd-c-border-soft);
+  border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  width: 100%;
+  max-width: 30rem;
+  padding: 1.1rem 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.pmd-confirm-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+.pmd-confirm-message {
+  font-size: 0.875rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.pmd-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+}
+.pmd-confirm-btn {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid var(--pmd-c-border-soft);
+  cursor: pointer;
+  background: var(--pmd-c-bg-soft);
+  color: var(--pmd-c-text);
+}
+.pmd-confirm-cancel:hover {
+  background: var(--pmd-c-surface);
+}
+.pmd-confirm-ok {
+  background: var(--pmd-c-accent);
+  border-color: var(--pmd-c-accent);
+  color: #fff;
+  font-weight: 600;
+}
+.pmd-confirm-ok:hover {
+  filter: brightness(1.05);
+}
+.pmd-confirm-danger {
+  background: var(--pmd-c-warn, #b26a00);
+  border-color: var(--pmd-c-warn, #b26a00);
+}
+.pmd-confirm-btn:focus-visible {
+  outline: 2px solid var(--pmd-c-accent);
+  outline-offset: 2px;
+}
+
 /* Heading containers (pocket / hat / block) — same containment as
    cards. Smaller intrinsic-height placeholder since these are
    typically single-line headings. */
