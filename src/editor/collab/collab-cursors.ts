@@ -73,6 +73,12 @@ export interface CursorsHandle {
    *  goes empty — callers must degrade safely (the repair leader gate
    *  falls back to everyone-repairs, which idempotence makes safe). */
   visiblePeers(): string[];
+  /** Everyone in the room right now — self first, then visible remotes —
+   *  each with a display name + dot color, for the "who's here" presence
+   *  dots. Remotes only appear once they've broadcast presence, so the
+   *  remote list is populated only while cursors are enabled
+   *  (`collabShowCursors`); self is always included. */
+  presence(): { peer: string; name: string; color: string; self: boolean }[];
   dispose(): void;
 }
 
@@ -188,6 +194,24 @@ export function installCursorPresence(
       } catch {
         return [];
       }
+    },
+    presence(): { peer: string; name: string; color: string; self: boolean }[] {
+      const out = [{ peer: String(peerId), name: user.name, color: user.color, self: true }];
+      try {
+        const states = store.getAllStates() as Record<
+          string,
+          { user?: { name?: string; color?: string } }
+        >;
+        for (const p of Object.keys(states)) {
+          if (p === peerId) continue;
+          const nm = states[p]?.user?.name;
+          const name = (typeof nm === 'string' && nm.trim()) || 'Partner';
+          out.push({ peer: p, name, color: peerColor(p), self: false });
+        }
+      } catch {
+        /* store shape / timing — self-only is safe */
+      }
+      return out;
     },
     applyRemote(bytes: Uint8Array): void {
       if (disposed || bytes.length < 2) return;

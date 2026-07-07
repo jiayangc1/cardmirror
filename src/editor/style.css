@@ -12373,6 +12373,29 @@ body.pmd-multi-doc .pmd-cardcutter-trim {
   margin-right: 2px;
 }
 
+/* Session chip presence dots — one colored dot per person in the room
+   (self + partners), hover for the name. */
+.pmd-collab-chip-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.pmd-collab-presence-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  /* Hairline ring so adjacent / same-hue dots stay distinct on the chip. */
+  box-shadow: 0 0 0 1px var(--pmd-c-bg);
+  cursor: default;
+}
+.pmd-collab-presence-dot-self {
+  /* You: a second ring so your own dot reads as distinct. */
+  box-shadow: 0 0 0 1px var(--pmd-c-bg), 0 0 0 2px var(--pmd-c-border);
+}
+
 /* Send pill click-to-invite: the bar is `clickable` only when a collab
    invite is actually possible (collab on + card sharing on). It then gets a
    pointer AND a hover recolor so it's clear clicking does something —

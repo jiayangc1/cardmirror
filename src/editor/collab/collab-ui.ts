@@ -81,18 +81,54 @@ function updateChip(status: { connected: boolean; queuedUpdates: number } | null
   if (!chip) return;
   if (!status) {
     chip.hidden = true;
-    chip.textContent = '';
+    chip.replaceChildren();
     return;
   }
   chip.hidden = false;
-  chip.textContent = status.connected
+  const text = status.connected
     ? status.queuedUpdates > 0
       ? `Session: sending ${status.queuedUpdates}…`
       : 'Session: synced'
     : status.queuedUpdates > 0
       ? `Session: offline — ${status.queuedUpdates} queued`
       : 'Session: offline';
+  // Chip = a text label + a presence-dots strip (kept as stable children so
+  // the dots can refresh on their own timer without rebuilding the label).
+  let label = chip.querySelector('.pmd-collab-chip-label');
+  let dots = chip.querySelector('.pmd-collab-chip-dots');
+  if (!(label instanceof HTMLElement) || !(dots instanceof HTMLElement)) {
+    chip.replaceChildren();
+    label = document.createElement('span');
+    label.className = 'pmd-collab-chip-label';
+    chip.appendChild(label);
+    dots = document.createElement('span');
+    dots.className = 'pmd-collab-chip-dots';
+    chip.appendChild(dots);
+  }
+  label.textContent = text;
+  renderPresenceDots(dots as HTMLElement);
 }
+
+/** One colored dot per person in the room, hover for the name. */
+function renderPresenceDots(container: HTMLElement): void {
+  const peers = cursors?.presence() ?? [];
+  container.replaceChildren();
+  for (const p of peers) {
+    const dot = document.createElement('span');
+    dot.className = 'pmd-collab-presence-dot' + (p.self ? ' pmd-collab-presence-dot-self' : '');
+    dot.style.background = p.color;
+    dot.title = p.self ? `${p.name} (you)` : p.name;
+    container.appendChild(dot);
+  }
+}
+
+/** Re-render just the dots (peers join/leave/expire between chip updates). */
+function refreshPresenceDots(): void {
+  const dots = chipEl()?.querySelector('.pmd-collab-chip-dots');
+  if (dots instanceof HTMLElement) renderPresenceDots(dots);
+}
+
+let presenceTimer: ReturnType<typeof setInterval> | null = null;
 
 
 /** Stamp the Loro binding's own transactions as sync-origin: both the
@@ -135,6 +171,9 @@ function installSeams(session: CollabSession, deps: CollabUiDeps): void {
     sessionDocTitle() || sharedDocTitle(session),
   );
   cursors = installCursorPresence(session, () => deps.getView());
+  // Keep the presence dots current as peers join / leave / time out — the
+  // chip text only updates on connection-status changes, not presence ones.
+  if (presenceTimer === null) presenceTimer = setInterval(refreshPresenceDots, 3000);
   // Concurrent new comments must not collide on the shared map key —
   // both peers advance the same small-int counter otherwise.
   setCommentIdSessionMode(true);
@@ -173,6 +212,10 @@ function clearSeams(keepRecord = false): void {
   commentsSync = null;
   cursors?.dispose();
   cursors = null;
+  if (presenceTimer !== null) {
+    clearInterval(presenceTimer);
+    presenceTimer = null;
+  }
   setCommentIdSessionMode(false);
   // Terminal paths (explicit end/leave, remote tombstone, failed join)
   // drop the persisted record; a cancelled RESUME keeps it — the user

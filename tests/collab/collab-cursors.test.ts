@@ -83,6 +83,15 @@ describe('M4 presence cursors', () => {
     await settle();
     expect(docText(bView.state.doc)).toBe(before);
 
+    // …and B's presence roster now shows both people: self + A (with a name
+    // and A's deterministic dot color) — the data behind the "who's here" dots.
+    const roster = bCursors.presence();
+    expect(roster.some((p) => p.self)).toBe(true);
+    const remote = roster.find((p) => !p.self);
+    expect(remote?.peer).toBe(a.loroDoc.peerIdStr);
+    expect(remote?.color).toBe(peerColor(a.loroDoc.peerIdStr));
+    expect((remote?.name ?? '').length).toBeGreaterThan(0);
+
     aCursors.dispose();
     bCursors.dispose();
     await a.stop();
