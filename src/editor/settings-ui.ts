@@ -477,7 +477,7 @@ class SettingsModal {
         panel.appendChild(buildBenchmarkSection(() => this.close()));
         panel.appendChild(buildInstallInfoSection());
         panel.appendChild(this.buildSettingsBackupSection());
-        panel.appendChild(buildManualLinkSection());
+        panel.appendChild(buildDocLinksSection());
       }
       this.dialog.appendChild(panel);
       panels[id] = panel;
@@ -1426,31 +1426,44 @@ function buildInstallInfoSection(): HTMLElement {
   return wrap;
 }
 
-/** GitHub-hosted copy of MANUAL.md — opened from Settings → General (and, on
- *  macOS, the Help menu). Pinned in Settings so it stays reachable on
+/** GitHub-hosted copies of the user-facing docs — opened from Settings → General
+ *  (and, on macOS, the Help menu). Pinned in Settings so they stay reachable on
  *  Windows/Linux, which carry no native menu bar. */
 const MANUAL_URL = 'https://github.com/ant981228/cardmirror/blob/main/MANUAL.md';
+const PRIVACY_URL = 'https://github.com/ant981228/cardmirror/blob/main/PRIVACY.md';
 
-/** A "User Manual" link pinned at the bottom of Settings → General. */
-function buildManualLinkSection(): HTMLElement {
-  const section = document.createElement('section');
-  section.className = 'pmd-settings-manual';
+/** One external doc link. On desktop it routes through the host so it opens in
+ *  the OS browser rather than a new Electron window; on web the anchor opens a
+ *  normal tab. */
+function buildDocLink(label: string, url: string): HTMLAnchorElement {
   const link = document.createElement('a');
   link.className = 'pmd-settings-manual-link';
-  link.href = MANUAL_URL;
-  link.textContent = 'User Manual ↗';
+  link.href = url;
+  link.textContent = label;
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
   link.addEventListener('click', (e) => {
-    // On the desktop, route through the host so it opens in the OS browser
-    // rather than a new Electron window. On web, let the anchor open the tab.
     const electron = getElectronHost();
     if (electron) {
       e.preventDefault();
-      void electron.openExternal(MANUAL_URL);
+      void electron.openExternal(url);
     }
   });
-  section.appendChild(link);
+  return link;
+}
+
+/** "User Manual" and "Privacy Policy" links pinned at the bottom of
+ *  Settings → General. */
+function buildDocLinksSection(): HTMLElement {
+  const section = document.createElement('section');
+  section.className = 'pmd-settings-manual';
+  section.appendChild(buildDocLink('User Manual ↗', MANUAL_URL));
+  const sep = document.createElement('span');
+  sep.className = 'pmd-settings-manual-sep';
+  sep.textContent = '·';
+  sep.setAttribute('aria-hidden', 'true');
+  section.appendChild(sep);
+  section.appendChild(buildDocLink('Privacy Policy ↗', PRIVACY_URL));
   return section;
 }
 

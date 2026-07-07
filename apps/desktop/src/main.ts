@@ -1947,6 +1947,12 @@ function buildMenu(): Menu {
           void shell.openExternal(MANUAL_URL);
         },
       },
+      {
+        label: 'Privacy Policy',
+        click: () => {
+          void shell.openExternal(PRIVACY_URL);
+        },
+      },
       { type: 'separator' },
       {
         label: 'Check for Updates…',
@@ -2043,6 +2049,10 @@ const RELEASES_URL = 'https://github.com/ant981228/cardmirror/releases';
 /** The user manual (MANUAL.md), rendered on GitHub. Linked from the Help
  *  menu so the full guide is one click away. */
 const MANUAL_URL = 'https://github.com/ant981228/cardmirror/blob/main/MANUAL.md';
+
+/** The privacy policy (PRIVACY.md), rendered on GitHub. Linked from the Help
+ *  menu alongside the manual (and from Settings → General). */
+const PRIVACY_URL = 'https://github.com/ant981228/cardmirror/blob/main/PRIVACY.md';
 
 /** Best-effort dialog-parent lookup. Prefers the focused window,
  *  but if the user has alt-tabbed away between clicking

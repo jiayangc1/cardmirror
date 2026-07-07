@@ -12673,6 +12673,7 @@ body.pmd-multi-doc .pmd-cardcutter-trim {
   border-top: 1px solid var(--pmd-c-divider-faint);
   display: flex;
   justify-content: center;
+  gap: 0.6rem;
 }
 .pmd-settings-manual-link {
   font-size: 0.85rem;
@@ -12682,6 +12683,11 @@ body.pmd-multi-doc .pmd-cardcutter-trim {
 }
 .pmd-settings-manual-link:hover {
   text-decoration: underline;
+}
+.pmd-settings-manual-sep {
+  font-size: 0.85rem;
+  color: var(--pmd-c-text-faint);
+  user-select: none;
 }
 
 /* Small corner chip shown while the benchmark drives the (visible) editor. */

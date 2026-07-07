@@ -29,7 +29,8 @@ or locked-down school machine.
 > install steps below.
 
 See [`MANUAL.md`](./MANUAL.md) for the full user
-manual; [`CHANGELOG.md`](./CHANGELOG.md) for release notes;
+manual; [`PRIVACY.md`](./PRIVACY.md) for how CardMirror handles your data;
+[`CHANGELOG.md`](./CHANGELOG.md) for release notes;
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full design;
 [`PROJECT.md`](./PROJECT.md) for project orientation.
 
