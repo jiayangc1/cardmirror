@@ -136,6 +136,7 @@ import {
   readModeAwareUndo,
   readModeAwareRedo,
 } from './read-mode-plugin.js';
+import { markUnreadPlugin, MARK_UNREAD_TOGGLE } from './mark-unread-plugin.js';
 import { tagCollabTransaction, collabPluginSource, setCollabInviteJoiner, setCollabInviter } from './collab/collab-hooks.js';
 import { learnHighlightPlugin, flashcardRangeAt } from './learn-highlight-plugin.js';
 import { repairHighlightPlugin } from './repair-highlight-plugin.js';
@@ -2908,6 +2909,7 @@ let lastKeyboardMacros = settings.get('keyboardMacros');
 // make every settings change lag on big docs.
 let lastReadMode = settings.get('readMode');
 let lastReadModeBorders = settings.get('hideEmphasisBordersInReadMode');
+let lastMarkUnread = settings.get('markUnreadAfterMarker');
 
 /** Show/hide the chrome's optional clusters per their (default-off) settings:
  *  the dropzone pill and the Quick Cards button stack. Called from the settings
@@ -2955,6 +2957,12 @@ settings.subscribe((s) => {
     lastReadMode = s.readMode;
     lastReadModeBorders = s.hideEmphasisBordersInReadMode;
     applyReadMode(s.readMode);
+  }
+  // Nudge the mark-unread plugin to rebuild when its toggle flips (diff-gated
+  // because the rebuild is O(doc); the plugin re-reads the setting itself).
+  if (s.markUnreadAfterMarker !== lastMarkUnread) {
+    lastMarkUnread = s.markUnreadAfterMarker;
+    if (view) view.dispatch(view.state.tr.setMeta(MARK_UNREAD_TOGGLE, true));
   }
   applyNavPaneVisible(s.navPaneVisible);
   applyFormatNavPaneByType(s.formatNavPaneByType);
@@ -4339,6 +4347,7 @@ export function buildEditorPlugins(): Plugin[] {
     wordSelectionKeymap,
     keymap(baseKeymap),
     readModePlugin,
+    markUnreadPlugin,
     commentsPlugin,
     learnHighlightPlugin,
     repairHighlightPlugin,

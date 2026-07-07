@@ -624,6 +624,11 @@ export interface Settings {
    *  the ones around hidden text). Some users prefer the cleanest look
    *  in read mode regardless of what's emphasized. */
   hideEmphasisBordersInReadMode: boolean;
+  /** When true, tint every run of card body text that falls AFTER a
+   *  reading-position marker red, a visual record of what you didn't reach
+   *  in a round. Bounded per-card; display-only (a decoration, never a doc
+   *  edit). See `mark-unread-plugin.ts`. */
+  markUnreadAfterMarker: boolean;
   /** The body-text zoom (50–200%, step 10) any editor OPENS at. The live
    *  per-editor zoom is NOT a setting — it's transient per window / per pane and
    *  resets to this default on reload, so different documents can sit at
@@ -1333,6 +1338,7 @@ const DEFAULTS: Settings = {
   autosaveEnabled: false,
   readMode: false,
   hideEmphasisBordersInReadMode: false,
+  markUnreadAfterMarker: false,
   defaultZoomPct: 100,
   chromeScalePct: 100,
   gestureZoom: false,
@@ -1661,6 +1667,16 @@ export const SETTING_METADATA: SettingMeta[] = [
     kind: 'toggle',
     category: 'general',
     section: 'Editor behavior',
+  },
+  {
+    key: 'markUnreadAfterMarker',
+    label: 'Redden card text after a reading marker',
+    description:
+      "When on, every bit of a card's body text after a reading-position marker turns red, a visual record of the part you didn't reach in the round. Bounded per card: a marker only reddens the rest of its own card. Off by default. Display-only, so it never changes the document or its exports.",
+    kind: 'toggle',
+    category: 'general',
+    section: 'Editor behavior',
+    aliases: ['reading marker', 'unread', 'red text', 'marked'],
   },
   // ─── General ────────────────────────────────────────────────────
   {
@@ -3367,6 +3383,7 @@ function sanitize(s: Settings): Settings {
     autosaveEnabled: !!s.autosaveEnabled,
     readMode: !!s.readMode,
     hideEmphasisBordersInReadMode: !!s.hideEmphasisBordersInReadMode,
+    markUnreadAfterMarker: !!s.markUnreadAfterMarker,
     // A legacy persisted `zoomPct` is deliberately ignored — live body
     // zoom is transient; documents open at this default.
     defaultZoomPct: clamp(Math.round(s.defaultZoomPct / 10) * 10, 50, 200),
