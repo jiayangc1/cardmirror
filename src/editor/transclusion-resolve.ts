@@ -23,7 +23,12 @@ export type ResolveReason =
   | 'source-unreadable'
   | 'parse-failed'
   | 'heading-missing'
-  | 'cancelled';
+  | 'cancelled'
+  /** The zone couldn't be uniquely re-located after the async read (it moved and
+   *  there are duplicate-identity zones) — refuse rather than risk the wrong one. */
+  | 'ambiguous'
+  /** Refreshing would transitively transclude this very zone — a cycle. */
+  | 'cycle';
 
 export interface ResolveOutcome {
   ok: boolean;
@@ -52,6 +57,10 @@ export function refreshFailMessage(reason: ResolveReason | undefined): string {
       return 'Source file could not be read — showing cached content.';
     case 'heading-missing':
       return 'That heading is gone from the source — showing cached content.';
+    case 'ambiguous':
+      return 'The document changed while refreshing — try again.';
+    case 'cycle':
+      return 'That section now transcludes this zone — keeping cached content.';
     case 'cancelled':
       return '';
     default:

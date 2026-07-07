@@ -232,6 +232,7 @@ class TransclusionView implements NodeView {
   }
 
   private onRefresh(): void {
+    if (this.busy) return; // ignore re-entrant clicks while a refresh is in flight
     const pos = this.getPos();
     if (pos == null) return;
     if (!transclusionSupported()) {

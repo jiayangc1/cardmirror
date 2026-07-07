@@ -15,7 +15,7 @@ import {
   createTransclusionNode,
   extractSection,
   chooseSourceRef,
-  directZoneIdentities,
+  deepZoneIdentities,
   prepareZoneContent,
   type TransclusionAttrs,
   type SourceRefBase,
@@ -25,6 +25,17 @@ import { resolveTransclusion, type ResolveOutcome } from './transclusion-resolve
 
 /** " › " with explicit code points (space, U+203A, space). */
 const CRUMB_SEP = ' › ';
+
+/** Confirm discarding a zone's local edits before a refresh overwrites them.
+ *  Returns true only on an explicit OK. When there's no window to prompt in
+ *  (headless / tests / any future batch caller), returns FALSE — we refuse
+ *  rather than silently discard edits, since this guards real data loss. */
+function confirmDiscardEdits(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.confirm(
+    'Refresh will replace your local edits to this live zone with the current source. Continue?',
+  );
+}
 
 /** Breadcrumb label: "SourceFile › Heading" (drops the `.cmir` extension). */
 export function crumbLabel(sourceName: string, headingLabel: string): string {
@@ -80,7 +91,9 @@ export function buildLiveZoneAttrs(
     source_label: crumbLabel(sourceName, section.headingLabel),
   };
   const node = createTransclusionNode(schema, attrs, content);
-  if (directZoneIdentities(content).has(zoneIdentity(node))) {
+  // Reject direct AND transitive self-embedding (a nested cached zone, at any
+  // depth, that points back at this same target) — not just direct children.
+  if (deepZoneIdentities(content).has(zoneIdentity(node))) {
     return { ok: false, reason: 'self-cycle' };
   }
   return { ok: true, attrs, content, headingLabel: section.headingLabel };
@@ -104,21 +117,22 @@ export function buildZoneErrorMessage(reason: BuildZoneReason | undefined): stri
   }
 }
 
-/** Re-locate a zone after an async gap: prefer the original pos, else the first
- *  zone in the doc with the same identity (the user may have edited meanwhile). */
+/** Re-locate a zone after an async gap. If the preferred pos still holds the
+ *  same-identity zone, use it. Otherwise the pos went stale (the doc mutated
+ *  during the read): only relocate when EXACTLY ONE zone shares this identity.
+ *  With duplicate-identity zones we cannot tell which one the user meant, so we
+ *  return null and the caller REFUSES — refreshing the wrong zone would silently
+ *  discard a different (possibly edited) zone's content. Also null when the zone
+ *  vanished (zero matches). */
 function findZonePos(doc: PMNode, identity: string, preferredPos: number): number | null {
   const at = doc.nodeAt(preferredPos);
   if (at && isTransclusionNode(at) && zoneIdentity(at) === identity) return preferredPos;
-  let found: number | null = null;
+  const matches: number[] = [];
   doc.descendants((n, pos) => {
-    if (found !== null) return false;
-    if (isTransclusionNode(n) && zoneIdentity(n) === identity) {
-      found = pos;
-      return false;
-    }
+    if (isTransclusionNode(n) && zoneIdentity(n) === identity) matches.push(pos);
     return true;
   });
-  return found;
+  return matches.length === 1 ? matches[0]! : null;
 }
 
 /**
@@ -134,14 +148,12 @@ export async function refreshZoneAtPos(
 ): Promise<ResolveOutcome> {
   const node = view.state.doc.nodeAt(pos);
   if (!node || !isTransclusionNode(node)) return { ok: false, reason: 'heading-missing' };
-  // Refresh discards local contextualisations — confirm when the zone is edited.
-  if (isZoneEdited(node) && typeof window !== 'undefined') {
-    const proceed = window.confirm(
-      'Refresh will replace your local edits to this live zone with the current source. Continue?',
-    );
-    if (!proceed) return { ok: false, reason: 'cancelled' };
-  }
   const identity = zoneIdentity(node);
+  // Fast path: if the clicked zone is already edited, confirm up front so a
+  // large source read isn't done only to be discarded on cancel.
+  const preEdited = isZoneEdited(node);
+  if (preEdited && !confirmDiscardEdits()) return { ok: false, reason: 'cancelled' };
+
   const docPath = getViewDocPath(view);
   const outcome = await resolveTransclusion(
     docPath,
@@ -151,14 +163,32 @@ export async function refreshZoneAtPos(
   );
   if (!outcome.ok || !outcome.result) return outcome;
 
+  // Re-locate the target AFTER the await. findZonePos returns null when the pos
+  // went stale AND duplicate-identity zones make the target ambiguous — refuse
+  // rather than overwrite the wrong (possibly edited) zone.
   const targetPos = findZonePos(view.state.doc, identity, pos);
-  if (targetPos === null) return outcome; // zone vanished mid-refresh; drop silently
+  if (targetPos === null) {
+    return { ok: false, reason: 'ambiguous', sourceName: outcome.sourceName };
+  }
   const live = view.state.doc.nodeAt(targetPos);
-  if (!live || !isTransclusionNode(live)) return outcome;
+  if (!live || !isTransclusionNode(live)) {
+    return { ok: false, reason: 'ambiguous', sourceName: outcome.sourceName };
+  }
+  // If we didn't already confirm and the zone became edited DURING the read (the
+  // user typed into it in the async window), confirm now — otherwise those
+  // just-made edits would be replaced with no prompt.
+  if (!preEdited && isZoneEdited(live) && !confirmDiscardEdits()) {
+    return { ok: false, reason: 'cancelled' };
+  }
 
   // Replace the whole zone node with a fresh one: new children (source ids
   // rewritten), reset content hash + timestamp + label.
   const { content, hash } = prepareZoneContent(outcome.result.content, newHeadingId);
+  // Cycle backstop: refuse if the freshly-pulled section transitively transcludes
+  // this very zone — otherwise each refresh re-nests its own snapshot deeper.
+  if (deepZoneIdentities(content).has(identity)) {
+    return { ok: false, reason: 'cycle', sourceName: outcome.sourceName };
+  }
   const newNode = createTransclusionNode(
     view.state.schema,
     {
@@ -204,7 +234,13 @@ export function insertZoneAtSelection(
   const node = createTransclusionNode(view.state.schema, attrs, content);
   const { $from } = view.state.selection;
   const pos = $from.depth > 0 ? $from.after(1) : $from.pos;
-  let tr = view.state.tr.insert(pos, node);
+  let tr;
+  try {
+    tr = view.state.tr.insert(pos, node);
+  } catch {
+    // Schema wouldn't allow a zone here — honor the documented contract.
+    return false;
+  }
   try {
     tr = tr.setSelection(NodeSelection.create(tr.doc, pos));
   } catch {

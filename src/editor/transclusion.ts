@@ -192,6 +192,22 @@ export function directZoneIdentities(frag: Fragment): Set<string> {
   return out;
 }
 
+/** Every zone identity anywhere inside a fragment, at ANY depth (a zone's
+ *  cached children can themselves contain zones). Used to reject TRANSITIVE /
+ *  edit-introduced cycles at create/refresh time — a section that transitively
+ *  transcludes the very zone being built would otherwise keep re-nesting its
+ *  own snapshot deeper on every refresh, with no backstop (MAX_NEST_DEPTH was
+ *  never enforced). See TRANSCLUSION_PLAN.md §7. */
+export function deepZoneIdentities(frag: Fragment): Set<string> {
+  const out = new Set<string>();
+  const walk = (node: PMNode): void => {
+    if (node.type.name === TRANSCLUSION_NODE) out.add(zoneIdentity(node));
+    node.content.forEach(walk);
+  };
+  frag.forEach(walk);
+  return out;
+}
+
 /** If the current selection is a NodeSelection over a live zone, return it. */
 export function selectedTransclusion(
   selection: Selection,
