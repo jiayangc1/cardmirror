@@ -4325,7 +4325,10 @@ body.pmd-nav-resize-active {
 .pmd-nav-item-zone::before {
   content: '';
   position: absolute;
-  left: 0;
+  /* Offset right by the rail's own width so it clears the item's 3px left
+     border (the blue accent on a selected row) with a gap as wide as the rail
+     itself, instead of sitting flush against it. */
+  left: 3px;
   top: 0;
   bottom: 0;
   width: 3px;
