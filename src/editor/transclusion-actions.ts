@@ -21,6 +21,7 @@ import {
 } from './transclusion.js';
 import { getViewDocPath } from './transclusion-doc-path.js';
 import { resolveTransclusion, type ResolveOutcome } from './transclusion-resolve.js';
+import { ZONE_REFRESHED_META } from './transclusion-divergence-plugin.js';
 import { showConfirm } from './confirm-dialog.js';
 
 /** " › " with explicit code points (space, U+203A, space). */
@@ -86,13 +87,14 @@ export function buildLiveZoneAttrs(
   if (!docPath) return { ok: false, reason: 'no-doc-path' };
   const chosen = chooseSourceRef(docPath, sourceAbsPath, roots);
   if (!chosen) return { ok: false, reason: 'no-portable-ref' };
-  const { content, hash } = prepareZoneContent(section.content, newHeadingId);
+  const { content, hash, shapeHash } = prepareZoneContent(section.content, newHeadingId);
   const attrs: TransclusionAttrs = {
     source_ref: chosen.ref,
     source_ref_base: chosen.base,
     source_heading_id: headingId,
     source_abs: sourceAbsPath,
     source_content_hash: hash,
+    source_shape_hash: shapeHash,
     last_refreshed: Date.now(),
     source_label: crumbLabel(sourceName, section.headingLabel),
   };
@@ -202,7 +204,7 @@ export async function refreshZoneAtPos(
 
   // Replace the whole zone node with a fresh one: new children (nested zones
   // flattened, source ids rewritten), reset content hash + timestamp + label.
-  const { content, hash } = prepareZoneContent(outcome.result.content, newHeadingId);
+  const { content, hash, shapeHash } = prepareZoneContent(outcome.result.content, newHeadingId);
   const newNode = createTransclusionNode(
     view.state.schema,
     {
@@ -211,6 +213,7 @@ export async function refreshZoneAtPos(
       source_heading_id: String(live.attrs['source_heading_id'] ?? ''),
       source_abs: String(live.attrs['source_abs'] ?? ''),
       source_content_hash: hash,
+      source_shape_hash: shapeHash,
       last_refreshed: Date.now(),
       source_label: crumbLabel(outcome.sourceName ?? '', outcome.result.headingLabel),
     },
@@ -218,6 +221,9 @@ export async function refreshZoneAtPos(
   );
   const tr = view.state.tr.replaceWith(targetPos, targetPos + live.nodeSize, newNode);
   tr.setMeta('addToHistory', true);
+  // Tell the divergence plugin a zone was just re-pulled, so it rechecks and
+  // clears this zone's "source updated" badge promptly (not on the idle cadence).
+  tr.setMeta(ZONE_REFRESHED_META, true);
   view.dispatch(tr);
   return outcome;
 }

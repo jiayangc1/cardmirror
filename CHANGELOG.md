@@ -5,6 +5,21 @@ changes in each release, written for users of the editor. For
 in-depth rationale and implementation context behind each entry,
 see `DETAILED_CHANGELOG.md`.
 
+## Unreleased
+
+### Added
+
+- **Live zones flag when their source has changed.** A live zone already shows a
+  dot when *you've* edited its cards; now it also tells you when the *original*
+  section has moved on in the other file. CardMirror checks quietly — when you
+  open a document and periodically while it's idle — and badges any zone whose
+  source has diverged, so a stale copy is visible at a glance. Nothing is
+  overwritten: it's a prompt to **Refresh** when you're ready, and the badge
+  clears once you do. The badge color is configurable under Settings →
+  Appearance → Style colors ("Live-zone source-updated badge"). *(The check
+  reads the source file from disk, so it's desktop-only and never runs in read
+  mode.)*
+
 ## 0.1.0-beta.10 — 2026-07-07
 
 ### Added

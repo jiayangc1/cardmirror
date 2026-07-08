@@ -13,7 +13,7 @@
  * detaches them.
  */
 import type { Node as PMNode } from 'prosemirror-model';
-import type { EditorView, NodeView } from 'prosemirror-view';
+import type { Decoration, EditorView, NodeView } from 'prosemirror-view';
 import { icon, type IconName } from './icons.js';
 import { showToast } from './toast.js';
 import { isZoneEdited } from './transclusion.js';
@@ -38,6 +38,12 @@ function railGlyph(): HTMLElement {
   return g;
 }
 
+/** Whether the divergence plugin has flagged this zone (via `spec.diverged` on
+ *  its node decoration). */
+function readDiverged(decorations: readonly Decoration[]): boolean {
+  return decorations.some((d) => d.spec?.['diverged'] === true);
+}
+
 function formatSyncedDate(ms: number): string {
   try {
     return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -57,11 +63,20 @@ class TransclusionView implements NodeView {
   private busy = false;
   private transient: 'unreachable' | 'web' | null = null;
   private menuEl: HTMLElement | null = null;
+  /** Source has moved on since last pull — set from the divergence plugin's
+   *  node decoration (transclusion-divergence-plugin.ts). */
+  private diverged = false;
 
-  constructor(node: PMNode, view: EditorView, getPos: () => number | undefined) {
+  constructor(
+    node: PMNode,
+    view: EditorView,
+    getPos: () => number | undefined,
+    decorations: readonly Decoration[] = [],
+  ) {
     this.node = node;
     this.view = view;
     this.getPos = getPos;
+    this.diverged = readDiverged(decorations);
 
     this.dom = document.createElement('div');
     this.dom.className = 'pmd-transclusion';
@@ -119,6 +134,7 @@ class TransclusionView implements NodeView {
     if (this.busy) return 'Refreshing…';
     if (this.transient === 'unreachable') return 'Source not found · showing cached';
     if (this.transient === 'web') return 'Refresh on the desktop app';
+    if (this.diverged) return 'Source has new content · Refresh to update';
     const lr = Number(this.node.attrs['last_refreshed'] ?? 0);
     return lr > 0 ? `Synced ${formatSyncedDate(lr)}` : 'Not yet refreshed';
   }
@@ -132,10 +148,21 @@ class TransclusionView implements NodeView {
     // never rests on the teal-vs-amber tint alone.
     this.glyphIcon.classList.toggle('pmd-icon-link', !edited);
     this.glyphIcon.classList.toggle('pmd-icon-link-broken', edited);
-    this.glyphBtn.title = edited
-      ? 'Live zone (edited) — source & actions'
-      : 'Live zone — source & actions';
-    this.glyphBtn.setAttribute('aria-label', edited ? 'Live zone actions — edited' : 'Live zone actions');
+    // Divergence is an ORTHOGONAL badge (the source moved on, whatever the local
+    // edit state): a distinct dot on the glyph carries it (shape + colour, so
+    // it's colourblind-safe), and it enriches the tooltip/aria name.
+    this.glyphBtn.classList.toggle('is-diverged', this.diverged);
+    const state = this.diverged
+      ? edited
+        ? ' (edited · source updated)'
+        : ' (source updated)'
+      : edited
+        ? ' (edited)'
+        : '';
+    this.glyphBtn.title = this.diverged
+      ? `Live zone${state} — source has new content; Refresh to update`
+      : `Live zone${state} — source & actions`;
+    this.glyphBtn.setAttribute('aria-label', `Live zone actions${state}`);
   }
 
   /** Reflect the transient/busy state on the wrapper (drives the glyph tint). */
@@ -364,10 +391,11 @@ class TransclusionView implements NodeView {
     openZoneSourceAtPos(this.view, pos);
   }
 
-  update(node: PMNode): boolean {
+  update(node: PMNode, decorations: readonly Decoration[] = []): boolean {
     if (node.type !== this.node.type) return false;
     const lastRefreshedChanged = node.attrs['last_refreshed'] !== this.node.attrs['last_refreshed'];
     this.node = node;
+    this.diverged = readDiverged(decorations);
     // Clear a stale transient error once a refresh has landed.
     if (lastRefreshedChanged) this.transient = null;
     // Close the menu on an attr change so it can't show stale source detail.
@@ -410,5 +438,6 @@ export const transclusionNodeViews = {
     node: PMNode,
     view: EditorView,
     getPos: () => number | undefined,
-  ): NodeView => new TransclusionView(node, view, getPos),
+    decorations: readonly Decoration[],
+  ): NodeView => new TransclusionView(node, view, getPos, decorations),
 };

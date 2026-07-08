@@ -5,6 +5,35 @@ behavior, rationale, and (where useful) the implementation context
 behind a change. For a shorter, jargon-free summary of what's new
 in each release, see `CHANGELOG.md`.
 
+## Unreleased
+
+- **Live-zone divergence indicator** (`schema/nodes.ts`, `transclusion.ts`,
+  `transclusion-actions.ts`, `transclusion-divergence.ts` NEW,
+  `transclusion-divergence-plugin.ts` NEW, `transclusion-nodeview.ts`,
+  `settings.ts`, `settings-ui.ts`, `style.css`, `index.ts`). A live zone now
+  surfaces when its *source* has changed since it was pulled, distinct from
+  whether the local copy has been *edited*. The two are separable because the
+  existing `source_content_hash` includes the freshly-stamped child ids (so it
+  only detects local edits); a new **id-independent** `source_shape_hash` attr
+  stores the source's content signature at pull time, and a later read of the
+  source is hashed the same way (`idIndependentHash`, nested zones flattened)
+  and compared. Zones created before the attr fall back to the mirror's own
+  shape when unedited, and are left unflagged when edited (unknowable). Detection
+  is read-only: `checkAllZoneDivergence` reads each cross-file zone's source via
+  the existing `resolveTransclusion` (desktop-only; self-zones and unreadable
+  sources are skipped, never falsely flagged) and returns the diverged zone
+  identities. A plugin (`makeTransclusionDivergencePlugin`) holds that set,
+  paints a node decoration on each diverged zone, and schedules the check on
+  open and on a ~10-minute idle cadence (reset by edits so it lands in a quiet
+  moment), never in read mode. The NodeView reads the decoration's `spec.diverged`
+  to badge the glyph (a colourblind-safe dot + amended tooltip/aria, surfaced at
+  rest so a stale zone is noticeable without hovering) and to add a menu hint. A
+  Refresh stamps a `ZONE_REFRESHED_META` so the plugin rechecks promptly and
+  clears the badge rather than waiting for the idle cadence. The badge colour is
+  a configurable `displayColors.zoneDiverged` Style color (`--pmd-color-zone-
+  diverged`), linked across Appearance and Accessibility like the other
+  document-text colors.
+
 ## 0.1.0-beta.10 — 2026-07-07
 
 - **Live zones (transclusion)** (`schema/nodes.ts`, `transclusion.ts` NEW,

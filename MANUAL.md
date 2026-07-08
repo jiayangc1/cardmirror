@@ -1058,6 +1058,17 @@ at the zone's top-left opens its menu.
 re-tag, add cards — right where they sit; you don't have to unlink first. A
 dot on the glyph marks a zone whose contents you've changed from the source.
 
+**When the source moves on.** Separately from your own edits, the *original*
+section can change in the other file. CardMirror checks quietly for this — when
+you open a document, and every so often while it sits idle — and marks any zone
+whose source has since changed: its glyph surfaces at the left margin with a
+small coloured "source updated" badge (and the glyph menu says *Source has new
+content · Refresh to update*). It's just a heads-up — nothing is overwritten
+until you **Refresh** (which then clears the badge). You can recolour the badge
+under Settings → Appearance → Style colors ("Live-zone source-updated badge"),
+which is linked to the Accessibility color list. *(The check reads the other
+file from disk, so it runs on the desktop app only, never in read mode.)*
+
 **Refresh.** *Refresh Live Zone* (from the command bar, or the glyph menu's
 *Refresh from source*) re-reads the source and replaces the zone your cursor
 is in with the current version. *Refresh All Live Zones* does the whole

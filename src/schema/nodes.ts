@@ -373,6 +373,17 @@ export const nodes: { [name: string]: NodeSpec } = {
         default: '',
         validate: (v: unknown) => typeof v === 'string',
       },
+      /** Id-INDEPENDENT hash of the source section as last pulled. Unlike
+       *  `source_content_hash` (which includes the freshly-stamped child ids and
+       *  so only detects LOCAL edits), this is the source's content signature
+       *  ignoring heading ids — so a later read of the source can be compared to
+       *  it to tell whether the SOURCE has moved on ("diverged"), independent of
+       *  any local edits to the mirror. '' on zones created before this existed;
+       *  such zones fall back to the mirror's own shape when unedited. */
+      source_shape_hash: {
+        default: '',
+        validate: (v: unknown) => typeof v === 'string',
+      },
       /** Epoch ms of the last successful resolve (0 = never refreshed). */
       last_refreshed: {
         default: 0,

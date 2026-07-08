@@ -208,18 +208,23 @@ export interface DisplayColors {
    *  Display-only — the stored mark stays FF0000, so export + detection are
    *  unaffected; this just recolors both on screen. */
   readingMarker: string;
+  /** The live-zone "source updated" (diverged) badge. A hue distinct from the
+   *  teal rail and the amber edited-tint so all three read apart. */
+  zoneDiverged: string;
 }
 
 export const DEFAULT_DISPLAY_COLORS: DisplayColors = {
   analytic: '#1F3864',
   undertag: '#385623',
   readingMarker: '#FF0000',
+  zoneDiverged: '#8250DF',
 };
 
 export const DISPLAY_COLOR_KEYS: (keyof DisplayColors)[] = [
   'analytic',
   'undertag',
   'readingMarker',
+  'zoneDiverged',
 ];
 
 /** A user-defined keyboard macro: pressing `key` types `text` at the
@@ -3871,6 +3876,10 @@ export const CUSTOMIZABLE_COLOR_TOKENS: readonly CustomizableColorToken[] = [
   { group: 'Document text', name: 'pmd-color-analytic', label: 'Analytic text' },
   { group: 'Document text', name: 'pmd-color-undertag', label: 'Undertag text' },
   { group: 'Document text', name: 'pmd-color-reading-marker', label: 'Reading marker & unread text' },
+
+  // Live-zone chrome — also backed by displayColors (linked to the Appearance
+  // Style-colors picker), grouped apart from document text.
+  { group: 'Live zones', name: 'pmd-color-zone-diverged', label: 'Source-updated badge' },
   // ── Meaning-carrying hues, rebindable so colorblind users have
   //    direct recourse. The band foreground pair (band-fg-light/dark)
   //    is deliberately NOT here: text-on-band contrast only makes
@@ -3911,6 +3920,7 @@ export const DISPLAY_COLOR_TOKEN_TO_KEY: Readonly<Record<string, keyof DisplayCo
   'pmd-color-analytic': 'analytic',
   'pmd-color-undertag': 'undertag',
   'pmd-color-reading-marker': 'readingMarker',
+  'pmd-color-zone-diverged': 'zoneDiverged',
 };
 
 /** Token names actually managed by `customColorOverrides` — every

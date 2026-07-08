@@ -111,6 +111,7 @@ export const RIBBON_GROUPS: RibbonGroup[] = [
       'insertImage',
       'insertFootnote',
       'insertLiveZone',
+      'insertSelfLiveZone',
       'refreshLiveZone',
       'refreshAllLiveZones',
       'detachLiveZone',

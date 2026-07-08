@@ -770,6 +770,11 @@ button {
      applies in both light and dark, and red is readable on dark paper. Display-only
      — the stored mark stays FF0000, so export + detection are unaffected. */
   --pmd-color-reading-marker: var(--pmd-user-color-readingMarker, #ff0000);
+  /* Live-zone "source updated" (diverged) badge. Backed by displayColors
+     (Appearance -> Style colors, linked to Accessibility); theme-invariant so
+     the one chosen hue reads on both light and dark chrome. Default violet —
+     distinct from the teal rail and the amber edited-tint. */
+  --pmd-color-zone-diverged: var(--pmd-user-color-zoneDiverged, #8250df);
   --pmd-c-spellcheck: red;             /* misspelling squiggle */
   --pmd-c-live-indicator: #00ff66;     /* benchmark live dot */
   --pmd-c-bench-chip-bg: rgba(20, 22, 26, 0.92); /* diagnostics chip: fixed dark */
@@ -2405,6 +2410,27 @@ code {
 .pmd-transclusion.pmd-transclusion-edited > .pmd-transclusion-glyph-btn,
 .pmd-transclusion[data-status='unreachable'] > .pmd-transclusion-glyph-btn {
   color: var(--pmd-c-warn, #b26a00);
+}
+/* Diverged (the SOURCE moved on since last pull) — an ADDITIVE badge, orthogonal
+   to the edited tint. Unlike the hover-only edited state, this surfaces the glyph
+   at rest (with a coloured dot) so a stale zone is noticeable without hovering;
+   the dot's shape + hue keep it colourblind-distinguishable from the amber edit
+   tint. The fix is the menu's Refresh. */
+.pmd-transclusion.pmd-zone-diverged > .pmd-transclusion-glyph-btn {
+  opacity: 1;
+}
+.pmd-transclusion.pmd-zone-diverged > .pmd-transclusion-glyph-btn::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pmd-color-zone-diverged, #8250df);
+  border: 1px solid var(--pmd-c-bg);
+  box-sizing: border-box;
+  pointer-events: none;
 }
 /* The transcluded cards render inline; suppress their own hover rail so it
    doesn't stack with the zone rail. */

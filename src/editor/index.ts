@@ -137,6 +137,8 @@ import {
   readModeAwareRedo,
 } from './read-mode-plugin.js';
 import { markUnreadPlugin, MARK_UNREAD_TOGGLE } from './mark-unread-plugin.js';
+import { makeIntraTransclusionPlugin, openSelfZonePicker } from './intra-transclusion-plugin.js';
+import { makeTransclusionDivergencePlugin } from './transclusion-divergence-plugin.js';
 import { tagCollabTransaction, collabPluginSource, setCollabInviteJoiner, setCollabInviter } from './collab/collab-hooks.js';
 import { learnHighlightPlugin, flashcardRangeAt } from './learn-highlight-plugin.js';
 import { repairHighlightPlugin } from './repair-highlight-plugin.js';
@@ -1432,6 +1434,10 @@ const ribbonContext: RibbonContext = {
       transcludeMode: true,
       docPath,
     });
+  },
+  insertSelfLiveZone: () => {
+    // PROTOTYPE (intra-doc transclusion): pick a section of THIS doc to mirror.
+    if (view) openSelfZonePicker(view);
   },
   insertImage: () => {
     if (!view) return;
@@ -3423,6 +3429,7 @@ const VIEWLESS_RIBBON_COMMANDS = new Set<RibbonCommandId>([
   // its Mod-Shift-Space binding must work view-less too.
   'openQuickCardSearch',
   'insertLiveZone',
+  'insertSelfLiveZone',
   // Opens the Quick Cards manager overlay — no active doc required.
   'manageQuickCards',
   // Multi-pane workspace commands — fire on the shell, not a
@@ -3467,6 +3474,7 @@ function runViewlessRibbon(id: RibbonCommandId): void {
     case 'goHome': ribbonContext.goHome(); return;
     case 'openQuickCardSearch': ribbonContext.openQuickCardSearch(); return;
     case 'insertLiveZone': ribbonContext.insertLiveZone(); return;
+    case 'insertSelfLiveZone': ribbonContext.insertSelfLiveZone(); return;
     case 'manageQuickCards': ribbonContext.manageQuickCards(); return;
     case 'toggleVoice': ribbonContext.toggleVoice(); return;
     case 'startFlowHost': ribbonContext.startFlowHost(); return;
@@ -4387,6 +4395,13 @@ export function buildEditorPlugins(): Plugin[] {
     italicCaretPlugin,
     transclusionSelectionGuard,
     transclusionEmptyZoneReaper,
+    // Cross-file live-zone divergence indicator: reads sources at quiet moments
+    // and badges any zone whose source has moved on. Read-only, desktop-only.
+    makeTransclusionDivergencePlugin(),
+    // PROTOTYPE (intra-doc transclusion): debounced bidirectional reconcile
+    // between a self-zone and its source section. Inert unless the doc holds a
+    // self-zone, which only the (flag-gated) create command produces.
+    makeIntraTransclusionPlugin(),
     frozenSelectionPlugin,
     pilcrowSelectionPlugin,
     absorbPlugin,

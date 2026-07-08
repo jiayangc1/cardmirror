@@ -22,6 +22,7 @@
 import { RIBBON_COMMAND_IDS, type RibbonCommandId } from './ribbon-commands.js';
 import { settings } from './settings.js';
 import { collabEnabled } from './collab/collab-gate.js';
+import { INTRA_TRANSCLUSION_ENABLED } from './intra-transclusion-plugin.js';
 import { getElectronHost, isWindowsHost } from './host/index.js';
 
 const FLOW_COMMANDS = new Set<RibbonCommandId>([
@@ -64,6 +65,9 @@ export function isRibbonCommandAvailable(id: RibbonCommandId): boolean {
   if (id === 'insertLiveZone' || id === 'refreshLiveZone' || id === 'refreshAllLiveZones') {
     return getElectronHost() !== null;
   }
+  // PROTOTYPE: intra-doc live zones work entirely within the open doc (no disk),
+  // so they aren't desktop-gated — but they are behind the prototype flag.
+  if (id === 'insertSelfLiveZone') return INTRA_TRANSCLUSION_ENABLED;
   if (COLLAB_COMMANDS.has(id)) return collabEnabled();
   return true;
 }

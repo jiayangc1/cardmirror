@@ -4643,6 +4643,7 @@ export type RibbonCommandId =
   | 'sendToSpeechAtEnd'
   | 'sendToDropzone'
   | 'insertLiveZone'
+  | 'insertSelfLiveZone'
   | 'refreshLiveZone'
   | 'refreshAllLiveZones'
   | 'detachLiveZone'
@@ -4850,6 +4851,7 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'sendToSpeechAtEnd',
   'sendToDropzone',
   'insertLiveZone',
+  'insertSelfLiveZone',
   'refreshLiveZone',
   'refreshAllLiveZones',
   'detachLiveZone',
@@ -5017,6 +5019,7 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   sendToSpeechAtEnd: 'Send to Speech (At End)',
   sendToDropzone: 'Send to Dropzone',
   insertLiveZone: 'Insert Live Zone',
+  insertSelfLiveZone: 'Insert Live Zone from This Document',
   refreshLiveZone: 'Refresh Live Zone',
   refreshAllLiveZones: 'Refresh All Live Zones',
   detachLiveZone: 'Detach Live Zone',
@@ -5148,6 +5151,13 @@ export const RIBBON_COMMAND_ALIASES: Partial<Record<RibbonCommandId, readonly st
   cycleTimerPreset: ['switch timer preset', 'toggle timer preset', 'next timer preset', 'change timer preset', 'timer profile', 'timer preset'],
   insertFootnote: ['footnote', 'endnote', 'add footnote', 'new footnote', 'note'],
   insertLiveZone: ['transclude', 'transclusion', 'live zone', 'living zone', 'link section'],
+  insertSelfLiveZone: [
+    'transclude section',
+    'intra-doc transclusion',
+    'same document live zone',
+    'mirror section',
+    'ted nelson',
+  ],
   refreshLiveZone: ['refresh transclusion', 'update live zone', 'sync live zone'],
   refreshAllLiveZones: [
     'refresh all transclusions',
@@ -5298,6 +5308,7 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   saveMarkedCards: 'Mod-Alt-m',
   toggleAutosave: '',
   insertLiveZone: '',
+  insertSelfLiveZone: '',
   refreshLiveZone: '',
   refreshAllLiveZones: '',
   detachLiveZone: '',
@@ -5520,6 +5531,9 @@ export interface RibbonContext {
   sendToDropzone: () => void;
   /** Open the picker to insert a live zone (transclusion). Desktop-only UI. */
   insertLiveZone: () => void;
+  /** PROTOTYPE: open the picker to insert an intra-document live zone mirroring
+   *  another section of THIS document. */
+  insertSelfLiveZone: () => void;
   /** Send the cursor's card (or selection) to the starred recipient/group. */
   sendToStarred: () => void;
   /** Insert the most-recently-received card (from the receive pill) into the
@@ -5664,6 +5678,7 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   sendToSpeechAtCursor: () => {},
   sendToDropzone: () => {},
   insertLiveZone: () => {},
+  insertSelfLiveZone: () => {},
   sendToStarred: () => {},
   insertReceivedAtCursor: () => {},
   insertReceivedAtEnd: () => {},
@@ -6116,6 +6131,13 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
       return (_state, dispatch) => {
         if (!dispatch) return true;
         ctx.insertLiveZone();
+        return true;
+      };
+    case 'insertSelfLiveZone':
+      // PROTOTYPE: opens the in-document heading picker; it builds the self-zone.
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.insertSelfLiveZone();
         return true;
       };
     case 'refreshLiveZone':

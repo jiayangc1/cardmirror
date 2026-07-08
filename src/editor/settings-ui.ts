@@ -1253,6 +1253,7 @@ function buildColorsEditor(): HTMLElement {
     analytic: 'Analytic',
     undertag: 'Undertag',
     readingMarker: 'Reading marker',
+    zoneDiverged: 'Live-zone source-updated badge',
   };
 
   function setColor(key: keyof DisplayColors, value: string): void {
