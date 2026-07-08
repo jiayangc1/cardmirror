@@ -14,10 +14,9 @@
  *
  * Perf: the setting is OFF by default, so `build` bails before walking
  * anything (zero cost for the common case). When on, it rebuilds the whole
- * set on each doc change.
- * ponytail: O(doc) full rebuild per doc-change while on. Fine, since "on" is a
- * review posture (few edits). Upgrade to incremental (map + recompute the
- * changed card, like read-mode-plugin) only if a big doc lags while on.
+ * set on each doc change — an O(doc) full rebuild, which is fine since "on" is
+ * a review posture (few edits). If a big doc ever lags while on, upgrade to
+ * incremental (map + recompute the changed card, like read-mode-plugin).
  */
 
 import { Plugin } from 'prosemirror-state';

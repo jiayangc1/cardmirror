@@ -148,6 +148,13 @@ describe('accessibility color tokens', () => {
     // and cascades to the editor rail, the nav rail, and the glyph.
     expect(CUSTOM_OVERRIDE_TOKEN_NAMES).toContain('pmd-c-transclusion');
   });
+
+  it('exposes the reading-marker / unread hue as a rebindable override', () => {
+    const tok = CUSTOMIZABLE_COLOR_TOKENS.find((t) => t.name === 'pmd-c-reading-marker');
+    expect(tok).toBeTruthy();
+    expect(tok!.label).toMatch(/marker/i);
+    expect(CUSTOM_OVERRIDE_TOKEN_NAMES).toContain('pmd-c-reading-marker');
+  });
 });
 
 describe('document-text color migration', () => {

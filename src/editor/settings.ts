@@ -3872,6 +3872,7 @@ export const CUSTOMIZABLE_COLOR_TOKENS: readonly CustomizableColorToken[] = [
   { group: 'Annotations', name: 'pmd-c-note', label: 'Private note accent' },
   { group: 'Annotations', name: 'pmd-c-repair-accent', label: 'Paragraph repair accent' },
   { group: 'Annotations', name: 'pmd-c-transclusion', label: 'Live-zone rail' },
+  { group: 'Annotations', name: 'pmd-c-reading-marker', label: 'Reading marker & unread-after text' },
   { group: 'Editor', name: 'pmd-c-link', label: 'Hyperlink' },
   { group: 'Editor', name: 'pmd-c-spellcheck', label: 'Misspelling underline' },
   { group: 'Status', name: 'pmd-c-notify-dot', label: 'Due-date dot' },

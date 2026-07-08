@@ -764,6 +764,7 @@ button {
   --pmd-c-aff: #1e6fcc;                /* prep-timer Aff */
   --pmd-c-neg: #c53030;                /* prep-timer Neg */
   --pmd-c-notify-dot: #e5484d;         /* ribbon due-date dot */
+  --pmd-c-reading-marker: #ff0000;     /* reading-marker text + the "unread after a marker" tint; one rebindable hue so colorblind users have recourse. Display-only: the stored mark stays FF0000, so export + detection are unaffected. */
   --pmd-c-spellcheck: red;             /* misspelling squiggle */
   --pmd-c-live-indicator: #00ff66;     /* benchmark live dot */
   --pmd-c-bench-chip-bg: rgba(20, 22, 26, 0.92); /* diagnostics chip: fixed dark */
@@ -3307,6 +3308,22 @@ body.pmd-override-shading [data-shading] {
   color: inherit !important;
 }
 
+/* Reading marker: a marker IS red `font_color` text (FF0000). Render it in the
+   rebindable --pmd-c-reading-marker hue so colorblind users can change it (the
+   same hue the "unread after a marker" tint uses). Display-only — the stored
+   mark stays FF0000, so export and marker detection are untouched. `!important`
+   beats the inline `color:` the mark emits; the case-insensitive value match
+   catches lowercase `ff0000` from `.docx` imports. The dark-theme rule
+   out-specifies the dark-band readability override above, so the marker keeps
+   its meaning color on the dark paper too (red is readable there) rather than
+   flattening to body-text color. */
+.ProseMirror span[data-color="ff0000" i] {
+  color: var(--pmd-c-reading-marker, #ff0000) !important;
+}
+:root[data-theme="dark"][data-theme-doc="dark"] .ProseMirror span[data-color="ff0000" i] {
+  color: var(--pmd-c-reading-marker, #ff0000) !important;
+}
+
 /* ProseMirror selection visibility */
 .ProseMirror:focus { outline: none; }
 
@@ -4699,7 +4716,7 @@ html.pmd-nav-flat .pmd-nav-type-analytic:hover .pmd-nav-label {
    author declaration `!important` beats) regardless of how PM nests the
    decoration span vs. the mark span. */
 .pmd-unread,
-.pmd-unread * { color: #ff0000 !important; }
+.pmd-unread * { color: var(--pmd-c-reading-marker, #ff0000) !important; }
 
 /* Images are never read-aloud content — hide them in read mode. */
 .pmd-read-mode img[data-pmd-image],
