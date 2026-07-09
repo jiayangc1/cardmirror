@@ -62,6 +62,7 @@ import { refreshFailMessage } from './transclusion-resolve.js';
 import { getElectronHost, getHost } from './host/index.js';
 import { classifyChar, isWordChar } from './word-break.js';
 import { moveContainerUp, moveContainerDown } from './move-container.js';
+import { toggleNumberRole, toggleSubRole, toggleNumRestart } from './numbering-commands.js';
 import { settings } from './settings.js';
 import { matchAcronymPattern } from './acronym-patterns.js';
 import {
@@ -4659,6 +4660,10 @@ export type RibbonCommandId =
   // ignored. No default bindings — wire up via Settings → Keyboard shortcuts.
   | 'selectCurrentHeading'
   | 'deleteCurrentHeading'
+  // Auto-numbering skeleton authoring (NUMBERING_PLAN.md §4).
+  | 'toggleNumberRole'
+  | 'toggleSubRole'
+  | 'toggleNumRestart'
   | 'copyCurrentHeading'
   // Quick Cards (see reference-docs/SPEC-quick-cards.md). Add saves the
   // current selection as a named, tagged snippet (no default binding);
@@ -4865,6 +4870,9 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'insertReceivedAtEnd',
   'selectCurrentHeading',
   'deleteCurrentHeading',
+  'toggleNumberRole',
+  'toggleSubRole',
+  'toggleNumRestart',
   'copyCurrentHeading',
   'addQuickCard',
   'manageQuickCards',
@@ -5035,6 +5043,9 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   insertReceivedAtEnd: 'Insert Received Card (At End)',
   selectCurrentHeading: 'Select Current Heading',
   deleteCurrentHeading: 'Delete Current Heading',
+  toggleNumberRole: 'Number: Toggle Number Role',
+  toggleSubRole: 'Number: Toggle Substructure Role',
+  toggleNumRestart: 'Number: Toggle Start-Over-Here',
   copyCurrentHeading: 'Copy Current Heading',
   addQuickCard: 'Add Quick Card',
   manageQuickCards: 'Manage Quick Cards',
@@ -5208,6 +5219,9 @@ export const RIBBON_COMMAND_ALIASES: Partial<Record<RibbonCommandId, readonly st
   timerReset: ['reset timer', 'reset prep'],
   flipQuoteDirection: ['flip quotes', 'curly quotes', 'reverse quote direction', 'smart quote direction', 'fix apostrophe', 'quote direction'],
   deleteCurrentHeading: ['delete card', 'delete heading', 'delete current card'], // "remove …" via the delete/remove synonym group
+  toggleNumberRole: ['number', 'numbering', 'numbered card', 'auto number', 'list number'],
+  toggleSubRole: ['substructure', 'sub number', 'sub letter', 'numbering', 'sublist', 'letter'],
+  toggleNumRestart: ['restart numbering', 'start over', 'renumber', 'continue numbering', 'number restart'],
   saveSendDoc: ['send doc', 'export send doc', 'send version'],
   saveMarkedCards: ['marked cards', 'extract marked cards', 'export marked cards', 'save marked'],
   startFlowHost: ['warm flow', 'prewarm flow', 'flow connection', 'connect to flow', 'speed up flow'],
@@ -5359,6 +5373,9 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   insertReceivedAtEnd: 'Mod-Alt-p',
   selectCurrentHeading: 'Alt-a',
   deleteCurrentHeading: '',
+  toggleNumberRole: 'Mod-Alt-1',
+  toggleSubRole: 'Mod-Alt-2',
+  toggleNumRestart: 'Mod-Alt-3',
   copyCurrentHeading: '',
   addQuickCard: '',
   manageQuickCards: '',
@@ -5791,6 +5808,9 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
     case 'setBlock': return setHeading('block');
     case 'setTag': return setTag();
     case 'setAnalytic': return setAnalytic();
+    case 'toggleNumberRole': return toggleNumberRole;
+    case 'toggleSubRole': return toggleSubRole;
+    case 'toggleNumRestart': return toggleNumRestart;
     case 'setUndertag': return setUndertag();
     case 'moveContainerUp': return moveContainerUp();
     case 'moveContainerDown': return moveContainerDown();

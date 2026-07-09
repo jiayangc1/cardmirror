@@ -2254,6 +2254,24 @@ code {
   margin: var(--pmd-para-tag-before, 0.75rem) 0 var(--pmd-para-tag-after, 0.25rem) 0;
 }
 
+/* Auto-numbering glyph (NUMBERING_PLAN.md §6) — PROTOTYPE. A read-only widget
+   the numbering plugin injects at the start of a numbered card's tag; the number
+   itself is computed, never stored. Sub-level (letter) reads slightly quieter and
+   indented so the two levels are visually distinct. */
+.pmd-card-number {
+  display: inline-block;
+  margin-right: 0.4em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--pmd-c-text-muted);
+  user-select: none;
+}
+.pmd-card-number-sub {
+  margin-left: 1.4em;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
 /* Analytic = same outline level as Tag, dark blue. The id-scoped
    selector is needed because `#editor p { margin: 0 }` has higher
    specificity than a bare `.pmd-analytic` rule and would otherwise

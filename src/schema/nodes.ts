@@ -61,6 +61,39 @@ const headingAttrs = {
   ...spacingAttr,
 };
 
+/**
+ * Auto-numbering skeleton (display-only; see NUMBERING_PLAN.md). The number
+ * GLYPH ("1", "a") is NEVER stored — only the authorial role and restart flag,
+ * from which `computeNumbering` derives numbers positionally at render time.
+ *
+ *   numRole    'none' = skipped, transparent to both counters (the default);
+ *              'number' = a level-0 count; 'sub' = a level-1 letter, subordinate
+ *              to the current number.
+ *   numRestart false (the card default) = numbering flows through this unit;
+ *              true = the count restarts here.
+ *
+ * Lives on the card UNIT (`card` / `analytic_unit`). `block` carries only
+ * `numRestart`, but defaulting TRUE (each block starts its own count unless the
+ * author flips it to "continue").
+ */
+const numberingCardAttrs = {
+  numRole: {
+    default: 'none' as 'none' | 'number' | 'sub',
+    validate: (v: unknown) => v === 'none' || v === 'number' || v === 'sub',
+  },
+  numRestart: {
+    default: false as boolean,
+    validate: (v: unknown) => typeof v === 'boolean',
+  },
+};
+const blockAttrs = {
+  ...headingAttrs,
+  numRestart: {
+    default: true as boolean,
+    validate: (v: unknown) => typeof v === 'boolean',
+  },
+};
+
 /** Convert a paragraph node's `indent` (dxa) to an inline CSS
  *  declaration, or return empty when unindented. */
 function indentToStyle(indent: unknown): string {
@@ -528,11 +561,15 @@ export const nodes: { [name: string]: NodeSpec } = {
 
   block: {
     content: 'inline*',
-    attrs: headingAttrs,
+    attrs: blockAttrs,
     defining: true,
     parseDOM: [{
       tag: 'h3.pmd-block',
-      getAttrs: (dom: HTMLElement) => ({ indent: readIndentFromStyle(dom) }),
+      getAttrs: (dom: HTMLElement) => ({
+        indent: readIndentFromStyle(dom),
+        // Default is restart (true); only a "continue" block carries the attr.
+        numRestart: dom.getAttribute('data-num-restart') !== 'false',
+      }),
     }],
     toDOM: (node) => {
       const attrs: Record<string, string> = {
@@ -541,6 +578,8 @@ export const nodes: { [name: string]: NodeSpec } = {
       };
       const style = indentToStyle(node.attrs['indent']);
       if (style) attrs['style'] = style;
+      // Emit only the non-default: a block that CONTINUES the previous count.
+      if (node.attrs['numRestart'] === false) attrs['data-num-restart'] = 'false';
       return ['h3', attrs, 0];
     },
   },
@@ -578,8 +617,24 @@ export const nodes: { [name: string]: NodeSpec } = {
     content: 'tag (card_body | undertag | cite_paragraph | table)*',
     defining: true,
     isolating: true,
-    parseDOM: [{ tag: 'div.pmd-card' }],
-    toDOM: () => ['div', { class: 'pmd-card' }, 0],
+    attrs: numberingCardAttrs,
+    parseDOM: [{
+      tag: 'div.pmd-card',
+      getAttrs: (dom: HTMLElement) => {
+        const r = dom.getAttribute('data-num-role');
+        return {
+          numRole: r === 'number' || r === 'sub' ? r : 'none',
+          numRestart: dom.getAttribute('data-num-restart') === 'true',
+        };
+      },
+    }],
+    toDOM: (node) => {
+      const attrs: Record<string, string> = { class: 'pmd-card' };
+      const role = node.attrs['numRole'];
+      if (role && role !== 'none') attrs['data-num-role'] = String(role);
+      if (node.attrs['numRestart'] === true) attrs['data-num-restart'] = 'true';
+      return ['div', attrs, 0];
+    },
   },
 
   /** Card label. Heading-level outline-4 with stable id. Card-only. */
@@ -674,8 +729,24 @@ export const nodes: { [name: string]: NodeSpec } = {
     content: 'analytic (card_body | undertag | cite_paragraph | table)*',
     defining: true,
     isolating: true,
-    parseDOM: [{ tag: 'div.pmd-analytic-unit' }],
-    toDOM: () => ['div', { class: 'pmd-analytic-unit' }, 0],
+    attrs: numberingCardAttrs,
+    parseDOM: [{
+      tag: 'div.pmd-analytic-unit',
+      getAttrs: (dom: HTMLElement) => {
+        const r = dom.getAttribute('data-num-role');
+        return {
+          numRole: r === 'number' || r === 'sub' ? r : 'none',
+          numRestart: dom.getAttribute('data-num-restart') === 'true',
+        };
+      },
+    }],
+    toDOM: (node) => {
+      const attrs: Record<string, string> = { class: 'pmd-analytic-unit' };
+      const role = node.attrs['numRole'];
+      if (role && role !== 'none') attrs['data-num-role'] = String(role);
+      if (node.attrs['numRestart'] === true) attrs['data-num-restart'] = 'true';
+      return ['div', attrs, 0];
+    },
   },
 
   /** Undertag paragraph (linked to UndertagChar). */

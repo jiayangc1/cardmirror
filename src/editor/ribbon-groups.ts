@@ -58,6 +58,10 @@ export const RIBBON_GROUPS: RibbonGroup[] = [
     commands: ['setPocket', 'setHat', 'setBlock', 'setTag', 'setAnalytic', 'setUndertag'],
   },
   {
+    title: 'Numbering',
+    commands: ['toggleNumberRole', 'toggleSubRole', 'toggleNumRestart'],
+  },
+  {
     title: 'Character styles',
     commands: [
       'applyCite',

@@ -156,6 +156,7 @@ import { absorbPlugin } from './absorb-plugin.js';
 import { citeClassifierPlugin } from './cite-classifier-plugin.js';
 import { namedStyleNormalizerPlugin } from './named-style-normalizer-plugin.js';
 import { fontSizeClassPlugin } from './font-size-class-plugin.js';
+import { cardNumberingPlugin } from './numbering-plugin.js';
 import {
   buildSimilarSelectionPlugin,
   selectAllOfStyle,
@@ -4422,6 +4423,7 @@ export function buildEditorPlugins(): Plugin[] {
     citeClassifierPlugin,
     namedStyleNormalizerPlugin,
     fontSizeClassPlugin,
+    cardNumberingPlugin,
     buildSimilarSelectionPlugin(effectivePtForNode),
     findReplacePlugin(),
     repairParagraphPlugin(),
