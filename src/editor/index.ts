@@ -143,7 +143,8 @@ import {
   openInsertInDocCopy,
   selfRefSelectionPos,
 } from './self-transclusion-commands.js';
-import { flattenSelfRefs, flattenSelfRefsInSlice } from './self-transclusion.js';
+import { flattenSelfRefs, flattenSelfRefsInSlice, fragmentHasSelfRef } from './self-transclusion.js';
+import { rememberLinkedCopy, clearLinkedCopy } from './clipboard-link-cache.js';
 import { makeTransclusionDivergencePlugin, transclusionDivergenceKey } from './transclusion-divergence-plugin.js';
 import { tagCollabTransaction, collabPluginSource, setCollabInviteJoiner, setCollabInviter } from './collab/collab-hooks.js';
 import { learnHighlightPlugin, flashcardRangeAt } from './learn-highlight-plugin.js';
@@ -181,7 +182,7 @@ import { imageContextMenuPlugin } from './image-context-menu-plugin.js';
 import { editorNodeViews } from './image-resize-nodeview.js';
 import { setViewDocPath, getViewDocPath } from './transclusion-doc-path.js';
 import { setRePickOpener, setOpenSourceOpener } from './transclusion-actions.js';
-import { isTransclusionNode } from './transclusion.js';
+import { isTransclusionNode, fragmentHasZone } from './transclusion.js';
 import { showConfirm } from './confirm-dialog.js';
 import { linkContextMenuPlugin } from './link-context-menu-plugin.js';
 import { wordSelectionPlugin } from './word-selection-plugin.js';
@@ -4484,11 +4485,21 @@ export function buildEditorPlugins(): Plugin[] {
             return true;
           },
         },
-        // Copying a Live View out of the doc can't carry the live reference, so
-        // materialize it to plain cards (resolved from this doc) — matching how a
-        // Linked Copy flattens on paste. (transformPasted flattens the copies.)
+        // Clipboard content is always self-contained: a live view materializes to
+        // plain cards here, and a linked copy flattens on paste — so a cross-doc /
+        // external paste gets working content, never a dangling link. To ALSO keep
+        // the link on a SAME-doc paste (matching drag), stash the un-flattened
+        // slice keyed by this view; the paste handler restores it when the paste
+        // lands back in the same doc. Cache only when there's actually a link to
+        // preserve; a link-less copy clears it.
         transformCopied(slice, view) {
-          return flattenSelfRefsInSlice(slice, view.state.doc, newHeadingId);
+          const clipboard = flattenSelfRefsInSlice(slice, view.state.doc, newHeadingId);
+          if (fragmentHasSelfRef(slice.content) || fragmentHasZone(slice.content)) {
+            rememberLinkedCopy(slice, view, clipboard);
+          } else {
+            clearLinkedCopy();
+          }
+          return clipboard;
         },
       },
     }),

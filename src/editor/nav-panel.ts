@@ -1527,12 +1527,17 @@ export class NavigationPanel {
     let indicatorsAboveDraggedCount = 0;
     let pastDragged = false;
 
-    // Is the drag source a whole live zone? A zone drops as a doc-level unit
-    // (its item level is low, so it isn't level-scoped) and offers no targets
-    // inside any zone.
+    // Is the drag source a doc-level opaque unit — a whole live zone (linked
+    // copy) OR a live view (`self_ref`)? Then it drops as a doc-level unit (not
+    // level-scoped) at any doc boundary, and offers no targets inside any zone.
+    // Must match the editor surface's test: a self_ref is picked up at level 0,
+    // so omitting it here made `entry.level > 0` skip EVERY heading, leaving only
+    // the end-of-doc slot as a drop target for a live view.
     const srcItem = dragController.getSession()?.items[0];
-    const srcIsZone =
-      !!srcItem && isTransclusionNode(dragController.getSession()!.view.state.doc.nodeAt(srcItem.from));
+    const srcNode = srcItem
+      ? dragController.getSession()!.view.state.doc.nodeAt(srcItem.from)
+      : null;
+    const srcIsZone = !!srcNode && (isTransclusionNode(srcNode) || isSelfRef(srcNode));
 
     for (const li of items) {
       const entry = this.liEntries.get(li);

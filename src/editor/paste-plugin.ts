@@ -54,6 +54,7 @@ import { freshHeadingIds } from './drag-controller.js';
 import { condenseBranchC, condenseMerge } from './condense.js';
 import { buildImageNodeFromBlob, insertImageNode } from './image-insert.js';
 import { fragmentHasZone, flattenZonesInSlice } from './transclusion.js';
+import { recallLinkedCopy } from './clipboard-link-cache.js';
 
 
 /**
@@ -355,7 +356,14 @@ export function buildPastePlugin(ctx: PastePluginCtx): Plugin<PluginState> {
       // Layout-table unwrap runs in the same hook so head-detect /
       // card-body fitting downstream see content that's already been
       // lifted out of any single-cell wrapping table.
-      transformPasted(slice, _view) {
+      transformPasted(slice, view) {
+        // Same-doc paste of our own live view / linked copy: restore the link-
+        // bearing original (fresh heading ids so the pasted cards don't collide
+        // with the source — freshHeadingIds leaves the source-ref attrs alone, so
+        // the link survives). A cross-doc / external paste falls through and gets
+        // the flattened clipboard content.
+        const linked = recallLinkedCopy(view, slice);
+        if (linked) return freshHeadingIds(unwrapSingleCellTables(linked));
         const out = freshHeadingIds(unwrapSingleCellTables(slice));
         if (!fragmentHasZone(out.content)) return out;
         // Any zone content on the clipboard pastes as a PLAIN cached copy (its

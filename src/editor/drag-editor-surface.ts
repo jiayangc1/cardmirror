@@ -709,21 +709,45 @@ export class EditorDragSurface implements DragSurface {
     }
 
     // A Live View (`self_ref`) is a leaf atom — no position sits "inside" it, so
-    // the depth walk above/below never sees it. `posAtCoords().inside` is its own
-    // position when the pointer is over it; grab it as a doc-level unit (like a
-    // zone). Checked after the zone walk so a live view nested in a linked copy
+    // the depth walk above/below never sees it. Grab it as a doc-level unit (like
+    // a zone). Checked after the zone walk so a live view nested in a linked copy
     // still grabs the whole copy, not the inner view.
+    let selfRefHit: { pos: number; node: import('prosemirror-model').Node } | null = null;
+    // Fast path: `posAtCoords().inside` is the atom's own position when the
+    // pointer is over it.
     if (posInfo.inside > -1) {
       const node = doc.nodeAt(posInfo.inside);
-      if (node && isSelfRef(node)) {
-        return {
-          from: posInfo.inside,
-          to: posInfo.inside + node.nodeSize,
-          type: 'self_ref',
-          level: 0,
-          label: String(node.attrs['source_label'] || 'Live view').replace(/^↳\s*/, ''),
-        };
+      if (node && isSelfRef(node)) selfRefHit = { pos: posInfo.inside, node };
+    }
+    // Fallback: `inside` is unreliable over a `contenteditable=false` atom — some
+    // hits resolve to a neighbouring text position with `inside === -1`, which
+    // dropped through to grab an ADJACENT card instead of the live view. Resolve
+    // via the DOM: if the pointer is literally over a live view's element, match
+    // it to its node by DOM identity (`nodeDOM`). Any self_ref inside a zone was
+    // already grabbed as the whole zone above, so this only finds a bare view.
+    if (!selfRefHit) {
+      const domEl = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+      const selfRefEl = domEl?.closest('.pmd-self-ref') ?? null;
+      if (selfRefEl) {
+        const view = this.view;
+        doc.descendants((node, pos) => {
+          if (selfRefHit) return false;
+          if (isSelfRef(node)) {
+            if (view.nodeDOM(pos) === selfRefEl) selfRefHit = { pos, node };
+            return false; // atom — nothing to descend into
+          }
+          return true;
+        });
       }
+    }
+    if (selfRefHit) {
+      return {
+        from: selfRefHit.pos,
+        to: selfRefHit.pos + selfRefHit.node.nodeSize,
+        type: 'self_ref',
+        level: 0,
+        label: String(selfRefHit.node.attrs['source_label'] || 'Live view').replace(/^↳\s*/, ''),
+      };
     }
 
     // Walk depths from inner to outer; return the smallest recognized
