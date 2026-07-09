@@ -10246,6 +10246,14 @@ body.pmd-multi-nav-empty.pmd-multi-doc #status-bar {
   background: var(--pmd-c-hover-strong);
   border-radius: 3px;
 }
+/* On an unfocused speech-doc pane the chip is beige (--pmd-c-speech-bg), so the
+   generic grey pressed-box above clashes with the banner tint. Use the beige
+   border tone instead, so the pressed outline toggle reads as part of the
+   speech coloring rather than a stray grey block. */
+.pmd-pane-speech:not(.pmd-pane-focused) .pmd-pane-chip-expand[aria-pressed="true"],
+.pmd-pane-speech:not(.pmd-pane-focused) .pmd-pane-chip-nav[aria-pressed="true"] {
+  background: var(--pmd-c-speech-border);
+}
 .pmd-pane-chip-close {
   flex: 0 0 auto;
   width: 18px;

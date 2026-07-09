@@ -172,6 +172,11 @@ export class NavigationPanel {
   // ---- Selection state (multi-select) ----
   private selectedIds: Set<string> = new Set();
   private selectionAnchorId: string | null = null;
+  /** Doc position of the `self_ref` whose window row(s) carry the caret
+   *  highlight, or null. Projected (windowed) rows have `id: null`, so the
+   *  id-keyed `selectedIds` can't reach them — a node-selected live view is
+   *  tracked here instead and lit by matching `entry.pos`. */
+  private selectedWindowPos: number | null = null;
   /** Outline level of currently selected entries; selection is
    *  level-locked (so tags + analytics — both level 4 — can be
    *  selected together, but a tag + a block cannot). */
@@ -761,7 +766,10 @@ export class NavigationPanel {
       if (entry.windowed) li.classList.add('pmd-nav-item-window');
       if (entry.id) li.dataset['id'] = entry.id;
       li.dataset['pos'] = String(entry.pos);
-      if (entry.id != null && this.selectedIds.has(entry.id)) {
+      if (
+        (entry.id != null && this.selectedIds.has(entry.id)) ||
+        (entry.windowed && entry.pos === this.selectedWindowPos)
+      ) {
         li.classList.add('pmd-nav-item-selected');
       }
       if (hitEntryIndices.has(i)) {
@@ -818,9 +826,11 @@ export class NavigationPanel {
       }
 
       if (entry.windowed) {
-        // Read-only projected row: click scrolls to the window; no drag,
-        // selection, or context menu (nothing real to act on).
-        li.addEventListener('click', () => this.jumpTo(entry));
+        // Read-only projected row: a plain click scrolls to the window; a
+        // pickup-drag moves the WHOLE live view (the `self_ref`). Routed through
+        // the same pointer handler as headings so it reuses the drag machinery —
+        // it just has no id-selection or context menu (nothing real to act on).
+        li.addEventListener('pointerdown', (e) => this.onLiPointerDown(e, entry, li));
       } else {
         // Pointer-based handler: distinguishes click (jump-to) from drag
         // (move heading), and detects double-clicks (collapse toggle) in
@@ -936,6 +946,21 @@ export class NavigationPanel {
     const target = e.target as HTMLElement;
     if (target.closest('.pmd-nav-chevron')) return;
 
+    // Window (read-only projected) row: no id-selection. A plain release jumps to
+    // the window (onDragUp's click path handles id:null); a drag moves the whole
+    // live view (startDrag). Inert as a "send to…" destination.
+    if (entry.windowed) {
+      if (this.destinationCb) return;
+      this.pointerDownModifier = 'none';
+      this.deferredClickFinalize = null;
+      this.dragStartX = e.clientX;
+      this.dragStartY = e.clientY;
+      this.dragStartLi = li;
+      this.dragStartEntry = entry;
+      this.attachDragHandlers();
+      return;
+    }
+
     // Capture modifier state so pointerup-without-drag knows whether
     // it's a plain click (jumpTo) or a Ctrl/Shift click (selection-only).
     this.pointerDownModifier = e.shiftKey
@@ -1032,10 +1057,17 @@ export class NavigationPanel {
   }
 
   private clearSelection(): void {
-    if (this.selectedIds.size === 0 && this.selectionAnchorId === null) return;
+    if (
+      this.selectedIds.size === 0 &&
+      this.selectionAnchorId === null &&
+      this.selectedWindowPos === null
+    ) {
+      return;
+    }
     this.selectedIds.clear();
     this.selectionAnchorId = null;
     this.selectionLevel = null;
+    this.selectedWindowPos = null;
     this.applySelectionClasses();
   }
 
@@ -1062,7 +1094,22 @@ export class NavigationPanel {
    * view — that'd dominate scroll behavior for users who scroll the
    * editor freely. Add later if it turns out to be desired.
    */
-  setCaretHeading(pos: number): void {
+  setCaretHeading(pos: number, selfRefPos: number | null = null): void {
+    // A node-selected live view carries the caret onto ITS window row(s) rather
+    // than the heading above it. The projected rows share the `self_ref`'s
+    // position and have `id: null`, so track the window by position and light
+    // those rows directly (the id-keyed selection can't reach them).
+    if (selfRefPos !== null) {
+      const changed = this.selectedWindowPos !== selfRefPos || this.selectedIds.size > 0;
+      this.selectedIds.clear();
+      this.selectionAnchorId = null;
+      this.selectionLevel = null;
+      this.selectedWindowPos = selfRefPos;
+      if (changed) this.applySelectionClasses();
+      return;
+    }
+    const hadWindow = this.selectedWindowPos !== null;
+    this.selectedWindowPos = null;
     let best: HeadingEntry | null = null;
     for (const entry of this.liEntries.values()) {
       if (entry.id == null) continue;
@@ -1071,9 +1118,10 @@ export class NavigationPanel {
     }
     if (best === null) {
       this.clearSelection();
+      if (hadWindow) this.applySelectionClasses();
       return;
     }
-    if (this.selectedIds.size === 1 && this.selectedIds.has(best.id!)) return;
+    if (!hadWindow && this.selectedIds.size === 1 && this.selectedIds.has(best.id!)) return;
     this.selectSingle(best);
   }
 
@@ -1143,7 +1191,12 @@ export class NavigationPanel {
 
   private applySelectionClasses(): void {
     for (const [li, entry] of this.liEntries) {
-      const selected = entry.id != null && this.selectedIds.has(entry.id);
+      // `=== true` (not just `entry.windowed`) so a non-windowed row yields
+      // `false`, never `undefined` — `classList.toggle(cls, undefined)` FLIPS
+      // rather than forcing off, which would spuriously light unrelated rows.
+      const selected =
+        (entry.id != null && this.selectedIds.has(entry.id)) ||
+        (entry.windowed === true && entry.pos === this.selectedWindowPos);
       li.classList.toggle('pmd-nav-item-selected', selected);
     }
   }
@@ -1286,6 +1339,34 @@ export class NavigationPanel {
   private startDrag(): void {
     const startEntry = this.dragStartEntry;
     if (!startEntry || !this.view) return;
+
+    // A window row drags the WHOLE live view (`self_ref`) as one doc-level unit
+    // (like a live zone), never the projected content it shows.
+    if (startEntry.windowed) {
+      const node = this.view.state.doc.nodeAt(startEntry.pos);
+      if (!node || !isSelfRef(node)) return;
+      const item: DragItem = {
+        from: startEntry.pos,
+        to: startEntry.pos + node.nodeSize,
+        id: null,
+        type: 'self_ref',
+        level: 0,
+        label: String(node.attrs['source_label'] || startEntry.text || 'Live view').replace(
+          /^↳\s*/,
+          '',
+        ),
+      };
+      this.createPickupPill([item]);
+      dragController.begin({ view: this.view, items: [item] });
+      // Grey every window row of this live view so the whole projection reads as
+      // the drag source.
+      for (const [li, entry] of this.liEntries) {
+        if (entry.windowed && entry.pos === startEntry.pos) {
+          li.classList.add('pmd-nav-item-dragging');
+        }
+      }
+      return;
+    }
 
     // Decide which entries to drag: the multi-selection (if the drag
     // origin is part of one) or just the start entry.

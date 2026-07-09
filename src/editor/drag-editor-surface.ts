@@ -22,6 +22,7 @@ import type { EditorView } from 'prosemirror-view';
 import { collectHeadings, headingInsertPos, TYPE_TO_LEVEL } from './headings.js';
 import { dragController, type DragItem, type DragSurface } from './drag-controller.js';
 import { isTransclusionNode } from './transclusion.js';
+import { isSelfRef } from './self-transclusion.js';
 import { settings } from './settings.js';
 import { scheduleIdle, cancelIdle, type IdleHandle } from './idle-scheduler.js';
 
@@ -315,12 +316,13 @@ export class EditorDragSurface implements DragSurface {
       if (id) visibleIdToEl.set(id, el);
     }
     const doc = view.state.doc;
-    // Is the drag source a whole live zone? Then it drops as a doc-level unit
-    // (not level-scoped) and offers no target inside any zone.
+    // Is the drag source a doc-level opaque unit — a whole live zone (linked copy)
+    // or a live view? Then it drops as a doc-level unit (not level-scoped) and
+    // offers no target inside any zone.
     const session = dragController.getSession();
     const srcItem = session?.items[0];
-    const srcIsZone =
-      !!srcItem && !!session && isTransclusionNode(session.view.state.doc.nodeAt(srcItem.from));
+    const srcNode = srcItem && session ? session.view.state.doc.nodeAt(srcItem.from) : null;
+    const srcIsZone = !!srcNode && (isTransclusionNode(srcNode) || isSelfRef(srcNode));
     // `skipCite: true` — drop-indicator placement doesn't read
     // `entry.cite`, and the cite walk is the heaviest part of
     // `collectHeadings` (it descends every card looking for
@@ -702,6 +704,24 @@ export class EditorDragSurface implements DragSurface {
           type: 'transclusion_ref',
           level: 0,
           label: String(node.attrs['source_label'] || this.firstHeadingText(node) || 'Live zone'),
+        };
+      }
+    }
+
+    // A Live View (`self_ref`) is a leaf atom — no position sits "inside" it, so
+    // the depth walk above/below never sees it. `posAtCoords().inside` is its own
+    // position when the pointer is over it; grab it as a doc-level unit (like a
+    // zone). Checked after the zone walk so a live view nested in a linked copy
+    // still grabs the whole copy, not the inner view.
+    if (posInfo.inside > -1) {
+      const node = doc.nodeAt(posInfo.inside);
+      if (node && isSelfRef(node)) {
+        return {
+          from: posInfo.inside,
+          to: posInfo.inside + node.nodeSize,
+          type: 'self_ref',
+          level: 0,
+          label: String(node.attrs['source_label'] || 'Live view').replace(/^↳\s*/, ''),
         };
       }
     }

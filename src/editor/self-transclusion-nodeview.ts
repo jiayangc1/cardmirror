@@ -38,9 +38,10 @@ class SelfRefView implements NodeView {
     this.dom = document.createElement('div');
     this.dom.className = 'pmd-self-ref';
     this.dom.setAttribute('contenteditable', 'false');
-    // Draggable as a unit — ProseMirror moves the atom when you drag it (the
-    // editor's dragstart suppression exempts `.pmd-self-ref`).
-    this.dom.setAttribute('draggable', 'true');
+    // Deliberately NOT natively draggable (the schema spec isn't `draggable`), so
+    // a text selection can be dragged straight through it. Moving a live view goes
+    // through the same paths as any card: the editor pickup-chord and nav-pane row
+    // drag, both of which build explicit move/copy transactions.
 
     this.glyphBtn = document.createElement('button');
     this.glyphBtn.type = 'button';

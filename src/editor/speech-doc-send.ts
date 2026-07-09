@@ -13,14 +13,14 @@
  */
 
 import type { EditorView } from 'prosemirror-view';
-import { TextSelection, type EditorState, type Transaction } from 'prosemirror-state';
+import { TextSelection, NodeSelection, type EditorState, type Transaction } from 'prosemirror-state';
 import { Slice, type Node as PMNode, type ResolvedPos } from 'prosemirror-model';
 import { closeHistory } from 'prosemirror-history';
 import { schema, newHeadingId } from '../schema/index.js';
 import { rewriteHeadingIds } from './drag-controller.js';
 import { nearestValidInsertPos } from './insert-position.js';
 import { flattenZonesInSlice, enclosingZonePos } from './transclusion.js';
-import { flattenSelfRefsInSlice } from './self-transclusion.js';
+import { flattenSelfRefsInSlice, isSelfRef } from './self-transclusion.js';
 import { normalizeSelectionForSend } from './send-normalize.js';
 import { getSpeechDocResolver } from './speech-doc-registry.js';
 import { getElectronHost } from './host/index.js';
@@ -105,6 +105,13 @@ function enclosingStructureRange(doc: PMNode, $pos: ResolvedPos): SendRange | nu
 export function resolveSendRange(view: EditorView): SendRange | null {
   const sel = view.state.selection;
   const doc = view.state.doc;
+  // A node-selected live view (the green box you get by clicking it) sends just
+  // that window. A `self_ref` isn't a structural unit, so `normalizeSelectionForSend`
+  // would drop it and nothing would go — return its node range directly.
+  // `takeSendSlice` / `resolveSendSlice` flatten the self_ref to plain cards.
+  if (sel instanceof NodeSelection && isSelfRef(sel.node)) {
+    return { from: sel.from, to: sel.from + sel.node.nodeSize };
+  }
   if (!sel.empty) {
     // A selection INSIDE a live zone (isolating, so it can't cross the boundary)
     // sends the whole transcluded cards it overlaps — as a cached copy (the slice

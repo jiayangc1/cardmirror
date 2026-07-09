@@ -7,7 +7,7 @@
  * read-only projection, so there is no sync/merge/conflict machinery here.
  */
 
-import { TextSelection, NodeSelection } from 'prosemirror-state';
+import { TextSelection, NodeSelection, type EditorState } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import { newHeadingId } from '../schema/index.js';
 import { collectHeadings, computeHeadingRange } from './headings.js';
@@ -25,6 +25,14 @@ import {
   createSelfRefNode,
   resolveSelfProjection,
 } from './self-transclusion.js';
+
+/** If the current selection is a whole-node selection ON a live view (`self_ref`
+ *  atom), its document position; otherwise null. The nav caret-tracker uses this
+ *  to light the window's projected row(s) instead of the heading above it. */
+export function selfRefSelectionPos(state: EditorState): number | null {
+  const sel = state.selection;
+  return sel instanceof NodeSelection && isSelfRef(sel.node) ? sel.from : null;
+}
 
 /** [from, to] of a heading's section content — mirrors extractSection's range
  *  (the header line dropped for grouping headings) so the cycle guard matches. */

@@ -63,6 +63,8 @@ import { isAutosaveOnForPath, setAutosaveForPath } from './autosave-prefs-store.
 import { scheduleIdle, cancelIdle, type IdleHandle } from './idle-scheduler.js';
 import { getSpeechDocResolver } from './speech-doc-registry.js';
 import { sendToSpeech as runSendToSpeech } from './speech-doc-send.js';
+import { selfRefSelectionPos } from './self-transclusion-commands.js';
+import { transclusionDivergenceKey } from './transclusion-divergence-plugin.js';
 import { promptForText } from './text-prompt.js';
 import { showToast } from './toast.js';
 import {
@@ -1091,7 +1093,10 @@ function flushHeavyUpdateNow(record: DocRecord): void {
     record.heavyUpdateTimer = null;
   }
   record.navPanel.update(record.view.state.doc);
-  record.navPanel.setCaretHeading(record.view.state.selection.from);
+  record.navPanel.setCaretHeading(
+    record.view.state.selection.from,
+    selfRefSelectionPos(record.view.state),
+  );
   record.owner.refreshWordCount();
 }
 
@@ -2638,6 +2643,7 @@ function buildDocRecord(
         return;
       }
       const prevState = view.state;
+      const prevDiverged = transclusionDivergenceKey.getState(prevState)?.diverged;
       const next = view.state.apply(tx);
       view.updateState(next);
       // Re-arm the autosave + journal debounces on doc-changing
@@ -2688,7 +2694,10 @@ function buildDocRecord(
             // Re-apply against the rebuilt entries (fresh positions) so a
             // structural edit doesn't leave the wrong heading lit (parity with
             // single-doc, index.ts).
-            record.navPanel.setCaretHeading(view.state.selection.from);
+            record.navPanel.setCaretHeading(
+              view.state.selection.from,
+              selfRefSelectionPos(view.state),
+            );
           } catch (e) {
             console.error('[cardmirror] navPanel.update failed in multi-pane flush:', e);
           }
@@ -2718,12 +2727,30 @@ function buildDocRecord(
       if (getActiveView() === view) {
         setActiveView(view);
       }
+      // The divergence set updates via a meta transaction (no docChanged), so
+      // the docChanged-gated rebuild above misses it. Rebuild when the set's
+      // identity changes so the "source updated" rail appears/clears in this
+      // pane's outline — parity with single-doc (index.ts), which the shared
+      // NavigationPanel renders but only when told to re-run.
+      if (transclusionDivergenceKey.getState(next)?.diverged !== prevDiverged) {
+        try {
+          record.navPanel.update(next.doc);
+          record.navPanel.setCaretHeading(next.selection.from, selfRefSelectionPos(next));
+        } catch (e) {
+          console.error('[cardmirror] navPanel divergence rebuild failed:', e);
+        }
+      }
       // Caret-tracking for this pane's nav: highlight the heading whose section
       // contains the cursor (parity with single-doc, index.ts). Gated on the
       // caret position changing so it's cheap; per-pane, so each pane tracks its
-      // own cursor.
-      if (prevState.selection.from !== next.selection.from) {
-        record.navPanel.setCaretHeading(next.selection.from);
+      // own cursor. Also refire when the live-view node-selection changes even
+      // if `from` held steady, so the window's nav highlight tracks it.
+      const nextSelfRef = selfRefSelectionPos(next);
+      if (
+        prevState.selection.from !== next.selection.from ||
+        selfRefSelectionPos(prevState) !== nextSelfRef
+      ) {
+        record.navPanel.setCaretHeading(next.selection.from, nextSelfRef);
       }
     },
   });
@@ -2743,7 +2770,7 @@ function buildDocRecord(
   navPanel.attach(view);
   // Initial caret-heading highlight so a freshly-mounted pane reflects the
   // cursor before the first selection change (parity with index.ts).
-  navPanel.setCaretHeading(view.state.selection.from);
+  navPanel.setCaretHeading(view.state.selection.from, selfRefSelectionPos(view.state));
 
   const dragSurface = new EditorDragSurface();
   dragSurface.attach(view, editorEl);

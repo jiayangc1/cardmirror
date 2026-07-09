@@ -138,7 +138,11 @@ import {
 } from './read-mode-plugin.js';
 import { markUnreadPlugin, MARK_UNREAD_TOGGLE } from './mark-unread-plugin.js';
 import { makeSelfRefPlugin } from './self-transclusion-plugin.js';
-import { openInsertSelfRef, openInsertInDocCopy } from './self-transclusion-commands.js';
+import {
+  openInsertSelfRef,
+  openInsertInDocCopy,
+  selfRefSelectionPos,
+} from './self-transclusion-commands.js';
 import { flattenSelfRefs, flattenSelfRefsInSlice } from './self-transclusion.js';
 import { makeTransclusionDivergencePlugin, transclusionDivergenceKey } from './transclusion-divergence-plugin.js';
 import { tagCollabTransaction, collabPluginSource, setCollabInviteJoiner, setCollabInviter } from './collab/collab-hooks.js';
@@ -4459,10 +4463,10 @@ export function buildEditorPlugins(): Plugin[] {
       props: {
         handleDOMEvents: {
           dragstart: (_view, event) => {
-            // Let a Live View (self_ref atom) drag natively — ProseMirror moves
-            // the node. Everything else (text selections) stays undraggable.
-            const target = event.target as HTMLElement | null;
-            if (target?.closest?.('.pmd-self-ref')) return false;
+            // Text drag-and-drop is unconditionally off (it never worked
+            // reliably). Live Views aren't natively draggable either — they move
+            // via the pickup-chord / nav-pane drag like cards — so nothing on the
+            // editable surface should start a native drag.
             event.preventDefault();
             return true;
           },
@@ -4649,8 +4653,15 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
       // selection object can be a new instance (after doc map) for
       // the same effective caret position; we only care about the
       // position itself.
-      if (prevState.selection.from !== next.selection.from) {
-        navPanel.setCaretHeading(next.selection.from);
+      // Also refire when the live-view node-selection changes even if `from`
+      // held steady (a cursor just before a live view and a NodeSelection on it
+      // share a position) so the window's nav highlight tracks it.
+      const nextSelfRef = selfRefSelectionPos(next);
+      if (
+        prevState.selection.from !== next.selection.from ||
+        selfRefSelectionPos(prevState) !== nextSelfRef
+      ) {
+        navPanel.setCaretHeading(next.selection.from, nextSelfRef);
       }
     },
   });
@@ -4807,7 +4818,7 @@ function scheduleHeavyUpdate(): void {
     // structural change like a drag-move leaves the wrong heading
     // highlighted until the next caret movement. Re-running here against
     // the rebuilt positions corrects it.
-    navPanel.setCaretHeading(view.state.selection.from);
+    navPanel.setCaretHeading(view.state.selection.from, selfRefSelectionPos(view.state));
     refreshWordCount();
     if (needsCommentsGC) {
       needsCommentsGC = false;

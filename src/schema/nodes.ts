@@ -446,9 +446,11 @@ export const nodes: { [name: string]: NodeSpec } = {
     isolating: true,
     defining: true,
     selectable: true,
-    // Draggable as a unit (like a card). The editor's global `dragstart`
-    // suppression exempts `.pmd-self-ref` so ProseMirror moves the atom natively.
-    draggable: true,
+    // NOT `draggable`: a native-draggable block can't be drag-SELECTED through
+    // (the browser won't extend a selection across it), so a selection couldn't
+    // span a live view. Instead it moves like everything else — via the editor's
+    // pickup-chord drag and nav-pane row drag (both build explicit transactions,
+    // no native HTML5 drag) — see `findContainerAt` / the nav windowed-row drag.
     attrs: {
       /** Stable heading id of the mirrored section, in THIS document. */
       source_heading_id: {

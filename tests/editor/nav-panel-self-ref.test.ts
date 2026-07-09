@@ -11,7 +11,7 @@ import { EditorView } from 'prosemirror-view';
 import { type Node as PMNode } from 'prosemirror-model';
 import { schema, newHeadingId } from '../../src/schema/index.js';
 import { NavigationPanel } from '../../src/editor/nav-panel.js';
-import { createSelfRefNode } from '../../src/editor/self-transclusion.js';
+import { createSelfRefNode, isSelfRef } from '../../src/editor/self-transclusion.js';
 import { settings } from '../../src/editor/settings.js';
 
 const block = (text: string, id: string): PMNode => schema.nodes['block']!.create({ id }, schema.text(text));
@@ -107,6 +107,37 @@ describe('NavigationPanel — self_ref windows in the outline', () => {
     expect(windowed).toBeTruthy();
     const preview = windowed!.querySelector('.pmd-nav-cite-preview') as HTMLElement | null;
     expect(preview?.textContent).toContain("Author '24");
+    view.destroy();
+  });
+
+  it('carries the caret highlight onto the window rows when the live view is node-selected', () => {
+    const { view, nav } = setup([
+      block('Source', 'src'),
+      card('Alpha', 'a'),
+      card('Bravo', 'b'),
+      block('Elsewhere', 'oth'),
+      createSelfRefNode(schema, 'src', '↳ Source'),
+    ]);
+    nav.update(view.state.doc);
+    let selfPos = -1;
+    view.state.doc.forEach((n, off) => {
+      if (isSelfRef(n)) selfPos = off;
+    });
+    expect(selfPos).toBeGreaterThan(-1);
+
+    // A node-selected live view lights ITS projected rows (not the heading above).
+    nav.setCaretHeading(selfPos, selfPos);
+    const selected = (li: HTMLElement) => li.classList.contains('pmd-nav-item-selected');
+    const windowed = rows(nav).filter((li) => li.classList.contains('pmd-nav-item-window'));
+    expect(windowed.length).toBeGreaterThan(0);
+    expect(windowed.every(selected)).toBe(true);
+    // No real heading row is lit while the window holds the caret.
+    const realSelected = rows(nav).filter((li) => !li.classList.contains('pmd-nav-item-window') && selected(li));
+    expect(realSelected).toHaveLength(0);
+
+    // Moving the caret back to a real heading clears the window highlight.
+    nav.setCaretHeading(0, null);
+    expect(rows(nav).filter((li) => li.classList.contains('pmd-nav-item-window')).some(selected)).toBe(false);
     view.destroy();
   });
 
