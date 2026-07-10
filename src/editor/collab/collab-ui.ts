@@ -98,6 +98,15 @@ export function setCollabFocusResolver(fn: (() => string | null) | null): void {
   focusedUidResolver = fn;
 }
 
+/** Resolve a doc uid → its display filename, set by the host so no-deps helpers
+ *  (invite, persist label) and the start flow name a session after its OWNER
+ *  doc rather than `document.title` — which in multi-pane is every open doc
+ *  joined by " · ". */
+let docTitleResolver: ((uid: string) => string | null) | null = null;
+export function setCollabDocTitleResolver(fn: ((uid: string) => string | null) | null): void {
+  docTitleResolver = fn;
+}
+
 /** The session owned by `uid`, or null. */
 function sessionFor(uid: string | null | undefined): ActiveSession | null {
   return uid != null ? sessions.get(uid) ?? null : null;
@@ -214,7 +223,7 @@ function installSeams(session: CollabSession, deps: CollabUiDeps, shareCode: str
   const commentsSync = installCommentsSync(session.loroDoc, ownerView);
   // M3: crash-surviving session record (home-screen Sessions list resumes it).
   const persist = attachSessionPersistence(session, shareCode, () =>
-    sessionDocTitle() || sharedDocTitle(session),
+    sessionDocTitle(ownerUid) || sharedDocTitle(session),
   );
   const cursors = installCursorPresence(session, ownerView);
   // One shared timer refreshes the focused session's presence dots.
@@ -380,7 +389,7 @@ export async function startSessionFlow(deps: CollabUiDeps): Promise<void> {
     // existing comment threads alongside the seeded doc — and the doc
     // title, so joiners can name their unsaved copy.
     sess.commentsSync.seedFromView(view);
-    session.loroDoc.getMap('meta').set('title', sessionDocTitle());
+    session.loroDoc.getMap('meta').set('title', sessionDocTitle(ownerUid));
     session.loroDoc.commit();
     deps.refreshPlugins();
     session.start();
@@ -596,10 +605,14 @@ function adoptSharedTitle(deps: CollabUiDeps, session: CollabSession): void {
   if (title) deps.setDocTitle?.(title);
 }
 
-/** Current doc title for invite labels: document.title is
- *  `${filename} — CardMirror` in the single-doc windows sessions run
- *  in ('CardMirror' when untitled → ''). */
-function sessionDocTitle(): string {
+/** The name to publish/label a session with: the OWNER doc's own filename (via
+ *  the host-set resolver), NOT `document.title` — in multi-pane that's every
+ *  open doc joined by " · ", so a joiner would inherit a window title naming all
+ *  of the host's open docs. Falls back to parsing the single-doc window title
+ *  when no resolver is set (tests / pre-wire) or the uid can't be resolved. */
+function sessionDocTitle(ownerUid: string | null | undefined): string {
+  const byUid = ownerUid ? docTitleResolver?.(ownerUid) : null;
+  if (byUid != null) return byUid.trim();
   const t = document.title;
   const cut = t.lastIndexOf(' — CardMirror');
   if (cut > 0) return t.slice(0, cut);
@@ -612,10 +625,11 @@ function sessionDocTitle(): string {
 async function sendInviteTo(
   target: { codes: string[]; label: string; via?: string },
   shareCode: string,
+  ownerUid: string | null | undefined,
 ): Promise<void> {
   const item = buildRoomInviteItem({
     shareCode,
-    title: sessionDocTitle(),
+    title: sessionDocTitle(ownerUid),
   });
   const res = await pairingRelayClient.send(target.codes, item, {
     via: target.via,
@@ -651,7 +665,7 @@ export async function inviteStarredFlow(): Promise<void> {
     showToast('The starred group has no recipients yet');
     return;
   }
-  await sendInviteTo(target, sess.shareCode);
+  await sendInviteTo(target, sess.shareCode, sess.ownerUid);
 }
 
 /** The Send pill's click-to-invite (§6 picker-first flow): with no
@@ -676,7 +690,7 @@ export async function inviteTargetFlow(
     sess = sessionFor(deps.getOwnerUid?.());
     if (!sess) return; // start failed/cancelled — its toast explains
   }
-  await sendInviteTo(target, sess.shareCode);
+  await sendInviteTo(target, sess.shareCode, sess.ownerUid);
 }
 
 export async function endSessionFlow(deps: CollabUiDeps): Promise<void> {

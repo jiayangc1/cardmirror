@@ -1930,6 +1930,20 @@ class MultiPaneShell {
     return SLOT_IDS.map((id) => this.slots[id].visible?.filename ?? null);
   }
 
+  /** The filename of the open doc with `uid` — searched across every slot's
+   *  full stack (not just visible records), so a session owned by a background
+   *  (stacked, non-visible) tab still resolves its own name. Null if no open
+   *  doc has that uid. Lets collab publish/label a session with its OWNER doc's
+   *  name rather than the whole-window title (every open doc joined by " · "). */
+  filenameForUid(uid: string): string | null {
+    for (const id of SLOT_IDS) {
+      for (const rec of this.slots[id].stack) {
+        if (rec.uid === uid) return rec.filename;
+      }
+    }
+    return null;
+  }
+
   /** Every open doc's file handle across all panes and their stacks — for the
    *  web cross-window same-file guard's query responder (a stacked, non-visible
    *  doc is still "open" and can be the duplicate). */
@@ -2892,6 +2906,7 @@ export function mountMultiPaneShell(): void {
     setFocusedFile: (f) => shell!.setFocusedFile(f),
     setFocusedDocId: (id) => shell!.setFocusedDocId(id),
     getAllFilenames: () => shell!.getAllFilenames(),
+    getFilenameForUid: (uid) => shell!.filenameForUid(uid),
     clearFocusedJournal: () => shell!.clearFocusedJournal(),
     onRecoveredDoc: (entry) => shell!.onRecoveredDoc(entry),
     journalAll: () => shell!.journalAll(),

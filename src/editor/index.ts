@@ -773,6 +773,9 @@ let multiDocSetFocusedFilename: ((name: string) => void) | null = null;
  *  is most useful as a summary of the whole workspace. Returns
  *  filenames in slot order; empty slots map to null. */
 let multiDocGetAllFilenames: (() => (string | null)[]) | null = null;
+/** Resolve one doc uid → its filename (across all panes + stacks). Used by
+ *  collab to name a session after its OWNER doc, not the whole-window title. */
+let multiDocGetFilenameForUid: ((uid: string) => string | null) | null = null;
 
 /** Full focused-file plumbing for the Save / Save-As flow — reads
  *  the filename plus the on-disk handle and on-disk format. */
@@ -867,6 +870,10 @@ export function enableMultiDocMode(opts: {
   setFocusedFile?: (file: { filename: string; handle: unknown | null; format: 'cmir' | 'docx' | null }) => void;
   setFocusedDocId?: (docId: string) => void;
   getAllFilenames?: () => (string | null)[];
+  /** Filename of the open doc with `uid` (across all panes + stacks), or null.
+   *  Lets collab publish/label a session with its OWNER doc's name rather than
+   *  the whole-window title. */
+  getFilenameForUid?: (uid: string) => string | null;
   clearFocusedJournal?: () => Promise<void>;
   /** Called from single-doc save flows after a successful save so
    *  the multi-pane shell can clear the focused DocRecord's dirty
@@ -908,6 +915,7 @@ export function enableMultiDocMode(opts: {
   multiDocSetFocusedFile = opts.setFocusedFile ?? null;
   multiDocSetFocusedDocId = opts.setFocusedDocId ?? null;
   multiDocGetAllFilenames = opts.getAllFilenames ?? null;
+  multiDocGetFilenameForUid = opts.getFilenameForUid ?? null;
   multiDocClearFocusedJournal = opts.clearFocusedJournal ?? null;
   multiDocNotifyFocusedSaved = opts.notifyFocusedSaved ?? null;
   multiDocOnRecoveredDoc = opts.onRecoveredDoc ?? null;
@@ -994,12 +1002,25 @@ export function endBenchmark(snapshot: EditorState | null): void {
 // and the two state-swap capabilities it needs. Dormant unless the
 // collab gate is open (see collab/collab-gate.ts).
 let collabUiModule: Promise<typeof import('./collab/collab-ui.js')> | null = null;
+/** Display filename for a doc uid across single-doc + multi-pane. Collab names
+ *  a session after its OWNER doc via this; document.title is unusable in
+ *  multi-pane (every open doc joined by " · "). Null when the uid isn't open
+ *  here (e.g. its pane lives in another window). */
+function resolveDocFilename(uid: string): string | null {
+  if (multiDocActive && multiDocGetFilenameForUid) return multiDocGetFilenameForUid(uid);
+  return uid === currentDocUid ? currentDocFilename : null;
+}
+
 function loadCollabUi(): Promise<typeof import('./collab/collab-ui.js')> {
   return (collabUiModule ??= import('./collab/collab-ui.js').then((m) => {
     // Tell collab-ui which doc is focused so its shared chip / no-deps flows
     // (copy-code, invite) act on the session the user is looking at when a
     // window holds more than one.
     m.setCollabFocusResolver(() => activeDocIdentity().sessionUid);
+    // Resolve a session's OWNER doc uid → its filename, so the title published
+    // to joiners (and invite labels) is that doc's name — not the whole-window
+    // title, which in multi-pane is every open doc joined by " · ".
+    m.setCollabDocTitleResolver((uid) => resolveDocFilename(uid));
     return m;
   }));
 }
