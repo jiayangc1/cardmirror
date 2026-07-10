@@ -111,7 +111,8 @@ kept in sync across them, the **three-pane workspace**, and single-file **Clean 
 Convert / Compress** tools on the home screen.
 
 Still desktop-only: background file-library search, folder-wide bulk operations,
-Send to Verbatim Flow, voice control, and card sharing. Firefox and Safari run the
+Send to Verbatim Flow, voice control, card sharing, and real-time **co-editing**
+(share a document and edit it together live — experimental). Firefox and Safari run the
 editor but lack the File System Access API, so there Save falls back to a
 download. See **[Desktop vs. web](./MANUAL.md#desktop-vs-web)** in the manual for
 the full breakdown.

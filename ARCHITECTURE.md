@@ -130,7 +130,15 @@ Design decisions:
 Every heading node (`pocket`/`hat`/`block`/`tag`/`analytic`) carries a
 UUID `id`, assigned on creation and preserved through edits. The nav
 panel keys jump-to, collapse/expand, and the level filter off it, and
-it's the anchor for intra-doc links and future transclusion.
+it's the anchor for intra-doc links and transclusion. Both transclusion forms
+have shipped: file-backed **linked copies** (`transclusion_ref` — a by-value,
+refresh-on-demand snapshot of a section from another file, with a staleness
+indicator and producer-side back-references in a workspace-scoped sidecar) and,
+intra-document, read-only **live views** (`self_ref` — a by-reference projection
+of another section of the same doc, resolved and memoized at render, cycles
+guarded) plus in-document linked copies. On export every copy freezes to a plain
+snapshot (no transclusion identity in the docx). Pushing a source file's *live*
+edits into its copies over a sync layer is a deliberate non-goal.
 
 IDs are reassigned on every path that brings content *in* — paste,
 drag-copy, send-to-speech, import — so duplicating a section never
@@ -139,6 +147,18 @@ deliberately not read back by `parseDOM`, so clipboard/import content
 arrives id-less and gets a fresh one. In docx it round-trips as a
 bracketing `<w:bookmarkStart>`/`<w:bookmarkEnd>` pair — Word's native
 mechanism for stable named locations, well tolerated by Verbatim.
+
+### Card numbering (display-only)
+
+Automatic card numbering stores only an authorial *skeleton* — never a rendered
+glyph. Each card carries `numRole` (none / number / sub) + `numRestart`, and the
+displayed numbers are derived positionally at render time (and again at docx
+export, as `<w:numPr>` `numId`/`ilvl`), so the one skeleton is the single source
+of truth for both. Numbers count across skips, substructure resets each time the
+number advances, and both transclusion forms flow through the count in document
+order. Because nothing rendered is stored, toggling numbering off or reordering
+cards never touches the card text; format, separator, color, and indents are
+Appearance settings applied purely at render.
 
 ### Per-paragraph round-trip attrs
 
@@ -254,7 +274,8 @@ network session.
 ## 7. Multi-doc workspace
 
 Multi-doc is foundational, not a retrofit: send-to-speech, search
-results, cross-pane drag, and (later) transclusion all reduce to "have N
+results, cross-pane drag, transclusion, and per-document co-editing sessions
+all reduce to "have N
 docs open with cross-doc operations." Building the scaffolding from day
 one avoided rebuilding the single-pane editor for each.
 
@@ -670,23 +691,37 @@ platform-knowledge and declarative-material fit is well grounded; the
   plugin.ts`), never a `comment_range` mark, so a card's grounding cannot
   leak into a shared file by construction.
 
-## 18. Collaboration sessions (co-editing) — early preview
+## 18. Collaboration sessions (co-editing)
 
-**Status: early preview. Dormant by default, desktop-only, and gated
-behind a developer-console flag; it may break.** Co-editing ships in the
-build but is unreachable without deliberately opening the gate — there
-is no user-facing setting yet. Treat this section as documenting a
-feature under active field-testing, not a finished subsystem.
+**Status: shipped, on by default on the desktop edition.** Co-editing is
+reachable directly — the ribbon **Collaboration** commands, the Send/Receive
+pill invites, and the home-screen Sessions list — with no flag to flip. It is
+still young (surfaced to users as *experimental*) and can hiccup under
+adversarial networks, but it is a real, default-on subsystem, not a preview.
 
 **Gating and reach.** `collab-gate.ts`'s `collabEnabled()` is the single
-chokepoint every co-editing surface consults (ribbon commands, the
-Send/Receive pills, the home-screen Sessions list, the session flows).
-It hard-closes on a **browser host** before reading any flag, so the web
-edition categorically has no co-editing (see §6); on desktop it stays
-closed unless a build sets `VITE_COLLAB=1` or a developer flips
-`localStorage['pmd-collab']='1'`. Flipping it on for a real release is a
-code change here — an env var can't reach a packaged app — the same
-posture as the pairing entitlement flag.
+chokepoint every co-editing surface consults (ribbon commands, the Send/Receive
+pills, the home-screen Sessions list, the session flows). It returns true on any
+**desktop host** (Electron, or a future non-`browser` kind) and false on a
+**browser host** — the categorical guarantee that the web edition has no
+server-dependent capability (§6). The old build-time `VITE_COLLAB` / runtime
+`localStorage['pmd-collab']` toggles are retired now that it ships enabled;
+server-side entitlement gating (`RELAY_GATING`, below) is the remaining lever for
+a paid tier.
+
+**Per-document sessions.** Co-editing is scoped to a single open document, not
+the window. Each session owns exactly one doc, keyed by its `DocRecord.uid`
+(`CollabPluginSource.ownerUid`), and `collabPluginsFor(targetUid)` hands a
+session's binding plugins only to that doc's view — so opening a second document
+while a session is live can't bind its pane to the session's LoroDoc and
+overwrite it (the multi-pane document-fusion class). One window can therefore
+host N independent sessions, one per open doc: each three-pane slot paints its
+own footer copresence (`collabCopresenceFor(uid)`) for the doc it shows, close is
+session-aware (closing a doc tears down only its session), comment-id allocation
+is per-doc, and sessions auto-resume across the single↔three-pane toggle and
+across reload (the post-reload flow re-attaches each session to the doc that
+reopens under its uid). A session holds up to 10 participants, enforced
+relay-side (409 on join).
 
 **CRDT core.** The shared document is a Loro CRDT (`loro-crdt` +
 `loro-prosemirror`), chosen over Yjs in a recorded bake-off because Yjs
@@ -740,19 +775,6 @@ underline-vs-emphasis merge can never leave a schema-illegal run.
 
 - **Verbatim Flow integration** — CardMirror's take on Verbatim's
   Excel-based flowing tool.
-- **Transclusion.** A `transclusion_ref` node `{source_path,
-  source_heading_id, content_hash, cached_content, last_refreshed}`,
-  picked through the search UI (§11) and identified by the target's
-  stable heading id (§4) so it survives renames. v1 is refresh-on-demand
-  (render the cache, manual refresh, staleness indicator, no backend);
-  v2+ adds push-based live cards over a sync layer without changing the
-  schema. Producer-side back-references live in a workspace-scoped
-  sidecar index (never in the source doc, so they survive Verbatim
-  cleanup and don't mutate a doc just because someone transcluded from
-  it). Cycles are rejected at the picker. **On export, each reference
-  freezes to a snapshot** — the docx is plain, native content with no
-  transclusion identity, so re-import returns plain content unless the
-  user re-transcludes.
 - **Numbered / bulleted lists** — `<w:numPr>` + `numbering.xml`; a real
   schema addition (`bullet_list` / `ordered_list` / `list_item`).
 - **Per-type display-spacing setting.** Paragraph spacing already
@@ -760,11 +782,10 @@ underline-vs-emphasis merge can never leave a schema-illegal run.
   to override the *visible* rhythm per paragraph type. The CSS hooks
   exist; the stored OOXML values stay data, the per-type setting is
   presentation.
-- **Real-time collaboration.** Shared editing now exists as a dormant,
-  desktop-only **early preview** (§18) — not yet a shipped, user-facing
-  feature. What remains for GA: a real on-switch (retiring the console
-  gate), the entitlement/gating flip, and broader field-hardening.
-  Live **transclusion v2** over the same sync layer is still deferred.
+- **Co-editing at scale.** Real-time co-editing ships default-on on desktop
+  (§18). What remains for a paid GA: turning on the server-side entitlement
+  gating (`RELAY_GATING`) and broader field-hardening (it's surfaced to users as
+  experimental for now).
 - **Fuller screen-reader support and accessibility presets** (§15) —
   complete keyboard/ARIA semantics, high-contrast and colorblind palettes,
   and a document accessibility checker, on top of the per-user

@@ -73,10 +73,12 @@ on** in Settings.
 
 ---
 
-## 4. Co‑editing / live collaboration (optional — off by default)
+## 4. Co‑editing / live collaboration (optional — desktop only)
 
-Co‑editing lets two people edit the same document together in real time. It is a
-desktop‑only feature that is **off by default** and must be deliberately enabled.
+Co‑editing lets people edit the same document together in real time. It is a
+desktop‑only feature, and it is **used only when you choose to** — nothing is
+shared until you deliberately start or join a session. A session holds up to 10
+participants.
 
 - **How it's protected.** Everything exchanged in a session — document edits,
   comments, and cursor presence — is **end‑to‑end encrypted** with a key that

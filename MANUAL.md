@@ -28,18 +28,19 @@ for the parts that aren't.
 6. [Quick Cards](#6-quick-cards)
 7. [The multi-doc workspace](#7-the-multi-doc-workspace)
 8. [Reading and delivering a speech](#8-reading-and-delivering-a-speech)
-9. [Live views and linked copies](#9-live-views-and-linked-copies)
-10. [Comments and notes](#10-comments-and-notes)
-11. [Learn: spaced-repetition flashcards](#11-learn-spaced-repetition-flashcards)
-12. [AI features](#12-ai-features)
-13. [Send to Verbatim Flow](#13-send-to-verbatim-flow)
-14. [Voice control](#14-voice-control)
-15. [Saving and file formats](#15-saving-and-file-formats)
-16. [Settings reference](#16-settings-reference)
-17. [Appearance and accessibility](#17-appearance-and-accessibility)
-18. [Keyboard shortcuts](#18-keyboard-shortcuts)
-19. [What's not here yet](#19-whats-not-here-yet)
-20. [Glossary](#20-glossary)
+9. [Co-editing (real-time collaboration)](#9-co-editing-real-time-collaboration)
+10. [Live views and linked copies](#10-live-views-and-linked-copies)
+11. [Comments and notes](#11-comments-and-notes)
+12. [Learn: spaced-repetition flashcards](#12-learn-spaced-repetition-flashcards)
+13. [AI features](#13-ai-features)
+14. [Send to Verbatim Flow](#14-send-to-verbatim-flow)
+15. [Voice control](#15-voice-control)
+16. [Saving and file formats](#16-saving-and-file-formats)
+17. [Settings reference](#17-settings-reference)
+18. [Appearance and accessibility](#18-appearance-and-accessibility)
+19. [Keyboard shortcuts](#19-keyboard-shortcuts)
+20. [What's not here yet](#20-whats-not-here-yet)
+21. [Glossary](#21-glossary)
 
 ## 1. Getting started
 
@@ -261,6 +262,24 @@ mirrors Word's Navigation Pane, but does more:
   carries the whole heading and its contents and drops it wherever the
   structure allows. Hold **Ctrl** (or **Alt** on macOS) while dragging to
   **copy** instead of move.
+
+### Card numbering
+
+CardMirror can number your cards and their sub-parts automatically — handy for
+referring to "card 3" while you edit or read. Numbering is **display only**: it
+never changes your card text, and you can turn it off any time.
+
+Turn it on from the **numbering** cluster in the ribbon (or search "numbering"
+in the command bar). You mark which cards carry a number, mark sub-parts to get
+a lettered sub-number, and set where numbering starts over; CardMirror computes
+the numbers and keeps them current as you reorder.
+
+Tune how they look in **Settings → Appearance → Card numbering**: independent
+formats for the number and its substructure, the separator between them (period,
+dash, colon, and more), whether the substructure is capitalized, the number
+color, and how far each is indented — all display settings that change how the
+numbers *look*, never the card content. Numbers also carry through to Word on
+export.
 
 ---
 
@@ -1032,7 +1051,63 @@ point at the same relay. Leave both empty to use the official relay.
 
 ---
 
-## 9. Live views and linked copies
+## 9. Co-editing (real-time collaboration)
+
+*Desktop only. Experimental.* Co-editing lets two or more people edit the same
+document together in real time — your typing, comments, and cursors appear on
+everyone's screen as you work. It travels over the same end-to-end-encrypted
+relay as card sharing (§8), so the relay only ever sees scrambled data.
+
+**It's experimental — keep your own copies.** Co-editing is new and still rough
+in places; it can occasionally hiccup or need a reconnect. Treat a live session
+as a convenience, not as your only copy of a document — **save your own `.cmir`
+files regularly** rather than relying on a session to hold your work.
+
+**Invite someone (the easy way).** Click the **Send** pill and pick a partner or
+group — the same ones you use for card sharing. CardMirror starts a session on
+the current document (if one isn't already running) and sends them an
+invitation; they see a **SESSION** row in their **Receive** pill and click
+**Join** to hop in. **Invite Starred Partner to Session** does the same for your
+starred partner in one keystroke. This works exactly like card sharing: to
+invite someone you need their card-sharing code added as a recipient, and for
+them to invite *you*, they need *yours* — sharing your code is how you get
+invited, not how you invite.
+
+**Start or join with a code.** If you'd rather not go through card sharing, start
+a session yourself with **Start Collaboration Session** (in the ribbon's
+**Collaboration** group, or the command bar). It confirms which document you're
+sharing and copies a one-off **share code** to your clipboard — hand it off
+however you like, and the other person joins with **Join Collaboration Session**
+and pastes it. (**Copy Session Share Code** re-copies it later.) CardMirror opens
+the shared document in a new window and syncs both of you up.
+
+**Editing together.** Everyone's cursor and selection show in their own color,
+and a presence indicator shows who's in the session. Comments sync too, and
+edits merge automatically — even when two people type in the same place. Anyone
+in the session can invite others (it isn't just the person who started it). A
+session holds **up to 10 people**; if you invite more than that — or invite a
+group that would push it over — the extras simply get a "session is full"
+message when they try to join, until someone leaves.
+
+**Offline and reconnecting.** Keep editing if your connection drops or your
+laptop sleeps: your changes queue up and sync the moment you're back online. You
+can even close the app — the session is saved, and you rejoin it later from the
+**Sessions** list on the home screen with your unsynced changes intact.
+
+**Several documents at once.** Each open document runs its own independent
+session, so you can co-edit more than one at the same time — several documents in
+a three-pane window (§7), or several separate single-document windows. In
+three-pane, each pane shows its own session's collaborators in its footer, and
+starting a session acts on the focused pane's document.
+
+**Ending or leaving.** **End or Leave Collaboration Session** stops your session:
+as the host you can end it for everyone, or as a guest leave it (each person
+keeps their current copy either way). Closing a co-edited document asks whether
+to keep the session — so you can rejoin and sync later — or to end/leave it now.
+
+---
+
+## 10. Live views and linked copies
 
 CardMirror can show one section of content in more than one place, kept
 connected to its source. There are two flavors, and the difference is simple —
@@ -1117,7 +1192,7 @@ for a hand-off.
 
 ---
 
-## 10. Comments and notes
+## 11. Comments and notes
 
 Toggle the **comments column** on the right with the Comments button. It
 holds four kinds of entity, each pinned beside the text it refers to:
@@ -1161,7 +1236,7 @@ to an **Unanchored** section at the bottom of the column, with a
 
 ---
 
-## 11. Learn: spaced-repetition flashcards
+## 12. Learn: spaced-repetition flashcards
 
 CardMirror can turn your evidence into spaced-repetition flashcards, so
 you can actually remember your files. This has no Verbatim equivalent.
@@ -1209,7 +1284,7 @@ turn it off under Settings → Appearance → **Flashcards-due dot**.
 
 ---
 
-## 12. AI features
+## 13. AI features
 
 A handful of features call out to Anthropic's Claude. They're **off by
 default** and require a key.
@@ -1323,7 +1398,7 @@ activity lists are all customizable.
 
 ---
 
-## 13. Send to Verbatim Flow
+## 14. Send to Verbatim Flow
 
 **(Windows only. Experimental.)** With Excel open and a workbook whose name
 contains "Flow", CardMirror can push your work straight into Verbatim
@@ -1351,7 +1426,7 @@ Keyboard shortcuts**. They appear only on Windows.
 
 ---
 
-## 14. Voice control
+## 15. Voice control
 
 **(Desktop only. Experimental.)** Press **Ctrl-Shift-V** to start a
 hands-free editing session and work a card by voice — read text aloud to
@@ -1442,7 +1517,7 @@ dictation errors (it doesn't change command recognition).
 
 ---
 
-## 15. Saving and file formats
+## 16. Saving and file formats
 
 ### Opening files
 
@@ -1568,7 +1643,7 @@ time.
 
 ---
 
-## 16. Settings reference
+## 17. Settings reference
 
 Open settings with the **gear** icon. Settings are grouped into tabs.
 
@@ -1768,6 +1843,18 @@ How things look. None of these change the file — only your view (see
 - **Flash timer when countdown is low** — flash the speech timer red at
   the configured thresholds.
 
+**Card numbering** *(see §2 — all display-only)*
+
+- **Show card numbering** — whether the automatic card numbers appear at all.
+- **Number format** and **substructure format** — how the number and its
+  sub-part are written, set independently.
+- **Separator** — what goes between a number and its substructure (period,
+  hyphen, m-dash, n-dash, colon, or a double / triple hyphen).
+- **Capitalize substructure** — upper- or lower-case the sub-part.
+- **Number color** — the color of the numbers, linked to the Accessibility
+  color overrides.
+- **Number indent** and **substructure indent** — how far each is indented.
+
 ### Editing
 
 Typing helpers and the behavior of the cutting and condense commands
@@ -1912,7 +1999,7 @@ remove one, **↺** to restore its default. A few window-level shortcuts
   show a steady caret instead. Off by default.
 - **Default document zoom** — the body-text zoom level documents open at, and
   reset to on reload (zoom is per-editor and does not persist across reloads).
-  50–200%, 100% by default.
+  50–300%, 100% by default.
 - **Screen reader support** *(desktop)* — let screen readers and other
   assistive technology read CardMirror. **Off by default**: a current Chromium
   bug crashes the window (white screen, lost work) while building the
@@ -1961,7 +2048,7 @@ remove one, **↺** to restore its default. A few window-level shortcuts
 
 ---
 
-## 17. Appearance and accessibility
+## 18. Appearance and accessibility
 
 Everything visual in CardMirror is customizable, and — importantly — your
 display choices **never change the file**. The way you like to see Tags is
@@ -1994,7 +2081,7 @@ everyone, apply direct formatting in the document itself).
 
 ---
 
-## 18. Keyboard shortcuts
+## 19. Keyboard shortcuts
 
 All defaults; rebind any of them in **Settings → Keyboard shortcuts**.
 **Mod** = Ctrl (Windows/Linux) or ⌘ (macOS).
@@ -2080,23 +2167,12 @@ The full, current list is always in the app: press **📖** in the ribbon.
 
 ---
 
-## 19. What's not here yet
+## 20. What's not here yet
 
 CardMirror is in active development. Planned, but not built yet:
 
-- **Real-time collaboration (co-editing)** — *early preview, desktop
-  only.* Live shared editing of a document is built and being
-  field-tested, but it is **off by default and experimental**: it can
-  desync or need restarting, and there is no setting for it yet — it
-  turns on only if you deliberately enable it from the developer
-  console. A proper on-switch will arrive with the finished feature, and
-  it will never run in the web version (which has no server-backed
-  features). When it is on, you invite a partner through card sharing
-  (the Send pill), edit together live — it keeps syncing across offline
-  stretches, laptop sleep, and flaky venue wifi — and everyone keeps
-  their own copy when the session ends. Everything is end-to-end
-  encrypted; the relay only ever holds ciphertext.
-- **Numbered and bulleted lists**.
+- **Numbered and bulleted lists** (true list blocks — distinct from the
+  display-only card numbering in §2).
 - **Robust screen-reader support and more accessibility presets** —
   fuller keyboard/ARIA semantics, plus high-contrast and colorblind
   palettes on top of the customization already shipped.
@@ -2119,7 +2195,7 @@ revision metadata.
 
 ---
 
-## 20. Glossary
+## 21. Glossary
 
 - **Pocket / Hat / Block / Tag** — the four heading levels (Word Heading
   1–4).
@@ -2140,8 +2216,15 @@ revision metadata.
 - **Send Doc** — a clean copy for sharing, with comments, analytics, and
   undertags stripped.
 - **Quick Card** — a tagged, reusable snippet in your personal library.
-- **Live zone (transclusion)** — a section embedded from another file, kept
-  linked to its source so you can refresh it; editable in place.
+- **Live view** — a read-only window onto another section of the *same*
+  document; it always shows the source's current content.
+- **Linked copy** — your own editable copy of a section (from another file or
+  this document), kept linked to its source so you can refresh it and see when
+  the original changes. *(Formerly called a "live zone.")*
+- **Co-editing** — real-time collaborative editing of a shared document over the
+  encrypted relay; join with a share code or an invitation.
+- **Card numbering** — automatic, display-only numbering of cards and their
+  sub-parts.
 - **Flashcard** — a spaced-repetition study card anchored to evidence,
   stored only on your machine.
 - **Anchor / unanchored / re-ground** — how a flashcard or note attaches

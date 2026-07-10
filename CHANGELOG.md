@@ -15,18 +15,19 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Added
 
-- **Real-time co-editing.** Share a document and work in it together, live.
-  Start a session (or invite a Card Sharing partner), hand your partner the
-  share code, and your edits, comments, and cursors sync as you type. It keeps
-  working offline — your changes sync back when you reconnect — and it survives
-  closing the app: reopen and rejoin from the **Sessions** list on the home
-  screen. In three-pane mode you can run several sessions at once, one per open
-  document, each showing its own collaborators in the pane footer. Starting,
-  naming, and leaving a session all confirm clearly so it's obvious which
-  document you're sharing. **Still experimental** — expect some rough edges,
-  and keep your own saved copies rather than relying on a session as your only
-  copy of a document. *(Desktop-only; it travels over the same
-  end-to-end-encrypted relay as Card Sharing.)*
+- **Real-time co-editing.** Work in a document together, live — edits, comments,
+  and cursors sync as you type. Invite a partner from the **Send** menu (the same
+  partners you use for card sharing); they accept from their **Receive** pill.
+  (No saved partner? Start a session and share its one-off code, which they paste
+  into **Join Collaboration Session**.) It keeps working offline — your changes
+  sync back when you reconnect — and it survives closing the app: reopen and
+  rejoin from the **Sessions** list on the home screen. Each open document runs
+  its own session, so you can co-edit several at once — several documents in a
+  three-pane window, or separate windows — each with its own collaborators shown
+  alongside it. **Still experimental** — expect some rough edges, and keep your
+  own saved copies rather than relying on a session as your only copy of a
+  document. *(Desktop-only; it travels over the same end-to-end-encrypted relay
+  as Card Sharing.)*
 
 - **Show a section in more than one place — live views and linked copies.**
   CardMirror can now display one section of content wherever you need it, kept
