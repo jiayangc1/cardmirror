@@ -131,7 +131,7 @@ in each release, see `CHANGELOG.md`.
   IPC — called from the renderer when a close-request resolves WITHOUT closing
   (Cancel, or a failed Save / Save As) — clears the flag, so a later ordinary
   window close still keeps the app in the dock per macOS convention rather than
-  terminating it.
+  terminating it. (PR #9, thanks to [Cora](https://github.com/coralynnkc).)
 
 ## 0.1.0-beta.10 — 2026-07-07
 

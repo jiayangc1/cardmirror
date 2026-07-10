@@ -82,7 +82,8 @@ see `DETAILED_CHANGELOG.md`.
   app menu — closed CardMirror's windows but left the app running in the dock
   instead of quitting. It now exits fully once any unsaved-changes prompts are
   handled. Backing out of a quit (Cancel, or a save that fails) still leaves
-  the app running, the way macOS expects.
+  the app running, the way macOS expects. (Thanks to
+  [Cora](https://github.com/coralynnkc).)
 
 - **The AI "Thinking…" pill is anchored correctly in three-pane mode.** While an
   AI action ran, the "Thinking…" pill could pile up at the top of a pane —
