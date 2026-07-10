@@ -2406,7 +2406,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     key: 'cardNumberingIndent',
     label: 'Number indent',
     description:
-      'Whether numbered cards indent — none, the tag line only, or the whole card.',
+      'Whether numbered cards indent — none, the tag line only, or the whole card. Display-only.',
     kind: 'cardNumberIndent',
     category: 'appearance',
     section: 'Card numbering',
@@ -2416,7 +2416,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     key: 'cardNumberingSubIndent',
     label: 'Substructure indent',
     description:
-      'Whether substructure cards indent — configured independently of the number indent.',
+      'Whether substructure cards indent — configured independently of the number indent. Display-only.',
     kind: 'cardNumberSubIndent',
     category: 'appearance',
     section: 'Card numbering',

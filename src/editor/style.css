@@ -1704,11 +1704,16 @@ body:not(.pmd-inplace-save) #autosave-btn { display: none; }
 /* The number / substructure faces re-render to the configured format (e.g.
    "1—", "a)", "1---"), so let them grow to their glyph instead of the fixed
    doc-ops width; `auto` columns then keep each column aligned to its widest
-   button so nothing clips. */
-#ribbon .ribbon-numbering-btn {
+   button so nothing clips. Two classes deep so these win over the shared
+   `#ribbon .ribbon-doc-ops-btn` rule (same 1-id-1-class specificity) regardless
+   of source order — otherwise its fixed width / 0.85rem font clobber ours. The
+   glyph text matches the structural-style buttons' 0.78rem, not the icon-sized
+   doc-ops font. */
+#ribbon .ribbon-numbering-panel .ribbon-numbering-btn {
   width: auto;
   min-width: 1.5rem;
   padding: 0 0.25rem;
+  font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
