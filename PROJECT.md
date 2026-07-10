@@ -54,11 +54,12 @@ spaced-repetition flashcards · AI cite/alt-text/table/comment features
 (comments, notes, and ask-AI work on images too) · AI OCR/PDF text repair
 (diff-based, animated, single undo) · selection translation
 (MyMemory keyless / Anthropic / Google, AI-optional) · editor spellcheck ·
-autosave and crash recovery · desktop auto-update.
+autosave and crash recovery · desktop auto-update · encrypted card sharing ·
+real-time co-editing (desktop, experimental) · transclusion (read-only live
+views + editable linked copies) · display-only card numbering.
 
 **Planned** (rationale in `ARCHITECTURE.md`): Verbatim Flow integration ·
-transclusion · real-time collaboration · numbered/bulleted lists ·
-per-type display-spacing ·
+numbered/bulleted lists · per-type display-spacing ·
 fuller screen-reader support and accessibility presets. The
 remaining Verbatim cleanup macros (AutoNumberTags, ReformatAllCites,
 ConvertToDefaultStyles, …) aren't planned, though several cleanup
