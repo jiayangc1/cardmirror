@@ -26,10 +26,11 @@ export const CATEGORY_TABS: {
   { id: 'editing', label: 'Editing' },
   { id: 'shortcuts', label: 'Keyboard' },
   { id: 'comments-ai', label: 'Comments & AI' },
-  // Card Sharing (pairing) is desktop-only — the relay send/receive run in the
-  // Electron main process — so its settings are all electronOnly. Hide the whole
-  // tab on web rather than show it empty.
-  { id: 'pairing', label: 'Card Sharing', electronOnly: true },
+  // Collaboration (card sharing + co-editing) is desktop-only — the relay
+  // send/receive and co-editing sessions run in the Electron main process — so
+  // its settings are all electronOnly. Hide the whole tab on web rather than
+  // show it empty. (Kept `id: 'pairing'` so stored settings/routes don't churn.)
+  { id: 'pairing', label: 'Collaboration', electronOnly: true },
   // Accessibility intentionally lives at the far right — its
   // override-anything panel is a "last-resort" customization
   // surface, separated from the everyday tabs.

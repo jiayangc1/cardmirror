@@ -230,7 +230,7 @@ export class SendPillController {
     if (partners.length === 0 && groups.length === 0) {
       const hint = document.createElement('div');
       hint.className = 'pmd-send-empty';
-      hint.textContent = 'Add a recipient in Settings → Card Sharing.';
+      hint.textContent = 'Add a recipient in Settings → Collaboration.';
       this.panel.appendChild(hint);
       return;
     }

@@ -200,7 +200,7 @@ function blockedKey(): string {
 // ── Recent-senders ledger ────────────────────────────────────────────
 // A persistent record of who has recently sent you a card OR a
 // collaboration invite. Backs the "block a recent sender" list in
-// Settings → Card Sharing. It exists because the live inbox isn't enough:
+// Settings → Collaboration. It exists because the live inbox isn't enough:
 // a collaboration invite is CONSUMED (removed) on Join, so by the time you
 // go to block that person, the item — and its sender — is gone from the
 // inbox. Recording the sender the moment the item arrives keeps them

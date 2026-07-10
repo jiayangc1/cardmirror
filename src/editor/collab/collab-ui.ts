@@ -404,7 +404,7 @@ export function relayFailureMessage(err: unknown, opts: { initiating: boolean; v
     return opts.initiating
       ? 'Starting a collaboration session requires a relay. In Settings → Card ' +
           'Sharing, connect your Debate Decoded account or set up your own relay.'
-      : 'The session relay rejected your credentials. In Settings → Card Sharing, ' +
+      : 'The session relay rejected your credentials. In Settings → Collaboration, ' +
           'connect your Debate Decoded account or set up your own relay.';
   }
   return `Could not ${opts.verb}: ${(err as Error).message}`;
@@ -446,7 +446,7 @@ export async function startSessionFlow(deps: CollabUiDeps): Promise<void> {
   await ensureBakedRelay();
   const client = relayClient();
   if (!client) {
-    showToast('Set the relay URL and token in Settings → Card Sharing first');
+    showToast('Set the relay URL and token in Settings → Collaboration first');
     return;
   }
   try {
@@ -514,7 +514,7 @@ export async function joinSessionWithCode(deps: CollabUiDeps, code: string): Pro
   await ensureBakedRelay();
   const client = relayClient();
   if (!client) {
-    showToast('Set the relay URL and token in Settings → Card Sharing first');
+    showToast('Set the relay URL and token in Settings → Collaboration first');
     return;
   }
   const decoded = decodeShareCode(code);
@@ -617,7 +617,7 @@ export async function resumeSessionFlow(
   await ensureBakedRelay();
   const client = relayClient();
   if (!client) {
-    showToast('Set the relay URL and token in Settings → Card Sharing first');
+    showToast('Set the relay URL and token in Settings → Collaboration first');
     return;
   }
   const decoded = decodeShareCode(record.shareCode);
