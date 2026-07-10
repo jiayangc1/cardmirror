@@ -13,10 +13,10 @@
  * detaches them.
  */
 import type { Node as PMNode } from 'prosemirror-model';
-import type { EditorView, NodeView } from 'prosemirror-view';
+import type { Decoration, EditorView, NodeView } from 'prosemirror-view';
 import { icon, type IconName } from './icons.js';
 import { showToast } from './toast.js';
-import { isZoneEdited } from './transclusion.js';
+import { isZoneEdited, isInDocCopy } from './transclusion.js';
 import {
   refreshZoneAtPos,
   detachZoneAtPos,
@@ -25,6 +25,8 @@ import {
   openZoneSourceAtPos,
 } from './transclusion-actions.js';
 import { transclusionSupported, refreshFailMessage } from './transclusion-resolve.js';
+import { jumpToSelfRefSource } from './self-transclusion-commands.js';
+import { checkLiveZoneSources } from './transclusion-divergence-plugin.js';
 import { showConfirm } from './confirm-dialog.js';
 
 /** " › " with explicit code points (space, U+203A, space) — matches crumbLabel. */
@@ -36,6 +38,12 @@ function railGlyph(): HTMLElement {
   const g = icon('link');
   g.classList.add('pmd-transclusion-glyph');
   return g;
+}
+
+/** Whether the divergence plugin has flagged this zone (via `spec.diverged` on
+ *  its node decoration). */
+function readDiverged(decorations: readonly Decoration[]): boolean {
+  return decorations.some((d) => d.spec?.['diverged'] === true);
 }
 
 function formatSyncedDate(ms: number): string {
@@ -57,11 +65,20 @@ class TransclusionView implements NodeView {
   private busy = false;
   private transient: 'unreachable' | 'web' | null = null;
   private menuEl: HTMLElement | null = null;
+  /** Source has moved on since last pull — set from the divergence plugin's
+   *  node decoration (transclusion-divergence-plugin.ts). */
+  private diverged = false;
 
-  constructor(node: PMNode, view: EditorView, getPos: () => number | undefined) {
+  constructor(
+    node: PMNode,
+    view: EditorView,
+    getPos: () => number | undefined,
+    decorations: readonly Decoration[] = [],
+  ) {
     this.node = node;
     this.view = view;
     this.getPos = getPos;
+    this.diverged = readDiverged(decorations);
 
     this.dom = document.createElement('div');
     this.dom.className = 'pmd-transclusion';
@@ -72,8 +89,8 @@ class TransclusionView implements NodeView {
     this.glyphBtn.type = 'button';
     this.glyphBtn.className = 'pmd-transclusion-glyph-btn';
     this.glyphBtn.setAttribute('contenteditable', 'false');
-    this.glyphBtn.title = 'Live zone — source & actions';
-    this.glyphBtn.setAttribute('aria-label', 'Live zone actions');
+    this.glyphBtn.title = 'Linked copy — source & actions';
+    this.glyphBtn.setAttribute('aria-label', 'Linked copy actions');
     this.glyphIcon = railGlyph();
     this.glyphBtn.appendChild(this.glyphIcon);
     this.glyphBtn.addEventListener('mousedown', (e) => {
@@ -98,8 +115,9 @@ class TransclusionView implements NodeView {
   }
 
   /** The source file's name (with extension) from the ref, falling back to the
-   *  file part of the breadcrumb label. */
+   *  file part of the breadcrumb label. In-doc copies show "This document". */
   private sourceFileName(): string {
+    if (isInDocCopy(this.node)) return 'This document';
     const ref = String(this.node.attrs['source_ref'] || '');
     const base = ref.split('/').pop();
     if (base) return base;
@@ -107,9 +125,11 @@ class TransclusionView implements NodeView {
     return label.split(CRUMB_SEP)[0] || 'source';
   }
 
-  /** The section/heading part of the breadcrumb label (after the file). */
+  /** The section/heading part of the breadcrumb label (after the file). An
+   *  in-doc copy's label is just the section name (no file crumb). */
   private sectionLabel(): string {
     const label = String(this.node.attrs['source_label'] || '');
+    if (isInDocCopy(this.node)) return label;
     const parts = label.split(CRUMB_SEP);
     return parts.length > 1 ? parts.slice(1).join(CRUMB_SEP) : '';
   }
@@ -119,6 +139,7 @@ class TransclusionView implements NodeView {
     if (this.busy) return 'Refreshing…';
     if (this.transient === 'unreachable') return 'Source not found · showing cached';
     if (this.transient === 'web') return 'Refresh on the desktop app';
+    if (this.diverged) return 'Source has new content · Refresh to update';
     const lr = Number(this.node.attrs['last_refreshed'] ?? 0);
     return lr > 0 ? `Synced ${formatSyncedDate(lr)}` : 'Not yet refreshed';
   }
@@ -132,10 +153,21 @@ class TransclusionView implements NodeView {
     // never rests on the teal-vs-amber tint alone.
     this.glyphIcon.classList.toggle('pmd-icon-link', !edited);
     this.glyphIcon.classList.toggle('pmd-icon-link-broken', edited);
-    this.glyphBtn.title = edited
-      ? 'Live zone (edited) — source & actions'
-      : 'Live zone — source & actions';
-    this.glyphBtn.setAttribute('aria-label', edited ? 'Live zone actions — edited' : 'Live zone actions');
+    // Divergence is an ORTHOGONAL badge (the source moved on, whatever the local
+    // edit state): a distinct dot on the glyph carries it (shape + colour, so
+    // it's colourblind-safe), and it enriches the tooltip/aria name.
+    this.glyphBtn.classList.toggle('is-diverged', this.diverged);
+    const state = this.diverged
+      ? edited
+        ? ' (edited · source updated)'
+        : ' (source updated)'
+      : edited
+        ? ' (edited)'
+        : '';
+    this.glyphBtn.title = this.diverged
+      ? `Linked copy${state} — source has new content; Refresh to update`
+      : `Linked copy${state} — source & actions`;
+    this.glyphBtn.setAttribute('aria-label', `Linked copy actions${state}`);
   }
 
   /** Reflect the transient/busy state on the wrapper (drives the glyph tint). */
@@ -198,11 +230,18 @@ class TransclusionView implements NodeView {
     sep.className = 'pmd-transclusion-menu-sep';
     menu.appendChild(sep);
 
+    const inDoc = isInDocCopy(this.node);
     menu.appendChild(
-      this.menuItem('open', 'Open source file', () => {
-        this.closeMenu();
-        this.onOpenSource();
-      }),
+      inDoc
+        ? // In-doc copy: no file to open — jump to the source section instead.
+          this.menuItem('bookmark', 'Go to source section', () => {
+            this.closeMenu();
+            this.onGoToInDocSource();
+          })
+        : this.menuItem('open', 'Open source file', () => {
+            this.closeMenu();
+            this.onOpenSource();
+          }),
     );
     menu.appendChild(
       this.menuItem('reset', 'Refresh from source', () => {
@@ -211,11 +250,20 @@ class TransclusionView implements NodeView {
       }),
     );
     menu.appendChild(
-      this.menuItem('search', 'Re-pick source…', () => {
+      this.menuItem('search', 'Check for updates', () => {
         this.closeMenu();
-        void this.onRePick();
+        this.onCheckUpdates();
       }),
     );
+    // Re-pick re-points to a different FILE — cross-file only for now.
+    if (!inDoc) {
+      menu.appendChild(
+        this.menuItem('search', 'Re-pick source…', () => {
+          this.closeMenu();
+          void this.onRePick();
+        }),
+      );
+    }
     menu.appendChild(
       this.menuItem('edit', 'Unlink', () => {
         this.closeMenu();
@@ -280,11 +328,30 @@ class TransclusionView implements NodeView {
     return btn;
   }
 
+  /** Jump to the in-doc section this copy was pulled from. */
+  private onGoToInDocSource(): void {
+    jumpToSelfRefSource(this.view, String(this.node.attrs['source_heading_id'] ?? ''));
+  }
+
+  /** Check every linked copy's source for changes now (updates the badges). */
+  private onCheckUpdates(): void {
+    void checkLiveZoneSources(this.view).then((s) => {
+      const msg = !s.desktop
+        ? 'Linked copies from a file check for updates on the desktop app.'
+        : s.diverged > 0
+          ? `${s.diverged} linked ${s.diverged === 1 ? 'copy has' : 'copies have'} a changed source — Refresh to update.`
+          : 'Linked copies are up to date with their sources.';
+      showToast(msg);
+    });
+  }
+
   private onRefresh(): void {
     if (this.busy) return; // ignore re-entrant clicks while a refresh is in flight
     const pos = this.getPos();
     if (pos == null) return;
-    if (!transclusionSupported()) {
+    // In-doc copies resolve from the live doc, so they refresh everywhere; only
+    // cross-file copies need the desktop file layer.
+    if (!isInDocCopy(this.node) && !transclusionSupported()) {
       this.transient = 'web';
       this.refreshStatusAttr();
       showToast(refreshFailMessage('not-desktop'));
@@ -364,10 +431,11 @@ class TransclusionView implements NodeView {
     openZoneSourceAtPos(this.view, pos);
   }
 
-  update(node: PMNode): boolean {
+  update(node: PMNode, decorations: readonly Decoration[] = []): boolean {
     if (node.type !== this.node.type) return false;
     const lastRefreshedChanged = node.attrs['last_refreshed'] !== this.node.attrs['last_refreshed'];
     this.node = node;
+    this.diverged = readDiverged(decorations);
     // Clear a stale transient error once a refresh has landed.
     if (lastRefreshedChanged) this.transient = null;
     // Close the menu on an attr change so it can't show stale source detail.
@@ -410,5 +478,6 @@ export const transclusionNodeViews = {
     node: PMNode,
     view: EditorView,
     getPos: () => number | undefined,
-  ): NodeView => new TransclusionView(node, view, getPos),
+    decorations: readonly Decoration[],
+  ): NodeView => new TransclusionView(node, view, getPos, decorations),
 };

@@ -61,9 +61,16 @@ export function isRibbonCommandAvailable(id: RibbonCommandId): boolean {
   if (id === 'openCardCutter') return settings.get('cardCutterEnabled') === true;
   // Creating/refreshing a live zone reads other files from disk — desktop only.
   // Detach works on an already-cached zone, so it stays available everywhere.
-  if (id === 'insertLiveZone' || id === 'refreshLiveZone' || id === 'refreshAllLiveZones') {
+  if (
+    id === 'insertLiveZone' ||
+    id === 'refreshLiveZone' ||
+    id === 'refreshAllLiveZones' ||
+    id === 'checkLiveZoneSources'
+  ) {
     return getElectronHost() !== null;
   }
+  // Intra-doc live windows work entirely within the open doc (no disk), so
+  // they're available everywhere (not desktop-gated).
   if (COLLAB_COMMANDS.has(id)) return collabEnabled();
   return true;
 }

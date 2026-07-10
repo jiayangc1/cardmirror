@@ -22,6 +22,7 @@ import type { EditorView } from 'prosemirror-view';
 import { collectHeadings, headingInsertPos, TYPE_TO_LEVEL } from './headings.js';
 import { dragController, type DragItem, type DragSurface } from './drag-controller.js';
 import { isTransclusionNode } from './transclusion.js';
+import { isSelfRef } from './self-transclusion.js';
 import { settings } from './settings.js';
 import { scheduleIdle, cancelIdle, type IdleHandle } from './idle-scheduler.js';
 
@@ -315,12 +316,13 @@ export class EditorDragSurface implements DragSurface {
       if (id) visibleIdToEl.set(id, el);
     }
     const doc = view.state.doc;
-    // Is the drag source a whole live zone? Then it drops as a doc-level unit
-    // (not level-scoped) and offers no target inside any zone.
+    // Is the drag source a doc-level opaque unit — a whole live zone (linked copy)
+    // or a live view? Then it drops as a doc-level unit (not level-scoped) and
+    // offers no target inside any zone.
     const session = dragController.getSession();
     const srcItem = session?.items[0];
-    const srcIsZone =
-      !!srcItem && !!session && isTransclusionNode(session.view.state.doc.nodeAt(srcItem.from));
+    const srcNode = srcItem && session ? session.view.state.doc.nodeAt(srcItem.from) : null;
+    const srcIsZone = !!srcNode && (isTransclusionNode(srcNode) || isSelfRef(srcNode));
     // `skipCite: true` — drop-indicator placement doesn't read
     // `entry.cite`, and the cite walk is the heaviest part of
     // `collectHeadings` (it descends every card looking for
@@ -692,16 +694,51 @@ export class EditorDragSurface implements DragSurface {
     // (mirrors computeHeadingRange), so a transcluded card can't be pulled out
     // and the zone moves intact. Checked before the card/heading walk below so
     // the outer zone wins over the inner card.
+    // A point inside a live view (`self_ref`) OR a live zone (`transclusion_ref`)
+    // grabs the WHOLE unit — its read-only mirrored cards can't be pulled out and
+    // it moves intact. Checked before the card/heading walk so the outer unit wins
+    // over an inner card.
     for (let depth = $pos.depth; depth >= 1; depth--) {
       const node = $pos.node(depth);
-      if (node.type.name === 'transclusion_ref') {
+      if (node.type.name === 'transclusion_ref' || isSelfRef(node)) {
         const from = $pos.before(depth);
+        const view = isSelfRef(node);
         return {
           from,
           to: from + node.nodeSize,
-          type: 'transclusion_ref',
+          type: node.type.name,
           level: 0,
-          label: String(node.attrs['source_label'] || this.firstHeadingText(node) || 'Live zone'),
+          label: view
+            ? String(node.attrs['source_label'] || 'Live view').replace(/^↳\s*/, '')
+            : String(node.attrs['source_label'] || this.firstHeadingText(node) || 'Live zone'),
+        };
+      }
+    }
+
+    // Backstop for a pointer over the view's chrome (glyph/rail/padding) where
+    // `posAtCoords` may not resolve inside the content: match the `.pmd-self-ref`
+    // element under the pointer to its node by DOM identity.
+    const domEl = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+    const selfRefEl = domEl?.closest('.pmd-self-ref') ?? null;
+    if (selfRefEl) {
+      const matches: { pos: number; node: import('prosemirror-model').Node }[] = [];
+      const view = this.view;
+      doc.descendants((node, pos) => {
+        if (matches.length) return false;
+        if (isSelfRef(node)) {
+          if (view.nodeDOM(pos) === selfRefEl) matches.push({ pos, node });
+          return false;
+        }
+        return true;
+      });
+      const hit = matches[0];
+      if (hit) {
+        return {
+          from: hit.pos,
+          to: hit.pos + hit.node.nodeSize,
+          type: 'self_ref',
+          level: 0,
+          label: String(hit.node.attrs['source_label'] || 'Live view').replace(/^↳\s*/, ''),
         };
       }
     }

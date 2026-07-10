@@ -176,8 +176,8 @@ describe('live zone in a real EditorView (editable)', () => {
     expect(view.dom.querySelector('.pmd-transclusion-menu')).toBeNull();
     glyphBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     const items = view.dom.querySelectorAll('.pmd-transclusion-menu .pmd-transclusion-menu-item');
-    // Open source file · Refresh from source · Re-pick source · Unlink · Delete
-    expect(items.length).toBe(5);
+    // Open source · Refresh · Check for updates · Re-pick · Unlink · Delete
+    expect(items.length).toBe(6);
     const unlink = Array.from(items).find((el) => el.textContent?.includes('Unlink')) as HTMLElement;
     unlink.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(countTypes(view).zones).toBe(0);

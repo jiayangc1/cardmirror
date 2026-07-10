@@ -16,11 +16,15 @@ import {
   extractSection,
   chooseSourceRef,
   prepareZoneContent,
+  SELF_SOURCE_REF,
+  isInDocCopy,
   type TransclusionAttrs,
   type SourceRefBase,
 } from './transclusion.js';
 import { getViewDocPath } from './transclusion-doc-path.js';
+import { flattenSelfRefsInFragment } from './self-transclusion.js';
 import { resolveTransclusion, type ResolveOutcome } from './transclusion-resolve.js';
+import { ZONE_REFRESHED_META } from './transclusion-divergence-plugin.js';
 import { showConfirm } from './confirm-dialog.js';
 
 /** " › " with explicit code points (space, U+203A, space). */
@@ -33,7 +37,7 @@ const CRUMB_SEP = ' › ';
 function confirmDiscardEdits(): Promise<boolean> {
   return showConfirm({
     title: 'Discard your edits?',
-    message: 'Refreshing replaces your local edits to this live zone with the current source.',
+    message: 'Refreshing replaces your local edits to this linked copy with the current source.',
     confirmLabel: 'Refresh',
     cancelLabel: 'Keep edits',
   });
@@ -86,18 +90,53 @@ export function buildLiveZoneAttrs(
   if (!docPath) return { ok: false, reason: 'no-doc-path' };
   const chosen = chooseSourceRef(docPath, sourceAbsPath, roots);
   if (!chosen) return { ok: false, reason: 'no-portable-ref' };
-  const { content, hash } = prepareZoneContent(section.content, newHeadingId);
+  // A linked copy is a FLAT snapshot: materialize any live views in the source
+  // section to plain cards (resolved against the source doc). Keeping zone content
+  // self_ref-free is what stops a copy from carrying a live view whose rail would
+  // stack inside the copy's rail (a second transclusion updating from a different
+  // source). Nested linked copies are flattened next by prepareZoneContent.
+  const flat = flattenSelfRefsInFragment(section.content, sourceDoc, newHeadingId);
+  const { content, hash, shapeHash } = prepareZoneContent(flat, newHeadingId);
   const attrs: TransclusionAttrs = {
     source_ref: chosen.ref,
     source_ref_base: chosen.base,
     source_heading_id: headingId,
     source_abs: sourceAbsPath,
     source_content_hash: hash,
+    source_shape_hash: shapeHash,
     last_refreshed: Date.now(),
     source_label: crumbLabel(sourceName, section.headingLabel),
   };
   // No cycle guard needed: prepareZoneContent flattened any nested zones, so the
   // content is structurally zone-free and can't reference this (or any) zone.
+  return { ok: true, attrs, content, headingLabel: section.headingLabel };
+}
+
+/**
+ * Build an in-doc LINKED COPY (attrs + content) from a section of THIS document.
+ * Like `buildLiveZoneAttrs` but the source is in-doc: no file path / portable
+ * ref, `source_ref` is the `SELF_SOURCE_REF` marker, and refresh + divergence
+ * resolve from the live doc. A copy is a FLAT snapshot — nested cross-file copies
+ * AND nested live views both materialize to plain cards, so the copy never
+ * carries a second transclusion rail (no stacked rails).
+ */
+export function buildInDocCopyAttrs(doc: PMNode, headingId: string): BuildZoneOutcome {
+  if (!headingId) return { ok: false, reason: 'no-heading-id' };
+  const section = extractSection(doc, headingId);
+  if (!section) return { ok: false, reason: 'no-section' };
+  if (section.content.size === 0) return { ok: false, reason: 'empty-section' };
+  const flat = flattenSelfRefsInFragment(section.content, doc, newHeadingId);
+  const { content, hash, shapeHash } = prepareZoneContent(flat, newHeadingId);
+  const attrs: TransclusionAttrs = {
+    source_ref: SELF_SOURCE_REF,
+    source_ref_base: 'doc',
+    source_heading_id: headingId,
+    source_abs: '',
+    source_content_hash: hash,
+    source_shape_hash: shapeHash,
+    last_refreshed: Date.now(),
+    source_label: crumbLabel('', section.headingLabel),
+  };
   return { ok: true, attrs, content, headingLabel: section.headingLabel };
 }
 
@@ -111,11 +150,11 @@ export function buildZoneErrorMessage(reason: BuildZoneReason | undefined): stri
     case 'empty-section':
       return 'That heading has no content to transclude.';
     case 'no-doc-path':
-      return 'Save this document first, then insert a live zone.';
+      return 'Save this document first, then insert a linked copy.';
     case 'no-portable-ref':
       return 'Couldn’t make a portable link to that file.';
     default:
-      return 'Could not insert the live zone.';
+      return 'Could not insert the linked copy.';
   }
 }
 
@@ -151,6 +190,16 @@ export interface RefreshOptions {
   confirmEdits?: boolean;
 }
 
+/** Resolve an in-doc linked copy's source from the live doc (no file read). Live
+ *  views in the section materialize to plain cards (against the live doc), so a
+ *  refresh re-pulls a flat snapshot — the copy never re-acquires a nested rail. */
+function resolveInDocSource(doc: PMNode, headingId: string): ResolveOutcome {
+  const section = extractSection(doc, headingId);
+  if (!section) return { ok: false, reason: 'heading-missing' };
+  const content = flattenSelfRefsInFragment(section.content, doc, newHeadingId);
+  return { ok: true, result: { ...section, content }, sourceName: '' };
+}
+
 export async function refreshZoneAtPos(
   view: EditorView,
   pos: number,
@@ -168,13 +217,17 @@ export async function refreshZoneAtPos(
   }
 
   const docPath = getViewDocPath(view);
-  const outcome = await resolveTransclusion(
-    docPath,
-    String(node.attrs['source_ref'] ?? ''),
-    node.attrs['source_ref_base'] === 'root' ? 'root' : 'doc',
-    String(node.attrs['source_heading_id'] ?? ''),
-    String(node.attrs['source_abs'] ?? ''),
-  );
+  // In-doc linked copies resolve from the LIVE doc (no file read); cross-file
+  // copies read the source file.
+  const outcome = isInDocCopy(node)
+    ? resolveInDocSource(view.state.doc, String(node.attrs['source_heading_id'] ?? ''))
+    : await resolveTransclusion(
+        docPath,
+        String(node.attrs['source_ref'] ?? ''),
+        node.attrs['source_ref_base'] === 'root' ? 'root' : 'doc',
+        String(node.attrs['source_heading_id'] ?? ''),
+        String(node.attrs['source_abs'] ?? ''),
+      );
   if (!outcome.ok || !outcome.result) return outcome;
   // The heading is still there but has been emptied since the last sync — refuse
   // rather than blank the zone (which would leave an invisible husk). Keep cache.
@@ -202,7 +255,7 @@ export async function refreshZoneAtPos(
 
   // Replace the whole zone node with a fresh one: new children (nested zones
   // flattened, source ids rewritten), reset content hash + timestamp + label.
-  const { content, hash } = prepareZoneContent(outcome.result.content, newHeadingId);
+  const { content, hash, shapeHash } = prepareZoneContent(outcome.result.content, newHeadingId);
   const newNode = createTransclusionNode(
     view.state.schema,
     {
@@ -211,6 +264,7 @@ export async function refreshZoneAtPos(
       source_heading_id: String(live.attrs['source_heading_id'] ?? ''),
       source_abs: String(live.attrs['source_abs'] ?? ''),
       source_content_hash: hash,
+      source_shape_hash: shapeHash,
       last_refreshed: Date.now(),
       source_label: crumbLabel(outcome.sourceName ?? '', outcome.result.headingLabel),
     },
@@ -218,6 +272,9 @@ export async function refreshZoneAtPos(
   );
   const tr = view.state.tr.replaceWith(targetPos, targetPos + live.nodeSize, newNode);
   tr.setMeta('addToHistory', true);
+  // Tell the divergence plugin a zone was just re-pulled, so it rechecks and
+  // clears this zone's "source updated" badge promptly (not on the idle cadence).
+  tr.setMeta(ZONE_REFRESHED_META, true);
   view.dispatch(tr);
   return outcome;
 }
@@ -238,9 +295,9 @@ export interface RefreshAllSummary {
  *  edits and re-pulls every source, so it's confirmed once up front rather than
  *  once per edited zone. */
 function confirmRefreshAll(count: number): Promise<boolean> {
-  const zones = count === 1 ? 'the 1 live zone' : `all ${count} live zones`;
+  const zones = count === 1 ? 'the 1 linked copy' : `all ${count} linked copies`;
   return showConfirm({
-    title: 'Refresh every live zone?',
+    title: 'Refresh every linked copy?',
     message: `This replaces ${zones} in this document with their current sources, discarding any local edits and contextualization.`,
     confirmLabel: 'Refresh all',
     cancelLabel: 'Cancel',

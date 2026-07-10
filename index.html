@@ -167,6 +167,18 @@
                     title="Strikethrough"><s>S</s></button>
           </div>
         </div>
+        <div id="numbering-panel" class="ribbon-numbering-panel" role="group" aria-label="Card numbering">
+          <!-- 2×2: number-role / sub-role on top, restart / show-hide below.
+               The 1. and a) faces re-render to match the configured format. -->
+          <button id="num-role-btn" class="ribbon-doc-ops-btn ribbon-numbering-btn" type="button"
+                  aria-pressed="false" title="Number this card">1.</button>
+          <button id="num-sub-role-btn" class="ribbon-doc-ops-btn ribbon-numbering-btn" type="button"
+                  aria-pressed="false" title="Mark as substructure">a)</button>
+          <button id="num-restart-btn" class="ribbon-doc-ops-btn ribbon-numbering-btn" type="button"
+                  aria-pressed="false" title="Restart numbering here">↻</button>
+          <button id="num-visibility-btn" class="ribbon-doc-ops-btn ribbon-numbering-btn" type="button"
+                  aria-pressed="true" title="Show or hide card numbering"><span class="pmd-icon pmd-icon-list" aria-hidden="true"></span></button>
+        </div>
         <div id="doc-ops-panel" class="ribbon-doc-ops-panel" role="group" aria-label="Document operations">
           <!-- Doc-level toggles, stacked vertically. ¶ on top drives
                F3's default condense behavior; T below arms F2's plain-

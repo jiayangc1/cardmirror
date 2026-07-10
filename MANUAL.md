@@ -28,7 +28,7 @@ for the parts that aren't.
 6. [Quick Cards](#6-quick-cards)
 7. [The multi-doc workspace](#7-the-multi-doc-workspace)
 8. [Reading and delivering a speech](#8-reading-and-delivering-a-speech)
-9. [Live zones (transclusion)](#9-live-zones-transclusion)
+9. [Live views and linked copies](#9-live-views-and-linked-copies)
 10. [Comments and notes](#10-comments-and-notes)
 11. [Learn: spaced-repetition flashcards](#11-learn-spaced-repetition-flashcards)
 12. [AI features](#12-ai-features)
@@ -172,9 +172,10 @@ covered in full in the section linked.
 - **[A real multi-doc workspace](#7-the-multi-doc-workspace)** — three
   editable panes side by side, each with its own outline and history, and
   drag-copy between them.
-- **[Live zones (transclusion)](#9-live-zones-transclusion)** — embed a
-  section from another file as a live-linked, editable copy you can refresh
-  from its source. *(Desktop to create or refresh.)*
+- **[Live views and linked copies](#9-live-views-and-linked-copies)** — show a
+  section in more than one place: a read-only **live view** that always tracks
+  its source, or an editable **linked copy** you refresh — from this document or
+  another file.
 - **[Read mode that locks the keyboard](#8-reading-and-delivering-a-speech)**
   — a non-destructive reading view at the podium that stray keystrokes
   can't edit, with a reading-position marker for stopping mid-card.
@@ -1031,65 +1032,88 @@ point at the same relay. Leave both empty to use the official relay.
 
 ---
 
-## 9. Live zones (transclusion)
+## 9. Live views and linked copies
 
-A **live zone** embeds a section from *another* file — a heading and the
-cards beneath it — into the document you're working in, kept linked to its
-source. Pull a block from a backfile into today's case once, and a refresh
-later brings in whatever the source says now. *(Creating and refreshing
-live zones is desktop-only — it reads the other file from disk. Zones
-you've already made still render in the web version.)*
+CardMirror can show one section of content in more than one place, kept
+connected to its source. There are two flavors, and the difference is simple —
+**do you want to look at the original, or keep your own copy?**
 
-**Make one.** Open the [Search Everything palette](#5-finding-things)
-(Mod-Shift-Space), find the source file, and dive into it. Land on the
-heading you want and press **Mod-Enter** ("⌘↵ transclude") to drop that
-section into your document as a live zone. The source can be a `.cmir` file
-or a Word `.docx`; for a Word file, CardMirror adds a small, invisible
-bookmark to it so it can find the same heading again later — nothing else in
-the file changes. If it can't write that bookmark, it declines rather than
-make a zone that could never refresh.
+- A **live view** is a read-only window onto another section of *this*
+  document. It always shows the source's current content — edit the source and
+  the view updates instantly. You don't edit *through* it; you edit at the
+  source. Nothing is duplicated.
+- A **linked copy** is your own *editable* copy of a section, kept linked to its
+  source so you can **Refresh** it and get nudged when the original changes. The
+  source can be **another file** (pull a block from a backfile) or **this
+  document**.
 
-**Spot one.** A live zone shows a teal rail down its left edge, and in the
-navigation pane the headings inside it carry a faint green rail, so you can
-see at a glance which parts of your outline are transcluded. A small glyph
-at the zone's top-left opens its menu.
+|                | This document | Another file |
+| -------------- | ------------- | ------------ |
+| **Live view**  | ✓             | —            |
+| **Linked copy**| ✓             | ✓            |
 
-**Edit in place.** A zone's cards are fully editable — cut, highlight,
-re-tag, add cards — right where they sit; you don't have to unlink first. A
-dot on the glyph marks a zone whose contents you've changed from the source.
+(A live view of a *file* isn't offered — it would need that file present at all
+times, and CardMirror documents are self-contained.)
 
-**Refresh.** *Refresh Live Zone* (from the command bar, or the glyph menu's
-*Refresh from source*) re-reads the source and replaces the zone your cursor
-is in with the current version. *Refresh All Live Zones* does the whole
-document at once, behind a single confirmation, since it discards local
-edits everywhere. Either way, if you've edited a zone, CardMirror confirms
-before overwriting your changes. If the source heading has been *emptied*
-since you last synced, a refresh keeps your cached copy rather than blanking
-the zone.
+**Make one.** From the command bar (Mod-Shift-Space, or the ribbon):
 
-**The glyph menu.**
+- **Insert Live View** / **Insert Linked Copy from This Document** — pick a
+  section of the current document.
+- **Insert Linked Copy from a File** — open the Search Everything palette, dive
+  into the source file, land on a heading and press **Mod-Enter**. The source
+  can be a `.cmir` or a Word `.docx`; for a Word file CardMirror adds a small,
+  invisible bookmark so it can find the section again (nothing else changes), and
+  declines if it can't. *(Making and refreshing a copy from a file is
+  desktop-only — it reads the other file from disk; in-document views and copies
+  work everywhere.)*
 
-- **Open source file** — open the file the zone came from.
-- **Refresh from source** — the single-zone refresh above.
-- **Re-pick source…** — point the zone at a different file or heading.
-- **Unlink** — break the link, leaving the content behind as ordinary cards
-  you own.
-- **Delete** — remove the zone *and* its contents.
+**Spot one.** A live view shows a **dotted green rail** that brightens on hover;
+a linked copy shows a **solid teal rail**. In the navigation pane, both show
+their content under a matching green rail so you can see at a glance which parts
+of your outline are borrowed. A small glyph at the top-left opens the menu.
 
-**Living within the boundary.** A live zone behaves as one unit: drag it in
-the outline or on the page and the whole thing moves together. You can add
-headings and cards inside a zone, but not a heading that would outrank the
-zone's own top heading (that would fracture the borrowed section), and you
-can't nest one zone inside another. Copying part of a zone and pasting it
-elsewhere pastes a plain, unlinked copy — the live link stays with the
-original. You can't transclude a heading that has no content under it.
+**Edit.** A *linked copy* is fully editable in place — cut, highlight, re-tag —
+without unlinking. Once you change a copy so it no longer matches its source, its
+glyph icon turns from an intact chain into a **broken chain** — a reminder that
+your copy has diverged from the original (a Refresh would replace your edits). A
+*live view* is read-only; to change what it shows, edit the source (use **Go to
+source section** in the menu to jump there).
 
-**Live zones need `.cmir`.** A live link only survives in CardMirror's own
-format. **Saving your document to Word (`.docx`) flattens every live zone to
-plain cards and drops its link** — the content stays, but it stops being
-live, and re-opening that `.docx` won't bring the zones back. Keep the
-working copy as `.cmir` if you want the zones to stay linked; export to
-`.docx` only for a hand-off.
+**When the source moves on.** Separately from your own edits, a linked copy can
+drift because its *source* changed. CardMirror marks such a copy with a small
+coloured **"source updated" dot** on the glyph (the menu says *Source has new
+content · Refresh to update*) — it
+checks when you open a document, periodically while it's idle, and on demand via
+*Check Linked Copy Sources for Updates*. Nothing is overwritten until you
+**Refresh**. (For a copy from *this document* the badge tracks the live section,
+so it appears the moment the source diverges.) You can recolour the badge under
+Settings → Appearance → Style colors ("Linked-copy source-updated badge"). A live
+view never shows this — it's always current, so there's nothing to flag.
+
+**Refresh** (linked copies). *Refresh Linked Copy* (command bar, or the glyph
+menu) re-pulls the current source into the copy your cursor is in; *Refresh All
+Linked Copies* does the whole document behind one confirmation. If you've edited
+a copy, CardMirror confirms before overwriting your changes; if the source
+heading has been *emptied*, a refresh keeps your cached copy rather than blanking
+it.
+
+**The glyph menu.** A **linked copy** offers Open source file (or Go to source
+section, for an in-document copy) · Refresh from source · Re-pick source (file
+copies) · Unlink (keep the content as ordinary cards) · Delete. A **live view**
+offers Go to source section · Re-pick source · Unlink (freezes the current view
+into editable cards and stops tracking) · Delete.
+
+**Nesting.** A linked copy can contain a live view (a static copy with a live
+window inside it — that's fine). Live views can even be nested and CardMirror
+resolves them recursively; if a view points back at itself through a chain, the
+cycle is detected and left out with a small notice.
+
+**Word (`.docx`) flattens everything.** Live views and linked copies only stay
+connected in CardMirror's own `.cmir` format. **Saving to Word flattens every
+view and copy to plain cards and drops the link** — the content stays, but it
+stops being connected, and re-opening that `.docx` won't bring the links back.
+Keep the working copy as `.cmir` if you want them live; export to `.docx` only
+for a hand-off.
 
 ---
 
@@ -1439,7 +1463,7 @@ and dragging cards around inside the editor is unaffected.
 - **`.docx`** — Word/Verbatim format. Use it to share. CardMirror writes
   docx that's indistinguishable from Verbatim's own output; some
   CardMirror-only extras (private notes, AI notes, flashcards) are left
-  out unless you opt in, and [live zones](#9-live-zones-transclusion) flatten
+  out unless you opt in, and [live views and linked copies](#9-live-views-and-linked-copies) flatten
   to plain cards (their links don't survive Word).
 
 ### Cleaning .docx styles ("stylepox")

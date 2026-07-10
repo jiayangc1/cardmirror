@@ -41,4 +41,9 @@ jobs:
         # fixtures via CARDMIRROR_DOCS_DIR (default `reference-docs/
         # example docs/`). On CI there are no fixtures, so those suites
         # skip cleanly and the rest of the test surface still runs.
+        env:
+          # The heavy transclusion/collab fuzz suites peak past the default
+          # ~4 GB V8 heap on a CI runner (they build megabyte-scale docs and
+          # many Loro peers). Give the vitest fork workers more headroom.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm test

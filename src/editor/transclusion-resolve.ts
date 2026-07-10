@@ -9,7 +9,7 @@
  */
 import type { Node as PMNode } from 'prosemirror-model';
 import { getElectronHost } from './host/index.js';
-import { parseNative } from '../index.js';
+import { parseNative, newHeadingId } from '../index.js';
 import { fromDocx } from '../import/index.js';
 import { fileFormat } from './file-search.js';
 import { settings } from './settings.js';
@@ -18,6 +18,7 @@ import {
   type ExtractResult,
   type SourceRefBase,
 } from './transclusion.js';
+import { flattenSelfRefsInFragment } from './self-transclusion.js';
 
 export type ResolveReason =
   | 'not-desktop'
@@ -52,9 +53,9 @@ export function transclusionSupported(): boolean {
 export function refreshFailMessage(reason: ResolveReason | undefined): string {
   switch (reason) {
     case 'not-desktop':
-      return 'Live zones refresh on the desktop app.';
+      return 'Linked copies from a file refresh on the desktop app.';
     case 'no-doc-path':
-      return 'Save this document first, then refresh the live zone.';
+      return 'Save this document first, then refresh the linked copy.';
     case 'source-unreadable':
       return 'Source file not found — showing the last cached content.';
     case 'parse-failed':
@@ -68,7 +69,7 @@ export function refreshFailMessage(reason: ResolveReason | undefined): string {
     case 'cancelled':
       return '';
     default:
-      return 'Could not refresh the live zone — showing cached content.';
+      return 'Could not refresh the linked copy — showing cached content.';
   }
 }
 
@@ -132,5 +133,10 @@ async function resolveOnce(
 
   const result = extractSection(doc, headingId);
   if (!result) return { ok: false, reason: 'heading-missing', sourceName: file.name };
-  return { ok: true, result, sourceName: file.name };
+  // Materialize any live views in the source section to plain cards (resolved
+  // against the SOURCE file's doc — a self_ref is intra-doc, so it must resolve
+  // where it lives, not in the transcluding doc). Keeps a linked copy a flat
+  // snapshot with no nested transclusion rail, for both refresh and divergence.
+  const content = flattenSelfRefsInFragment(result.content, doc, newHeadingId);
+  return { ok: true, result: { ...result, content }, sourceName: file.name };
 }

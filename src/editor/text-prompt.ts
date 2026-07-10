@@ -214,3 +214,114 @@ export function promptForChoice<T extends string>(
     document.body.appendChild(overlay);
   });
 }
+
+export interface RouteChoiceOption<T extends string> {
+  /** What the returned promise resolves to when this button is picked. */
+  value: T;
+  /** Bold first line. */
+  label: string;
+  /** Optional second line beneath the label (mirrors the Save-dialog's
+   *  "Write to the existing file, then close." style). */
+  description?: string;
+}
+
+export interface RouteChoiceOptions<T extends string> {
+  /** Title / question shown above the buttons. */
+  message: string;
+  /** Buttons in display order, rendered as two-line `pmd-route-btn`s and
+   *  numbered 1..N. Number keys 1-9 (no modifier) activate them; Enter picks
+   *  the first; Esc / overlay-click / Cancel resolves to null. */
+  choices: RouteChoiceOption<T>[];
+  /** Label on the trailing cancel button. Defaults to 'Cancel'. */
+  cancelLabel?: string;
+}
+
+/** Modal choice dialog in the SAME visual vocabulary as the unsaved-changes
+ *  Save / Don't save / Cancel prompt (`confirmCloseUnsaved`): two-line buttons
+ *  with number-key (1/2/3) shortcuts. Use for confirmations that should read as
+ *  part of that family (the co-editing start / close / end flows). Returns the
+ *  chosen `value`, or null on cancel. */
+export function promptForRouteChoice<T extends string>(
+  opts: RouteChoiceOptions<T>,
+): Promise<T | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'pmd-route-overlay';
+    const dialog = document.createElement('div');
+    dialog.className = 'pmd-route-dialog';
+
+    const header = document.createElement('div');
+    header.className = 'pmd-route-header';
+    header.textContent = opts.message;
+    dialog.appendChild(header);
+
+    const buttons = document.createElement('div');
+    buttons.className = 'pmd-route-buttons';
+
+    const cleanup = (): void => {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    };
+
+    const pick = (value: T): void => {
+      cleanup();
+      resolve(value);
+    };
+
+    for (const choice of opts.choices) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'pmd-route-btn';
+      const strong = document.createElement('strong');
+      strong.textContent = choice.label;
+      btn.appendChild(strong);
+      if (choice.description) {
+        btn.appendChild(document.createElement('br'));
+        const span = document.createElement('span');
+        span.textContent = choice.description;
+        btn.appendChild(span);
+      }
+      btn.addEventListener('click', () => pick(choice.value));
+      buttons.appendChild(btn);
+    }
+    dialog.appendChild(buttons);
+
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'pmd-route-cancel';
+    cancel.textContent = opts.cancelLabel ?? 'Cancel';
+    cancel.addEventListener('click', () => {
+      cleanup();
+      resolve(null);
+    });
+    dialog.appendChild(cancel);
+
+    overlay.appendChild(dialog);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        cleanup();
+        resolve(null);
+      }
+    });
+
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        cleanup();
+        resolve(null);
+        return;
+      }
+      // Number keys mirror button order (1 = first). Skip when a modifier is
+      // held so chords (e.g. Ctrl+1 slot focus) stay available.
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const n = Number(e.key);
+      if (Number.isInteger(n) && n >= 1 && n <= opts.choices.length) {
+        e.preventDefault();
+        pick(opts.choices[n - 1]!.value);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+
+    document.body.appendChild(overlay);
+  });
+}

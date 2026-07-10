@@ -39,7 +39,7 @@ import {
   buildDeleteStructureTr,
   installIncomingSpeechSliceHandler,
 } from './speech-doc-send.js';
-import { promptForText } from './text-prompt.js';
+import { promptForText, promptForRouteChoice } from './text-prompt.js';
 import { openDocMenu } from './doc-menu-ui.js';
 import { createReference } from './create-reference.js';
 import { showToast } from './toast.js';
@@ -118,11 +118,15 @@ import {
   type DisplayTypography,
   type DisplayColors,
   type FormattingPanelMode,
+  ZOOM_MIN_PCT,
+  ZOOM_MAX_PCT,
+  CHROME_SCALE_MIN_PCT,
+  CHROME_SCALE_MAX_PCT,
 } from './settings.js';
 import { openSaveAs } from './save-as-ui.js';
 import { highlightColorLabel, shadingColorLabel } from './color-palette.js';
 import { viewportSpellcheckPlugin } from './viewport-spellcheck.js';
-import { commentsPlugin, commentsKey, loadThreads, getCommentsState, gcOrphanThreads, newCommentId } from './comments-plugin.js';
+import { commentsPlugin, commentsKey, loadThreads, getCommentsState, gcOrphanThreads, newCommentId, setCommentIdSessionResolver } from './comments-plugin.js';
 import { scheduleIdle, cancelIdle, type IdleHandle } from './idle-scheduler.js';
 import { CommentsColumn, addCommentToSelection, FC_PREFIX, AI_PREFIX, NOTE_PREFIX } from './comments-ui.js';
 import { runAiCreateCite } from './ai/cite-creator.js';
@@ -137,7 +141,26 @@ import {
   readModeAwareRedo,
 } from './read-mode-plugin.js';
 import { markUnreadPlugin, MARK_UNREAD_TOGGLE } from './mark-unread-plugin.js';
-import { tagCollabTransaction, collabPluginSource, setCollabInviteJoiner, setCollabInviter } from './collab/collab-hooks.js';
+import { makeSelfRefPlugin } from './self-transclusion-plugin.js';
+import {
+  openInsertSelfRef,
+  openInsertInDocCopy,
+  selfRefSelectionPos,
+} from './self-transclusion-commands.js';
+import { flattenSelfRefs, flattenSelfRefsInSlice, fragmentHasSelfRef } from './self-transclusion.js';
+import { rememberLinkedCopy, clearLinkedCopy } from './clipboard-link-cache.js';
+import { makeTransclusionDivergencePlugin, transclusionDivergenceKey } from './transclusion-divergence-plugin.js';
+import {
+  tagCollabTransaction,
+  collabPluginSourceFor,
+  collabPluginsFor,
+  setCollabInviteJoiner,
+  setCollabInviter,
+  collabCopresenceFor,
+  collabCloseKeepResumable,
+  collabEndOrLeaveSession,
+  collabCaptureSessionHandoff,
+} from './collab/collab-hooks.js';
 import { learnHighlightPlugin, flashcardRangeAt } from './learn-highlight-plugin.js';
 import { repairHighlightPlugin } from './repair-highlight-plugin.js';
 import { aiWorkingPlugin } from './ai/ai-working-plugin.js';
@@ -148,6 +171,8 @@ import { absorbPlugin } from './absorb-plugin.js';
 import { citeClassifierPlugin } from './cite-classifier-plugin.js';
 import { namedStyleNormalizerPlugin } from './named-style-normalizer-plugin.js';
 import { fontSizeClassPlugin } from './font-size-class-plugin.js';
+import { cardNumberingPlugin, NUMBERING_REFRESH, numberingSampleGlyph } from './numbering-plugin.js';
+import { numberingSelectionState } from './numbering-commands.js';
 import {
   buildSimilarSelectionPlugin,
   selectAllOfStyle,
@@ -172,6 +197,8 @@ import { imageContextMenuPlugin } from './image-context-menu-plugin.js';
 import { editorNodeViews } from './image-resize-nodeview.js';
 import { setViewDocPath, getViewDocPath } from './transclusion-doc-path.js';
 import { setRePickOpener, setOpenSourceOpener } from './transclusion-actions.js';
+import { isTransclusionNode, fragmentHasZone } from './transclusion.js';
+import { showConfirm } from './confirm-dialog.js';
 import { linkContextMenuPlugin } from './link-context-menu-plugin.js';
 import { wordSelectionPlugin } from './word-selection-plugin.js';
 import { typeOverBoundaryPlugin } from './type-over-boundary.js';
@@ -439,9 +466,26 @@ function selectCurrentHeadingIn(sourceView: EditorView): void {
   const range = resolveCursorStructureRange(sourceView);
   if (!range) return;
   const { doc } = sourceView.state;
-  const sel = TextSelection.between(doc.resolve(range.from), doc.resolve(range.to));
-  sourceView.dispatch(sourceView.state.tr.setSelection(sel).scrollIntoView());
+  sourceView.dispatch(sourceView.state.tr.setSelection(headingContentSelection(doc, range)).scrollIntoView());
   sourceView.focus();
+}
+
+/** A selection covering a structural range. Normally `TextSelection.between`
+ *  (clamps endpoints to textblocks). But a range that ENDS in a block LEAF ATOM
+ *  — a live view (`self_ref`) — has no textblock after it, so `between` snaps the
+ *  end back BEFORE the view, dropping it from the selection ("stops at the top of
+ *  the live view"). `TextSelection.create` honors the exact range, so the trailing
+ *  view is included (the self-ref plugin then highlights the spanned view). */
+function headingContentSelection(doc: PMNode, range: { from: number; to: number }): Selection {
+  const before = doc.resolve(range.to).nodeBefore;
+  if (before && before.isBlock && before.isAtom) {
+    try {
+      return TextSelection.create(doc, range.from, range.to);
+    } catch {
+      /* fall through to the clamped selection */
+    }
+  }
+  return TextSelection.between(doc.resolve(range.from), doc.resolve(range.to));
 }
 
 /** Delete the cursor's enclosing structure (same bounds as
@@ -743,6 +787,9 @@ let multiDocSetFocusedFilename: ((name: string) => void) | null = null;
  *  is most useful as a summary of the whole workspace. Returns
  *  filenames in slot order; empty slots map to null. */
 let multiDocGetAllFilenames: (() => (string | null)[]) | null = null;
+/** Resolve one doc uid → its filename (across all panes + stacks). Used by
+ *  collab to name a session after its OWNER doc, not the whole-window title. */
+let multiDocGetFilenameForUid: ((uid: string) => string | null) | null = null;
 
 /** Full focused-file plumbing for the Save / Save-As flow — reads
  *  the filename plus the on-disk handle and on-disk format. */
@@ -837,6 +884,10 @@ export function enableMultiDocMode(opts: {
   setFocusedFile?: (file: { filename: string; handle: unknown | null; format: 'cmir' | 'docx' | null }) => void;
   setFocusedDocId?: (docId: string) => void;
   getAllFilenames?: () => (string | null)[];
+  /** Filename of the open doc with `uid` (across all panes + stacks), or null.
+   *  Lets collab publish/label a session with its OWNER doc's name rather than
+   *  the whole-window title. */
+  getFilenameForUid?: (uid: string) => string | null;
   clearFocusedJournal?: () => Promise<void>;
   /** Called from single-doc save flows after a successful save so
    *  the multi-pane shell can clear the focused DocRecord's dirty
@@ -878,6 +929,7 @@ export function enableMultiDocMode(opts: {
   multiDocSetFocusedFile = opts.setFocusedFile ?? null;
   multiDocSetFocusedDocId = opts.setFocusedDocId ?? null;
   multiDocGetAllFilenames = opts.getAllFilenames ?? null;
+  multiDocGetFilenameForUid = opts.getFilenameForUid ?? null;
   multiDocClearFocusedJournal = opts.clearFocusedJournal ?? null;
   multiDocNotifyFocusedSaved = opts.notifyFocusedSaved ?? null;
   multiDocOnRecoveredDoc = opts.onRecoveredDoc ?? null;
@@ -915,6 +967,7 @@ export function setActiveView(v: EditorView | null): void {
   refreshFontSizeDisplay();
   refreshCursorColorDisplay();
   refreshFormattingPanelButtonStates();
+  syncNumberingButtons();
   refreshWordCount();
   refreshReadModeBtn();
   refreshSpeechMarkBtn();
@@ -951,6 +1004,7 @@ export function endBenchmark(snapshot: EditorState | null): void {
     refreshFontSizeDisplay();
     refreshCursorColorDisplay();
     refreshFormattingPanelButtonStates();
+    syncNumberingButtons();
   }
 }
 
@@ -962,8 +1016,27 @@ export function endBenchmark(snapshot: EditorState | null): void {
 // and the two state-swap capabilities it needs. Dormant unless the
 // collab gate is open (see collab/collab-gate.ts).
 let collabUiModule: Promise<typeof import('./collab/collab-ui.js')> | null = null;
+/** Display filename for a doc uid across single-doc + multi-pane. Collab names
+ *  a session after its OWNER doc via this; document.title is unusable in
+ *  multi-pane (every open doc joined by " · "). Null when the uid isn't open
+ *  here (e.g. its pane lives in another window). */
+function resolveDocFilename(uid: string): string | null {
+  if (multiDocActive && multiDocGetFilenameForUid) return multiDocGetFilenameForUid(uid);
+  return uid === currentDocUid ? currentDocFilename : null;
+}
+
 function loadCollabUi(): Promise<typeof import('./collab/collab-ui.js')> {
-  return (collabUiModule ??= import('./collab/collab-ui.js'));
+  return (collabUiModule ??= import('./collab/collab-ui.js').then((m) => {
+    // Tell collab-ui which doc is focused so its shared chip / no-deps flows
+    // (copy-code, invite) act on the session the user is looking at when a
+    // window holds more than one.
+    m.setCollabFocusResolver(() => activeDocIdentity().sessionUid);
+    // Resolve a session's OWNER doc uid → its filename, so the title published
+    // to joiners (and invite labels) is that doc's name — not the whole-window
+    // title, which in multi-pane is every open doc joined by " · ".
+    m.setCollabDocTitleResolver((uid) => resolveDocFilename(uid));
+    return m;
+  }));
 }
 // Receive-pill invites: hand the share code from a `room-invite` inbox
 // row to the lazy collab module. Registered unconditionally (cheap
@@ -974,13 +1047,31 @@ setCollabInviteJoiner((code) => {
 setCollabInviter((target) => {
   void loadCollabUi().then((m) => m.inviteTargetFlow(collabDeps, target));
 });
+// Per-doc comment-id allocation: a comment gets a random (collision-safe) id
+// only when the doc it's created in is itself co-edited. Comment creation always
+// targets the active doc, so test THAT doc's session — a non-co-edited doc open
+// beside a co-edited one still gets clean sequential ids. Cheap sync check.
+setCommentIdSessionResolver(() => collabPluginSourceFor(activeDocIdentity().sessionUid) != null);
 const collabDeps = {
   getView: () => view,
+  // The uid of the doc a session is being started/joined for = the focused
+  // doc's uid. Captured at install so the binding attaches only to that view.
+  getOwnerUid: () => activeDocIdentity().sessionUid,
+  // Resolve a doc uid to its live view (single-doc main view + every pane are
+  // registered here). Lets a session bind to its OWNER's view, not the focused
+  // one — so each doc's presence/comments render in its own pane.
+  getViewForUid: (uid: string) => getSpeechDocResolver().viewForUid(uid),
   // The blessed same-view plugin swap (same pattern as the keybinding
   // settings subscriber): a session starting/ending changes the plugin
-  // stack, and buildEditorPlugins consults the collab plugin source.
+  // stack, and buildEditorPlugins consults the collab plugin source. Pass the
+  // focused doc's uid so the collab plugins are (re)attached only when the
+  // focused view is the session owner.
   refreshPlugins: () => {
-    if (view) view.updateState(view.state.reconfigure({ plugins: buildEditorPlugins() }));
+    if (view) {
+      view.updateState(
+        view.state.reconfigure({ plugins: buildEditorPlugins(activeDocIdentity().sessionUid) }),
+      );
+    }
   },
   // Name the (unsaved) session doc: window title, filename chip, and
   // the save-as default all follow currentDocFilename. No handle — the
@@ -1432,6 +1523,14 @@ const ribbonContext: RibbonContext = {
       transcludeMode: true,
       docPath,
     });
+  },
+  insertSelfLiveZone: () => {
+    // Live View: pick a section of THIS doc to mirror read-only.
+    if (view) openInsertSelfRef(view);
+  },
+  insertInDocCopy: () => {
+    // Linked Copy from this doc: pick a section to copy in editably.
+    if (view) openInsertInDocCopy(view);
   },
   insertImage: () => {
     if (!view) return;
@@ -2432,7 +2531,7 @@ let multiDocZoomResetHook: (() => void) | null = null;
 let zoomStateForActive: () => number = () => liveZoomPct;
 
 export function clampZoom(pct: number): number {
-  return Math.max(50, Math.min(200, Math.round(pct / 10) * 10));
+  return Math.max(ZOOM_MIN_PCT, Math.min(ZOOM_MAX_PCT, Math.round(pct / 10) * 10));
 }
 
 /** Single-pane: set the window's live body zoom (transient). */
@@ -2447,9 +2546,9 @@ export function getLiveZoomPct(): number {
 }
 
 /** Set the window's live body zoom without the desktop step-10 rounding (the
- *  mobile zoom slider/pinch use step 5). Clamped to 50–200. */
+ *  mobile zoom slider/pinch use step 5). Clamped to the body-zoom bounds. */
 export function setLiveZoomPct(pct: number): void {
-  liveZoomPct = Math.max(50, Math.min(200, Math.round(pct)));
+  liveZoomPct = Math.max(ZOOM_MIN_PCT, Math.min(ZOOM_MAX_PCT, Math.round(pct)));
   applyZoom(liveZoomPct);
 }
 
@@ -2587,7 +2686,10 @@ function zoomActiveReset(): void {
  *  Ctrl-+ does (chrome + doc reflow uniformly). No-op on the web
  *  edition; the user has the browser's own zoom for that. */
 function setChromeScale(pct: number): void {
-  const clamped = Math.max(50, Math.min(200, Math.round(pct / 10) * 10));
+  const clamped = Math.max(
+    CHROME_SCALE_MIN_PCT,
+    Math.min(CHROME_SCALE_MAX_PCT, Math.round(pct / 10) * 10),
+  );
   settings.set('chromeScalePct', clamped);
 }
 
@@ -2934,6 +3036,16 @@ let lastKeyboardMacros = settings.get('keyboardMacros');
 let lastReadMode = settings.get('readMode');
 let lastReadModeBorders = settings.get('hideEmphasisBordersInReadMode');
 let lastMarkUnread = settings.get('markUnreadAfterMarker');
+const numberingDisplaySig = (): string =>
+  [
+    settings.get('showCardNumbering'),
+    settings.get('cardNumberingFormat'),
+    settings.get('cardNumberingSubFormat'),
+    settings.get('cardNumberingSubCapitalized'),
+    settings.get('cardNumberingIndent'),
+    settings.get('cardNumberingSubIndent'),
+  ].join('|');
+let lastNumberingDisplay = numberingDisplaySig();
 
 /** Show/hide the chrome's optional clusters per their (default-off) settings:
  *  the dropzone pill and the Quick Cards button stack. Called from the settings
@@ -2952,6 +3064,12 @@ function applyPillVisibility(): void {
   document.documentElement.classList.toggle(
     'pmd-undoredo-hidden',
     !settings.get('showUndoRedoButtons'),
+  );
+  // Numbering cluster is on by default; hide it when the setting is off. The
+  // class carries `!important` so it wins over the shrink waterfall.
+  document.documentElement.classList.toggle(
+    'pmd-numbering-hidden',
+    !settings.get('showNumberingButtons'),
   );
   // The bottom scroll runway is gated on the WHOLE tray, not just the dropzone:
   // the send/receive pills (shown when pairing is enabled) occupy the same
@@ -2987,6 +3105,14 @@ settings.subscribe((s) => {
   if (s.markUnreadAfterMarker !== lastMarkUnread) {
     lastMarkUnread = s.markUnreadAfterMarker;
     if (view) view.dispatch(view.state.tr.setMeta(MARK_UNREAD_TOGGLE, true));
+  }
+  // Card-numbering display changed (on/off, format, or indent): rebuild the
+  // numbering decorations. The on/off gate is read live in the plugin's
+  // decorations prop; format/indent bake into the set, so force a rebuild.
+  const numberingSig = numberingDisplaySig();
+  if (numberingSig !== lastNumberingDisplay) {
+    lastNumberingDisplay = numberingSig;
+    if (view) view.dispatch(view.state.tr.setMeta(NUMBERING_REFRESH, true));
   }
   applyNavPaneVisible(s.navPaneVisible);
   applyFormatNavPaneByType(s.formatNavPaneByType);
@@ -3024,6 +3150,7 @@ settings.subscribe((s) => {
   applyParagraphSpacing();
   applyFormattingPanel(s.formattingPanelMode, s.formattingPanelPreview, s.showCharacterStyles);
   syncParagraphIntegrityBtn();
+  syncNumberingButtons();
   // A settings change never edits the document, so the whole-doc word
   // count can't have changed — reuse the cached count (re-formatting the
   // read-time strings with the current readers) instead of re-walking the
@@ -3040,8 +3167,10 @@ settings.subscribe((s) => {
     lastRibbonOverrides = s.ribbonKeyOverrides;
     lastKeyboardMacros = s.keyboardMacros;
     if (view) {
+      // Focused doc's uid so a reconfigure keeps the collab binding only when
+      // the focused view is the session owner (multi-pane fusion guard).
       view.updateState(
-        view.state.reconfigure({ plugins: buildEditorPlugins() }),
+        view.state.reconfigure({ plugins: buildEditorPlugins(activeDocIdentity().sessionUid) }),
       );
     }
   }
@@ -3074,7 +3203,8 @@ function initRibbonResizer(): void {
   const panelIds: string[][] = [
     ['cite-panel'],              // (a) Character styles
     ['formatting-panel'],        // (b) Structural styles
-    ['custom-ribbon-panel'],     // (c) User custom buttons — hide THIRD
+    ['numbering-panel'],         // (c) Card numbering cluster — hide THIRD
+    ['custom-ribbon-panel'],     // (d) User custom buttons
     ['doc-name-chip'],           // (d) Active-doc filename pill (opt-in)
     ['format-menu-panel'],       // (d) Table / image / sub / sup / strike
     ['doc-ops-panel'],           // (e) Paragraph integrity
@@ -3185,7 +3315,7 @@ function initRibbonResizer(): void {
   // ribbon-only observer never fires. Observing these specific
   // elements catches the show / hide → 0 ↔ N transition and
   // re-runs the cascade.
-  for (const id of ['timer-panel', 'doc-name-chip', 'custom-ribbon-panel']) {
+  for (const id of ['timer-panel', 'doc-name-chip', 'custom-ribbon-panel', 'numbering-panel']) {
     const el = document.getElementById(id);
     if (el) observer.observe(el);
   }
@@ -3288,6 +3418,11 @@ if (timerToggleBtn) {
   button('subscript-btn', 'toggleSubscript');
   button('strikethrough-btn', 'toggleStrikethrough');
   button('paragraph-integrity-btn', 'toggleParagraphIntegrity');
+  button('num-role-btn', 'toggleNumberRole');
+  button('num-sub-role-btn', 'toggleSubRole');
+  button('num-restart-btn', 'toggleNumRestart');
+  const numVisEl = byId('num-visibility-btn');
+  if (numVisEl) registerRibbonTooltip({ el: numVisEl, label: 'Show or hide card numbering' });
   button(
     'plain-paste-toggle-btn',
     'pasteAsText',
@@ -3423,6 +3558,8 @@ const VIEWLESS_RIBBON_COMMANDS = new Set<RibbonCommandId>([
   // its Mod-Shift-Space binding must work view-less too.
   'openQuickCardSearch',
   'insertLiveZone',
+  'insertSelfLiveZone',
+  'insertInDocCopy',
   // Opens the Quick Cards manager overlay — no active doc required.
   'manageQuickCards',
   // Multi-pane workspace commands — fire on the shell, not a
@@ -3467,6 +3604,8 @@ function runViewlessRibbon(id: RibbonCommandId): void {
     case 'goHome': ribbonContext.goHome(); return;
     case 'openQuickCardSearch': ribbonContext.openQuickCardSearch(); return;
     case 'insertLiveZone': ribbonContext.insertLiveZone(); return;
+    case 'insertSelfLiveZone': ribbonContext.insertSelfLiveZone(); return;
+    case 'insertInDocCopy': ribbonContext.insertInDocCopy(); return;
     case 'manageQuickCards': ribbonContext.manageQuickCards(); return;
     case 'toggleVoice': ribbonContext.toggleVoice(); return;
     case 'startFlowHost': ribbonContext.startFlowHost(); return;
@@ -3563,6 +3702,54 @@ function syncParagraphIntegrityBtn(): void {
   paragraphIntegrityBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
 }
 syncParagraphIntegrityBtn();
+
+// Numbering ribbon cluster: number / substructure / restart run the shared
+// ribbon commands (skeleton edits); the fourth button toggles the numbers'
+// visibility (`showCardNumbering`). `syncNumberingButtons` keeps the 1./a) faces
+// matching the configured format and every button's pressed state matching the
+// selection / setting — it's called from the same per-transaction + settings
+// hooks as the formatting-panel and paragraph-integrity indicators.
+const numRoleBtn = document.getElementById('num-role-btn') as HTMLButtonElement | null;
+const numSubRoleBtn = document.getElementById('num-sub-role-btn') as HTMLButtonElement | null;
+const numRestartBtn = document.getElementById('num-restart-btn') as HTMLButtonElement | null;
+const numVisibilityBtn = document.getElementById('num-visibility-btn') as HTMLButtonElement | null;
+for (const [btn, cmd] of [
+  [numRoleBtn, 'toggleNumberRole'],
+  [numSubRoleBtn, 'toggleSubRole'],
+  [numRestartBtn, 'toggleNumRestart'],
+] as const) {
+  if (!btn) continue;
+  btn.addEventListener('mousedown', (e) => e.preventDefault());
+  btn.addEventListener('click', () => runRibbon(cmd));
+}
+if (numVisibilityBtn) {
+  numVisibilityBtn.addEventListener('mousedown', (e) => e.preventDefault());
+  numVisibilityBtn.addEventListener('click', () => {
+    settings.set('showCardNumbering', !settings.get('showCardNumbering'));
+  });
+}
+function syncNumberingButtons(): void {
+  // Faces mirror the configured number / substructure format.
+  if (numRoleBtn) numRoleBtn.textContent = numberingSampleGlyph('number');
+  if (numSubRoleBtn) numSubRoleBtn.textContent = numberingSampleGlyph('sub');
+  // The show/hide button reflects the numbering-visibility setting.
+  numVisibilityBtn?.setAttribute(
+    'aria-pressed',
+    settings.get('showCardNumbering') ? 'true' : 'false',
+  );
+  // Role / restart reflect the current selection's numbering state.
+  if (!view) {
+    for (const b of [numRoleBtn, numSubRoleBtn, numRestartBtn]) {
+      b?.setAttribute('aria-pressed', 'false');
+    }
+    return;
+  }
+  const st = numberingSelectionState(view.state);
+  numRoleBtn?.setAttribute('aria-pressed', st.number ? 'true' : 'false');
+  numSubRoleBtn?.setAttribute('aria-pressed', st.sub ? 'true' : 'false');
+  numRestartBtn?.setAttribute('aria-pressed', st.restart ? 'true' : 'false');
+}
+syncNumberingButtons();
 
 // Paste Text button — routes through `runRibbon('pasteAsText')`, the same path
 // as the F2 keymap: read the clipboard and paste it unformatted (Electron via
@@ -4314,7 +4501,12 @@ function makeNewDocBody(): PMNode {
  * Exported so the multi-pane shell can build per-pane EditorViews
  * using the exact same plugin stack as the single-doc shell.
  */
-export function buildEditorPlugins(): Plugin[] {
+// `targetUid` = the DocRecord.uid of the view these plugins are being built for.
+// The active collab session's binding plugins attach ONLY when this is the
+// session-owning doc; every other pane (and the null/omitted case) stays
+// independent, so opening a second doc during a session can't fuse it onto the
+// session's shared LoroDoc. See CollabPluginSource.ownerUid.
+export function buildEditorPlugins(targetUid?: string | null): Plugin[] {
   const plugins: Plugin[] = [
     // First so its `editable` / read-mode tap-marker props win on the
     // mobile shell; a no-op everywhere else (the active flag is set
@@ -4324,7 +4516,7 @@ export function buildEditorPlugins(): Plugin[] {
     // reverts only this peer's edits, which prosemirror-history cannot
     // guarantee once remote transactions interleave. Outside a session,
     // the plain history stack as always.
-    ...(collabPluginSource()?.ownsUndo()
+    ...(collabPluginSourceFor(targetUid)?.ownsUndo()
       ? [keymap({ 'Mod-z': collabUndo, 'Mod-y': collabRedo, 'Mod-Shift-z': collabRedo })]
       : [
           history(),
@@ -4387,12 +4579,20 @@ export function buildEditorPlugins(): Plugin[] {
     italicCaretPlugin,
     transclusionSelectionGuard,
     transclusionEmptyZoneReaper,
+    // Cross-file live-zone divergence indicator: reads sources at quiet moments
+    // and badges any zone whose source has moved on. Read-only, desktop-only.
+    makeTransclusionDivergencePlugin(),
+    // Intra-doc live windows (self_ref): re-render each window read-only when the
+    // section it mirrors changes, via a node decoration. No sync/copy — the
+    // window is a by-reference view resolved live from the source.
+    makeSelfRefPlugin(),
     frozenSelectionPlugin,
     pilcrowSelectionPlugin,
     absorbPlugin,
     citeClassifierPlugin,
     namedStyleNormalizerPlugin,
     fontSizeClassPlugin,
+    cardNumberingPlugin,
     buildSimilarSelectionPlugin(effectivePtForNode),
     findReplacePlugin(),
     repairParagraphPlugin(),
@@ -4434,9 +4634,29 @@ export function buildEditorPlugins(): Plugin[] {
       props: {
         handleDOMEvents: {
           dragstart: (_view, event) => {
+            // Text drag-and-drop is unconditionally off (it never worked
+            // reliably). Live Views aren't natively draggable either — they move
+            // via the pickup-chord / nav-pane drag like cards — so nothing on the
+            // editable surface should start a native drag.
             event.preventDefault();
             return true;
           },
+        },
+        // Clipboard content is always self-contained: a live view materializes to
+        // plain cards here, and a linked copy flattens on paste — so a cross-doc /
+        // external paste gets working content, never a dangling link. To ALSO keep
+        // the link on a SAME-doc paste (matching drag), stash the un-flattened
+        // slice keyed by this view; the paste handler restores it when the paste
+        // lands back in the same doc. Cache only when there's actually a link to
+        // preserve; a link-less copy clears it.
+        transformCopied(slice, view) {
+          const clipboard = flattenSelfRefsInSlice(slice, view.state.doc, newHeadingId);
+          if (fragmentHasSelfRef(slice.content) || fragmentHasZone(slice.content)) {
+            rememberLinkedCopy(slice, view, clipboard);
+          } else {
+            clearLinkedCopy();
+          }
+          return clipboard;
         },
       },
     }),
@@ -4459,15 +4679,20 @@ export function buildEditorPlugins(): Plugin[] {
   // A live collaboration session appends its binding plugins (sync,
   // undo manager, later cursors). Appended last: they carry no keymaps,
   // and every earlier filter/appendTransaction must see their output.
-  const collab = collabPluginSource();
-  if (collab) plugins.push(...collab.plugins());
+  // Scope the session binding to its ONE owning doc's view (collabPluginsFor
+  // returns [] for any non-owner / null uid). Without this, every pane built
+  // while a session is active binds to the session's shared LoroDoc and gets
+  // overwritten with the session doc (multi-pane document fusion).
+  plugins.push(...collabPluginsFor(targetUid));
   return plugins;
 }
 
+// Route undo/redo to the FOCUSED doc's session (if it owns undo). These keymaps
+// only fire on the focused view, whose record uid is activeDocIdentity's.
 const collabUndo: Command = (state, dispatch, viewArg) =>
-  collabPluginSource()?.undo(state, dispatch, viewArg) ?? false;
+  collabPluginSourceFor(activeDocIdentity().sessionUid)?.undo(state, dispatch, viewArg) ?? false;
 const collabRedo: Command = (state, dispatch, viewArg) =>
-  collabPluginSource()?.redo(state, dispatch, viewArg) ?? false;
+  collabPluginSourceFor(activeDocIdentity().sessionUid)?.redo(state, dispatch, viewArg) ?? false;
 
 let voiceController: VoiceController | null = null;
 function getVoiceController(): VoiceController {
@@ -4486,7 +4711,9 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
   const state = EditorState.create({
     doc,
     schema,
-    plugins: buildEditorPlugins(),
+    // Single-doc/mobile main view: its uid is the session-owner identity when a
+    // session is active on this window (matches getOwnerUid = currentDocUid).
+    plugins: buildEditorPlugins(currentDocUid),
   });
   view = new EditorView(editorEl, {
     state,
@@ -4524,8 +4751,17 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
       }
       const prevState = view.state;
       const prevCommentsState = commentsKey.getState(prevState);
+      const prevDivergedSet = transclusionDivergenceKey.getState(prevState)?.diverged;
       const next = view.state.apply(tx);
       view.updateState(next);
+      // The divergence set updates via a meta transaction (no doc change), so the
+      // docChanged-gated nav rebuild below wouldn't pick it up. Rebuild the nav
+      // when the set's identity changes (new Set only on a real change) so the
+      // "source updated" dots appear/clear. Doc edits keep the same Set ref, so
+      // this doesn't double up with the docChanged rebuild.
+      if (transclusionDivergenceKey.getState(next)?.diverged !== prevDivergedSet) {
+        scheduleHeavyUpdate();
+      }
       if (tx.docChanged) {
         // Suppress persistence while the benchmark drives temporary edits — they
         // are reverted from a snapshot, must never reach disk, and shouldn't
@@ -4549,6 +4785,7 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
       refreshFontSizeDisplay();
       refreshCursorColorDisplay();
       refreshFormattingPanelButtonStates();
+      syncNumberingButtons();
       // Doc-walking work (nav rebuild, word count, comments column
       // refresh, comments-plugin orphan GC) is all O(doc) and the
       // dominant per-keystroke cost on big docs. Debounce it, and run
@@ -4605,8 +4842,15 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
       // selection object can be a new instance (after doc map) for
       // the same effective caret position; we only care about the
       // position itself.
-      if (prevState.selection.from !== next.selection.from) {
-        navPanel.setCaretHeading(next.selection.from);
+      // Also refire when the live-view node-selection changes even if `from`
+      // held steady (a cursor just before a live view and a NodeSelection on it
+      // share a position) so the window's nav highlight tracks it.
+      const nextSelfRef = selfRefSelectionPos(next);
+      if (
+        prevState.selection.from !== next.selection.from ||
+        selfRefSelectionPos(prevState) !== nextSelfRef
+      ) {
+        navPanel.setCaretHeading(next.selection.from, nextSelfRef);
       }
     },
   });
@@ -4643,6 +4887,7 @@ function mountView(doc: PMNode, threads: Thread[] = []): void {
   refreshWordCount();
   refreshFontSizeDisplay();
   refreshFormattingPanelButtonStates();
+  syncNumberingButtons();
   // Push the current `settings.readMode` value through the full
   // apply path now that `view` exists — `applyReadMode` ran at
   // module init time before this view was constructed (so its
@@ -4763,7 +5008,7 @@ function scheduleHeavyUpdate(): void {
     // structural change like a drag-move leaves the wrong heading
     // highlighted until the next caret movement. Re-running here against
     // the rebuilt positions corrects it.
-    navPanel.setCaretHeading(view.state.selection.from);
+    navPanel.setCaretHeading(view.state.selection.from, selfRefSelectionPos(view.state));
     refreshWordCount();
     if (needsCommentsGC) {
       needsCommentsGC = false;
@@ -5345,6 +5590,18 @@ async function handleCloseDocToHome(): Promise<void> {
     mountFreshBlankDoc();
     homeScreen.show();
   };
+  // A co-edited doc gets the session-aware close first (keep resumable vs
+  // end/leave), naming the doc.
+  const co = await resolveCoEditedClose(currentDocUid, currentDocFilename ?? '');
+  if (co === 'cancel') return;
+  if (co === 'keep') {
+    // Session kept resumable — its record holds the content, so drop the
+    // recovery journal and return home without the file save prompt.
+    await clearCurrentJournal().catch(() => {});
+    finish();
+    return;
+  }
+  // co === 'run-normal': not co-edited, or the session was ended/left.
   if (!currentDocDirty) {
     finish();
     return;
@@ -5907,9 +6164,14 @@ async function serializeForSave(
     // Async gzip: the DEFLATE runs off the main thread, so autosave's
     // debounced firing doesn't stall typing (manual saves get the same
     // benefit for free). Output bytes are identical to the sync path.
+    // `.cmir` keeps intra-doc windows (self_ref) as live references — the
+    // source is in the same file, so the file stays self-contained.
     return serializeNativeAsync(exportDocNode, { ...threadsOpt, ...(docId ? { docId } : {}) });
   }
-  return toDocx(exportDocNode, { ...threadsOpt, ...(docId ? { docId } : {}) });
+  // Word has no live-window concept: materialize each self_ref window to real
+  // cards (resolved from the source, ids re-stamped) before export.
+  const docxNode = flattenSelfRefs(exportDocNode, newHeadingId);
+  return toDocx(docxNode, { ...threadsOpt, ...(docId ? { docId } : {}) });
 }
 
 /**
@@ -5917,6 +6179,44 @@ async function serializeForSave(
  * save (and the bytes hit disk / downloaded), `false` when they
  * cancelled the dialog or the OS file picker.
  */
+/** How many live zones the doc that a save would serialize contains — the same
+ *  doc `serializeForSave` exports (`view` when present, else `currentDoc`).
+ *  Zones never nest, so a matched zone isn't descended into. */
+function activeSaveDocZoneCount(): number {
+  const doc = view ? view.state.doc : currentDoc;
+  if (!doc) return 0;
+  let n = 0;
+  doc.descendants((node) => {
+    if (isTransclusionNode(node)) {
+      n++;
+      return false;
+    }
+    return true;
+  });
+  return n;
+}
+
+/** Warn before a `.docx` write that would flatten live zones. Word can't store
+ *  live links, so saving to `.docx` drops them (the content stays, the link
+ *  doesn't) — a silent, one-way loss if the doc is later reopened from that
+ *  `.docx`. Returns true to proceed, false to cancel. `.cmir` saves never ask. */
+async function confirmDocxUnlinksZones(): Promise<boolean> {
+  const count = activeSaveDocZoneCount();
+  if (count === 0) return true;
+  const zones = count === 1 ? 'a live zone' : `${count} live zones`;
+  const them = count === 1 ? 'it' : 'them';
+  return showConfirm({
+    title: 'Saving to Word unlinks live zones',
+    message:
+      `This document contains ${zones}. Word (.docx) files can't hold live links, ` +
+      `so saving to .docx flattens ${them} to plain cards — the content stays, but the ` +
+      `link to the source is dropped and won't come back when you reopen the .docx. ` +
+      `Save as CardMirror (.cmir) instead to keep the live zones.`,
+    confirmLabel: 'Save to Word anyway',
+    cancelLabel: 'Cancel',
+  });
+}
+
 export async function runSaveAsFlow(): Promise<boolean> {
   const file = activeFile();
   const suggestedName = basenameWithoutExt(file.filename ?? 'untitled');
@@ -5929,6 +6229,8 @@ export async function runSaveAsFlow(): Promise<boolean> {
     defaultFormat,
   });
   if (!choice) return false;
+  // Writing to .docx flattens any live zones — confirm before proceeding.
+  if (choice.format === 'docx' && !(await confirmDocxUnlinksZones())) return false;
   // A full-fidelity save (everything included, not read-mode) IS the
   // working document written to disk, so the doc adopts the new
   // name / handle / format. Anything that drops content — the Send
@@ -6212,6 +6514,8 @@ export async function runSaveFlow(): Promise<boolean> {
   if (!(await getHost().ensureWritable(file.handle))) {
     return runSaveAsFlow();
   }
+  // Saving in place to a .docx flattens any live zones — confirm first.
+  if (file.format === 'docx' && !(await confirmDocxUnlinksZones())) return false;
   try {
     // Ensure a stable docId (minting + rekeying pre-save annotations on
     // first save), keyed to the focused doc in either layout.
@@ -6631,6 +6935,25 @@ function pushNativeMenuBindings(): void {
 async function handleUserCloseRequest(): Promise<void> {
   const electronHost = getElectronHost();
   if (!electronHost) return;
+  // Single-doc: a co-edited doc gets the session-aware close (keep resumable vs
+  // end/leave), naming the doc. Multi-pane sessions persist automatically on
+  // window close (pagehide) and stay resumable, so we don't confirm each one.
+  if (!multiDocActive) {
+    const co = await resolveCoEditedClose(currentDocUid, currentDocFilename ?? '');
+    if (co === 'cancel') {
+      // Backed out of the session-aware close — clear any pending app-quit
+      // intent so a later ordinary window close doesn't terminate the app on
+      // macOS (matches the Cancel path in the dirty-save switch below).
+      await electronHost.cancelClose?.();
+      return;
+    }
+    if (co === 'keep') {
+      // Closing the doc (session kept resumable) completes a pending quit.
+      await electronHost.closeSelf();
+      return;
+    }
+    // 'run-normal' → fall through to the dirty/save flow below.
+  }
   if (!currentDocDirty) {
     await electronHost.closeSelf();
     return;
@@ -6640,11 +6963,15 @@ async function handleUserCloseRequest(): Promise<void> {
     case 'save': {
       const ok = await runSaveFlow();
       if (ok) await electronHost.closeSelf();
+      // Save failed — the window stays open, so a quit that was
+      // waiting on this confirmation is off. Let main know.
+      else await electronHost.cancelClose?.();
       return;
     }
     case 'saveAs': {
       const ok = await runSaveAsFlow();
       if (ok) await electronHost.closeSelf();
+      else await electronHost.cancelClose?.();
       return;
     }
     case 'discard': {
@@ -6658,7 +6985,9 @@ async function handleUserCloseRequest(): Promise<void> {
       return;
     }
     case 'cancel':
-      // Window stays open.
+      // Window stays open — cancel any pending app quit so a later
+      // ordinary close doesn't terminate the app on macOS.
+      await electronHost.cancelClose?.();
       return;
   }
 }
@@ -6769,6 +7098,64 @@ export function confirmCloseUnsaved(): Promise<'save' | 'saveAs' | 'discard' | '
     document.addEventListener('keydown', onKey);
     document.body.appendChild(overlay);
   });
+}
+
+/** Session-aware close confirm for a co-edited doc. "Close" keeps the session
+ *  resumable — the record stays and unsynced edits sync when the user rejoins
+ *  from the home-screen Sessions list; "End/Leave" clears it. Naming the doc
+ *  removes ambiguity about which one is closing (multi-pane). */
+function confirmCloseCoEditedDoc(
+  docName: string,
+  info: { role: 'host' | 'participant'; unsynced: number },
+): Promise<'keep' | 'end' | 'cancel'> {
+  const name = docName ? `"${docName}"` : 'this document';
+  const leaveLabel = info.role === 'host' ? 'End session' : 'Leave session';
+  const syncing =
+    info.unsynced > 0
+      ? ` ${info.unsynced} change${info.unsynced === 1 ? '' : 's'} still syncing will sync when you rejoin.`
+      : '';
+  return promptForRouteChoice<'keep' | 'end'>({
+    message: `Close ${name}?`,
+    choices: [
+      {
+        value: 'keep',
+        label: 'Close',
+        description: `Keep the session — rejoin from the Sessions list to keep editing.${syncing}`,
+      },
+      {
+        value: 'end',
+        label: leaveLabel,
+        description:
+          info.role === 'host'
+            ? 'End the session for everyone.'
+            : 'Leave the session; your copy stays as it is.',
+      },
+    ],
+  }).then((c) => c ?? 'cancel');
+}
+
+/** For a doc that MAY be co-edited, run the session-aware close confirm and the
+ *  chosen collab action. Returns:
+ *   - `'cancel'`     → abort the close (leave the doc open)
+ *   - `'keep'`       → session kept resumable; the caller should close WITHOUT
+ *                      a file save prompt (the session record holds the content)
+ *   - `'run-normal'` → not co-edited, OR the session was ended/left; the caller
+ *                      runs its usual dirty → save/discard close flow
+ *  Exported for the multi-pane shell's per-pane close handler. */
+export async function resolveCoEditedClose(
+  uid: string,
+  docName: string,
+): Promise<'cancel' | 'keep' | 'run-normal'> {
+  const cp = collabCopresenceFor(uid);
+  if (!cp) return 'run-normal';
+  const choice = await confirmCloseCoEditedDoc(docName, { role: cp.role, unsynced: cp.queued });
+  if (choice === 'cancel') return 'cancel';
+  if (choice === 'keep') {
+    await collabCloseKeepResumable(uid);
+    return 'keep';
+  }
+  await collabEndOrLeaveSession(uid);
+  return 'run-normal';
 }
 
 function countSummary(doc: PMNode): string {
@@ -7272,6 +7659,11 @@ settings.subscribe((s, meta) => {
 });
 
 const MODE_SWITCH_MARKER_KEY = 'cardmirror:mode-switch-recovery';
+// Sibling of the recovery marker: {uid, roomId}[] for docs that were in a live
+// co-editing session when the toggle fired, so the post-reload recovery can
+// auto-resume each into the doc that reopens under its uid. Separate key so it's
+// only ever consumed by the mode-switch path (never a crash-recovery reload).
+const MODE_SWITCH_SESSIONS_KEY = 'cardmirror:mode-switch-sessions';
 
 async function handleModeSwitch(newValue: boolean): Promise<void> {
   modeSwitchInFlight = true;
@@ -7326,6 +7718,18 @@ async function handleModeSwitch(newValue: boolean): Promise<void> {
       }
     }
     const docs = await journalAllForModeSwitch();
+    // Capture live co-editing sessions (uid→roomId) and flush their records so
+    // this window's sessions auto-resume into the reopened docs after the
+    // reload. (Cross-window electron sessions in the windows we just closed
+    // aren't carried here — they stay resumable from the Sessions list.)
+    try {
+      const handoff = await collabCaptureSessionHandoff();
+      if (handoff.length > 0) {
+        sessionStorage.setItem(MODE_SWITCH_SESSIONS_KEY, JSON.stringify(handoff));
+      }
+    } catch (err) {
+      console.warn('Mode-switch session hand-off capture failed:', err);
+    }
     // The marker carries exactly which journals belong to this
     // switch (plus each doc's pre-switch dirty state) — this
     // window's docs AND any collected from the windows we just
@@ -7424,6 +7828,9 @@ async function runStartupRecovery(): Promise<void> {
         `${markerDocs.length} local + ${remoteDocs.length} remote in marker, ${matched.length} matched`,
     );
     await autoRecoverAll(matched, dirtyByUid);
+    // The docs are mounted under their original uids — auto-resume any session
+    // that was live before the toggle back into the doc that reopened.
+    await resumePreservedSessions();
     return;
   }
   if (entries.length === 0) return;
@@ -7465,6 +7872,52 @@ async function runStartupRecovery(): Promise<void> {
       }
     },
   });
+}
+
+/** Mode-switch hand-off (post-reload): auto-resume each co-editing session that
+ *  was live before the toggle INTO the doc that reopened under its uid. Docs
+ *  that didn't reopen in THIS window (multi→single non-kept docs, or docs the
+ *  electron split sent to other windows) are skipped — they stay resumable from
+ *  the home-screen Sessions list. Consumes the sessions marker so it never fires
+ *  on an ordinary crash-recovery reload. */
+async function resumePreservedSessions(): Promise<void> {
+  const raw = sessionStorage.getItem(MODE_SWITCH_SESSIONS_KEY);
+  if (raw === null) return;
+  sessionStorage.removeItem(MODE_SWITCH_SESSIONS_KEY);
+  let handoff: { uid: string; roomId: string }[];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    handoff = Array.isArray(parsed) ? (parsed as { uid: string; roomId: string }[]) : [];
+  } catch {
+    return;
+  }
+  const resolver = getSpeechDocResolver();
+  // Only resume sessions whose doc actually reopened in this renderer.
+  const pending = handoff.filter((h) => h && h.uid && h.roomId && resolver.viewForUid(h.uid));
+  if (pending.length === 0) return;
+  console.log(`[cardmirror] modeswitch: auto-resuming ${pending.length} session(s)`);
+  const m = await loadCollabUi();
+  for (const { uid, roomId } of pending) {
+    // Deps scoped to the reopened doc's uid (not the focused view) so the
+    // session binds into THAT pane / doc, and its plugins reconfigure that view.
+    const deps = {
+      getView: () => resolver.viewForUid(uid),
+      getOwnerUid: () => uid,
+      getViewForUid: (u: string) => resolver.viewForUid(u),
+      refreshPlugins: () => {
+        const v = resolver.viewForUid(uid);
+        if (v) v.updateState(v.state.reconfigure({ plugins: buildEditorPlugins(uid) }));
+      },
+      // Unused with `existingDoc` (the doc is already open) but required by the
+      // deps shape; never invoked on this path.
+      newSessionDoc: () => true,
+    };
+    try {
+      await m.resumeSessionFlow(deps, roomId, { existingDoc: true });
+    } catch (err) {
+      console.warn(`Mode-switch auto-resume failed for ${uid}:`, err);
+    }
+  }
 }
 
 /** Persist a recovery journal entry to disk without opening it in

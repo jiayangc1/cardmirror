@@ -28,6 +28,11 @@ export interface HeadingEntry {
    *  run — used for the nav-pane rail and to keep a zone heading's drag inside
    *  its zone. */
   zonePos: number | null;
+  /** True for a synthetic outline entry projected from an intra-doc live window
+   *  (`self_ref`). Its content isn't in the doc, so it's a READ-ONLY nav row:
+   *  `id` is null, `pos` points at the window, and drag/collapse/context-menu
+   *  are disabled. Set only by the nav layer (collectHeadings never emits it). */
+  windowed?: boolean;
 }
 
 export const TYPE_TO_LEVEL: Record<string, number> = {
@@ -76,6 +81,12 @@ export function collectHeadings(
       zoneEnd = pos + node.nodeSize;
       return true; // recurse in to collect the transcluded headings
     }
+    // A live view is an OPAQUE read-only unit here: its children are a derived
+    // mirror, so they must not appear as real outline/drag entries. The nav
+    // splices in its projected rows separately (`collectOutlineWithWindows`), and
+    // no drop slot should land inside it. (It used to be a leaf atom, so
+    // `descendants` skipped it for free; now it has content, so skip explicitly.)
+    if (type === 'self_ref') return false;
     if (type in TYPE_TO_LEVEL) {
       const level = TYPE_TO_LEVEL[type]!;
       let cite: string | null = null;

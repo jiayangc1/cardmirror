@@ -42,7 +42,8 @@ import { dropzoneStore, deriveDropzoneLabel, type DropzoneItem } from './dropzon
 import { TYPE_TO_LEVEL } from './headings.js';
 import { nearestValidInsertPos } from './insert-position.js';
 import { flattenZonesInSlice } from './transclusion.js';
-import { schema } from '../schema/index.js';
+import { flattenSelfRefsInSlice } from './self-transclusion.js';
+import { schema, newHeadingId } from '../schema/index.js';
 import { setIcon } from './icons';
 import { readModePlugin } from './read-mode-plugin.js';
 import { READ_MODE_DRAG_META } from './reading-marker.js';
@@ -291,7 +292,10 @@ export class DropzoneController {
     if (!session) return;
     const srcView = session.view;
     for (const item of items) {
-      const slice = item.prebuilt ?? srcView.state.doc.slice(item.from, item.to);
+      const raw = item.prebuilt ?? srcView.state.doc.slice(item.from, item.to);
+      // Materialize any Live View before it's frozen onto the shelf — the source
+      // doc is gone by drop time, so the reference can't survive.
+      const slice = flattenSelfRefsInSlice(raw, srcView.state.doc, newHeadingId);
       const sliceJson = slice.toJSON();
       const type = item.type || inferTypeFromSlice(slice);
       const label = deriveDropzoneLabel(slice, type);

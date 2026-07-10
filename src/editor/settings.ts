@@ -14,6 +14,18 @@ import type { RibbonCommandId } from './ribbon-commands.js';
 import type { IconName } from './icons.js';
 import { getHost } from './host/index.js';
 
+/** Body-text zoom bounds (percent). The live per-window / per-pane zoom AND the
+ *  default-open zoom setting all clamp to these — one source of truth so
+ *  single-doc and multi-pane can't drift. */
+export const ZOOM_MIN_PCT = 50;
+export const ZOOM_MAX_PCT = 300;
+
+/** Chrome (whole-page) scale bounds (percent). A separate axis from body zoom —
+ *  wired to Chromium's `webFrame.setZoomFactor` — kept as its own constant so
+ *  the two can be tuned independently (both currently 50–300). */
+export const CHROME_SCALE_MIN_PCT = 50;
+export const CHROME_SCALE_MAX_PCT = 300;
+
 /** Dynamic description for the `multiDocWorkspace` (three-pane
  *  workspace) toggle. The OFF state behaves differently on Electron
  *  vs the web edition, so we surface that difference at the point
@@ -208,18 +220,25 @@ export interface DisplayColors {
    *  Display-only — the stored mark stays FF0000, so export + detection are
    *  unaffected; this just recolors both on screen. */
   readingMarker: string;
+  /** The live-zone "source updated" (diverged) badge / nav rail. A muted red —
+   *  kept soft so, as a second nav rail beside the teal transclusion rail, it
+   *  pairs with rather than overpowers it (and stays clear of the AI purple used
+   *  elsewhere). */
+  zoneDiverged: string;
 }
 
 export const DEFAULT_DISPLAY_COLORS: DisplayColors = {
   analytic: '#1F3864',
   undertag: '#385623',
   readingMarker: '#FF0000',
+  zoneDiverged: '#C0504D',
 };
 
 export const DISPLAY_COLOR_KEYS: (keyof DisplayColors)[] = [
   'analytic',
   'undertag',
   'readingMarker',
+  'zoneDiverged',
 ];
 
 /** A user-defined keyboard macro: pressing `key` types `text` at the
@@ -256,6 +275,32 @@ export type EnterAfterStyle =
   | 'tag'
   | 'analytic'
   | 'undertag';
+
+/** Separator glyph that trails a card-numbering number/letter (display-only).
+ *  `period` = ".", `paren` = ")", `dash` = " -", `colon` = ":", `emdash` = "—",
+ *  `endash` = "–", `doublehyphen` = "--", `triplehyphen` = "---". */
+export type NumberingSeparator =
+  | 'period'
+  | 'paren'
+  | 'dash'
+  | 'colon'
+  | 'emdash'
+  | 'endash'
+  | 'doublehyphen'
+  | 'triplehyphen';
+
+/** Runtime list of every valid `NumberingSeparator` (persistence validation +
+ *  the settings-UI option lists read from this). */
+export const NUMBERING_SEPARATORS: readonly NumberingSeparator[] = [
+  'period',
+  'paren',
+  'dash',
+  'colon',
+  'emdash',
+  'endash',
+  'doublehyphen',
+  'triplehyphen',
+];
 
 /** Schema for all editor settings. Add new fields here with sensible defaults. */
 export interface Settings {
@@ -567,6 +612,29 @@ export interface Settings {
   includeSpeechDocPocket: boolean;
   /** Whether to show the cite preview on hover in the nav pane. */
   showCitePreview: boolean;
+  /** Whether computed card numbers (the auto-numbering skeleton) render. Numbers
+   *  are display-only; turning this off hides them without touching the doc.
+   *  Authoring a role auto-enables it. See NUMBERING_PLAN.md §6. */
+  showCardNumbering: boolean;
+  /** Whether the ribbon's numbering button cluster (number / substructure /
+   *  restart / visibility) is shown. On by default; this only hides the buttons,
+   *  never the numbers themselves (that's `showCardNumbering`). */
+  showNumberingButtons: boolean;
+  /** Separator after the NUMBER glyph (display-only, does NOT round-trip — the
+   *  `.docx` carries a canonical `1.`). One of `NumberingSeparator`. */
+  cardNumberingFormat: NumberingSeparator;
+  /** Separator after the SUBSTRUCTURE letter (display-only). Configured
+   *  independently of the number separator. */
+  cardNumberingSubFormat: NumberingSeparator;
+  /** Whether substructure letters render uppercase (`A)`) instead of lowercase
+   *  (`a)`). Display-only. */
+  cardNumberingSubCapitalized: boolean;
+  /** Whether/where NUMBER cards indent (display-only). `off` = none; `tag` =
+   *  indent just the tag line; `card` = indent the whole card. */
+  cardNumberingIndent: 'off' | 'tag' | 'card';
+  /** Whether/where SUBSTRUCTURE cards indent (display-only), configured
+   *  independently of the number indent. Same values as `cardNumberingIndent`. */
+  cardNumberingSubIndent: 'off' | 'tag' | 'card';
   /** Show a red dot on the ribbon's Manage Flashcards button when one or
    *  more flashcards are due for review today. On by default. */
   flashcardDueDot: boolean;
@@ -638,13 +706,13 @@ export interface Settings {
    *  in a round. Bounded per-card; display-only (a decoration, never a doc
    *  edit). See `mark-unread-plugin.ts`. */
   markUnreadAfterMarker: boolean;
-  /** The body-text zoom (50–200%, step 10) any editor OPENS at. The live
+  /** The body-text zoom (50–300%, step 10) any editor OPENS at. The live
    *  per-editor zoom is NOT a setting — it's transient per window / per pane and
    *  resets to this default on reload, so different documents can sit at
    *  different zooms. Only this default persists and syncs. */
   defaultZoomPct: number;
   /** Chrome (page) zoom for the whole window, as a percentage
-   *  (50–200, step 10). Wired to Chromium's `webFrame.setZoom-
+   *  (50–300, step 10). Wired to Chromium's `webFrame.setZoom-
    *  Factor` on Electron, which reflows the page exactly the
    *  way the browser's built-in Ctrl-+ chord does — chrome AND
    *  doc content both scale uniformly. Stacks multiplicatively
@@ -1329,6 +1397,13 @@ const DEFAULTS: Settings = {
   findCategoryOrder: ['heading', 'tag', 'analytic', 'undertag', 'cite', 'other'],
   includeSpeechDocPocket: true,
   showCitePreview: true,
+  showCardNumbering: true,
+  showNumberingButtons: true,
+  cardNumberingFormat: 'period',
+  cardNumberingSubFormat: 'paren',
+  cardNumberingSubCapitalized: false,
+  cardNumberingIndent: 'off',
+  cardNumberingSubIndent: 'off',
   flashcardDueDot: true,
   editorSpellcheck: false,
   smartQuotes: false,
@@ -1529,6 +1604,11 @@ export interface SettingMeta {
     | 'bodyFont'
     | 'uiFont'
     | 'ribbonTooltipMode'
+    | 'cardNumberFormat'
+    | 'cardNumberSubFormat'
+    | 'cardNumberIndent'
+    | 'cardNumberSubIndent'
+    | 'cardNumberColor'
     | 'lineHeights'
     | 'formattingPanelMode'
     | 'headingMode'
@@ -1950,7 +2030,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     key: 'defaultZoomPct',
     label: 'Default document zoom',
     description:
-      'The body-text zoom level every document opens at (50–200%). Zooming an open document (the zoom buttons, Ctrl-= / Ctrl--, or pinch) only affects that window or pane and resets to this default on reload — so different documents can sit at different zooms. Chrome scale is separate and stays linked across windows.',
+      'The body-text zoom level every document opens at (50–300%). Zooming an open document (the zoom buttons, Ctrl-= / Ctrl--, or pinch) only affects that window or pane and resets to this default on reload — so different documents can sit at different zooms. Chrome scale is separate and stays linked across windows.',
     kind: 'defaultZoomPct',
     category: 'accessibility',
     aliases: ['zoom', 'default zoom', 'text size', 'document zoom'],
@@ -2285,6 +2365,88 @@ export const SETTING_METADATA: SettingMeta[] = [
     category: 'appearance',
     section: 'Nav pane & indicators',
     aliases: ['hover preview'],
+  },
+  {
+    key: 'showCardNumbering',
+    label: 'Show card numbering',
+    description:
+      'Render the computed numbers/letters for cards you have marked as numbered or substructure. Display-only — turning this off hides the numbers but keeps the structure; authoring a role turns it back on.',
+    kind: 'toggle',
+    category: 'appearance',
+    section: 'Card numbering',
+    aliases: ['numbering', 'card numbers', 'auto number'],
+  },
+  {
+    key: 'showNumberingButtons',
+    label: 'Show numbering buttons in the ribbon',
+    description:
+      'Show the ribbon cluster for numbering (number, substructure, restart, and show/hide). On by default; turning it off hides only the buttons — your numbering and its display are untouched.',
+    kind: 'toggle',
+    category: 'appearance',
+    section: 'Card numbering',
+    aliases: ['numbering buttons', 'numbering ribbon', 'numbering cluster'],
+  },
+  {
+    key: 'cardNumberingFormat',
+    label: 'Number separator',
+    description:
+      'The glyph after a number — “1.”, “1)”, “1:”, “1 -”, and dash/hyphen variants. Display-only — the .docx carries a canonical format each reader can override.',
+    kind: 'cardNumberFormat',
+    category: 'appearance',
+    section: 'Card numbering',
+    aliases: ['numbering format', 'number style', 'number separator'],
+  },
+  {
+    key: 'cardNumberingSubFormat',
+    label: 'Substructure separator',
+    description:
+      'The glyph after a substructure letter — configured independently of the number separator. Display-only.',
+    kind: 'cardNumberSubFormat',
+    category: 'appearance',
+    section: 'Card numbering',
+    aliases: ['substructure format', 'sub separator', 'letter separator'],
+  },
+  {
+    key: 'cardNumberingSubCapitalized',
+    label: 'Capitalize substructure letters',
+    description: 'Render substructure as “A)”, “B)”… instead of “a)”, “b)”…. Display-only.',
+    kind: 'toggle',
+    category: 'appearance',
+    section: 'Card numbering',
+    aliases: ['uppercase substructure', 'capital letters', 'sub capitalization'],
+  },
+  {
+    // Backed by customColorOverrides['pmd-c-card-number'] (a custom builder, not
+    // the generic `key` path), so it's the SAME value as the "Card numbering"
+    // swatch under Accessibility → Color overrides — edit either, both track.
+    key: 'customColorOverrides',
+    label: 'Numbering color',
+    description:
+      'The color of card numbers and substructure letters. Linked with the “Card numbering” swatch under Accessibility → Color overrides — changing one changes the other.',
+    kind: 'cardNumberColor',
+    category: 'appearance',
+    section: 'Card numbering',
+    aliases: ['numbering color', 'number color', 'substructure color'],
+  },
+  {
+    key: 'cardNumberingIndent',
+    label: 'Number indent',
+    description:
+      'Whether numbered cards indent — none, the tag line only, or the whole card. Display-only.',
+    kind: 'cardNumberIndent',
+    category: 'appearance',
+    section: 'Card numbering',
+    aliases: ['numbering indent', 'number indent'],
+  },
+  {
+    key: 'cardNumberingSubIndent',
+    label: 'Substructure indent',
+    description:
+      'Whether substructure cards indent — configured independently of the number indent. Display-only.',
+    kind: 'cardNumberSubIndent',
+    category: 'appearance',
+    section: 'Card numbering',
+    aliases: ['substructure indent', 'sub indent'],
   },
   {
     key: 'flashcardDueDot',
@@ -3391,6 +3553,27 @@ function sanitize(s: Settings): Settings {
     includeSpeechDocPocket:
       s.includeSpeechDocPocket === false ? false : true,
     showCitePreview: !!s.showCitePreview,
+    showCardNumbering: s.showCardNumbering === false ? false : true,
+    showNumberingButtons: s.showNumberingButtons === false ? false : true,
+    cardNumberingFormat: NUMBERING_SEPARATORS.includes(
+      s.cardNumberingFormat as NumberingSeparator,
+    )
+      ? (s.cardNumberingFormat as NumberingSeparator)
+      : 'period',
+    cardNumberingSubFormat: NUMBERING_SEPARATORS.includes(
+      s.cardNumberingSubFormat as NumberingSeparator,
+    )
+      ? (s.cardNumberingSubFormat as NumberingSeparator)
+      : 'paren',
+    cardNumberingSubCapitalized: !!s.cardNumberingSubCapitalized,
+    cardNumberingIndent:
+      s.cardNumberingIndent === 'tag' || s.cardNumberingIndent === 'card'
+        ? s.cardNumberingIndent
+        : 'off',
+    cardNumberingSubIndent:
+      s.cardNumberingSubIndent === 'tag' || s.cardNumberingSubIndent === 'card'
+        ? s.cardNumberingSubIndent
+        : 'off',
     flashcardDueDot: s.flashcardDueDot === false ? false : true,
     editorSpellcheck: !!s.editorSpellcheck,
     smartQuotes: !!s.smartQuotes,
@@ -3420,8 +3603,8 @@ function sanitize(s: Settings): Settings {
     markUnreadAfterMarker: !!s.markUnreadAfterMarker,
     // A legacy persisted `zoomPct` is deliberately ignored — live body
     // zoom is transient; documents open at this default.
-    defaultZoomPct: clamp(Math.round(s.defaultZoomPct / 10) * 10, 50, 200),
-    chromeScalePct: clamp(Math.round(s.chromeScalePct / 10) * 10, 50, 200),
+    defaultZoomPct: clamp(Math.round(s.defaultZoomPct / 10) * 10, ZOOM_MIN_PCT, ZOOM_MAX_PCT),
+    chromeScalePct: clamp(Math.round(s.chromeScalePct / 10) * 10, CHROME_SCALE_MIN_PCT, CHROME_SCALE_MAX_PCT),
     gestureZoom: !!s.gestureZoom,
     readers: sanitizeReaders(s.readers),
     liveSelectionWordCount: s.liveSelectionWordCount === true,
@@ -3871,6 +4054,10 @@ export const CUSTOMIZABLE_COLOR_TOKENS: readonly CustomizableColorToken[] = [
   { group: 'Document text', name: 'pmd-color-analytic', label: 'Analytic text' },
   { group: 'Document text', name: 'pmd-color-undertag', label: 'Undertag text' },
   { group: 'Document text', name: 'pmd-color-reading-marker', label: 'Reading marker & unread text' },
+
+  // Live-zone chrome — also backed by displayColors (linked to the Appearance
+  // Style-colors picker), grouped apart from document text.
+  { group: 'Linked copies', name: 'pmd-color-zone-diverged', label: 'Source-updated badge' },
   // ── Meaning-carrying hues, rebindable so colorblind users have
   //    direct recourse. The band foreground pair (band-fg-light/dark)
   //    is deliberately NOT here: text-on-band contrast only makes
@@ -3884,6 +4071,7 @@ export const CUSTOMIZABLE_COLOR_TOKENS: readonly CustomizableColorToken[] = [
   { group: 'Annotations', name: 'pmd-c-transclusion', label: 'Live-zone rail' },
   { group: 'Editor', name: 'pmd-c-link', label: 'Hyperlink' },
   { group: 'Editor', name: 'pmd-c-spellcheck', label: 'Misspelling underline' },
+  { group: 'Editor', name: 'pmd-c-card-number', label: 'Card numbering' },
   { group: 'Status', name: 'pmd-c-notify-dot', label: 'Due-date dot' },
   { group: 'Find matches', name: 'pmd-c-find-match', label: 'Match highlight' },
   { group: 'Find matches', name: 'pmd-c-find-match-current', label: 'Current match highlight' },
@@ -3911,6 +4099,7 @@ export const DISPLAY_COLOR_TOKEN_TO_KEY: Readonly<Record<string, keyof DisplayCo
   'pmd-color-analytic': 'analytic',
   'pmd-color-undertag': 'undertag',
   'pmd-color-reading-marker': 'readingMarker',
+  'pmd-color-zone-diverged': 'zoneDiverged',
 };
 
 /** Token names actually managed by `customColorOverrides` — every

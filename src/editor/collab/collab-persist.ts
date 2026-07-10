@@ -134,6 +134,11 @@ export function attachSessionPersistence(
     flush: () => write(),
     clear: async () => {
       stop();
+      // Serialize the delete AFTER any in-flight write: a write() that was
+      // already past its `disposed` guard when we stopped would otherwise
+      // resurrect the record right after we delete it (Leave/End immediately
+      // following a periodic/initial write).
+      await tail.catch(() => {});
       await deleteSessionRecord(session.roomId);
     },
     dispose: stop,

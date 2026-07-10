@@ -63,6 +63,8 @@ import { isAutosaveOnForPath, setAutosaveForPath } from './autosave-prefs-store.
 import { scheduleIdle, cancelIdle, type IdleHandle } from './idle-scheduler.js';
 import { getSpeechDocResolver } from './speech-doc-registry.js';
 import { sendToSpeech as runSendToSpeech } from './speech-doc-send.js';
+import { selfRefSelectionPos } from './self-transclusion-commands.js';
+import { transclusionDivergenceKey } from './transclusion-divergence-plugin.js';
 import { promptForText } from './text-prompt.js';
 import { showToast } from './toast.js';
 import {
@@ -80,6 +82,7 @@ import {
   setActiveNavPanelResolver,
   attachClickBelowToEnd,
   confirmCloseUnsaved,
+  resolveCoEditedClose,
   runSaveFlow,
   runSaveAsFlow,
   refreshWindowTitle,
@@ -91,7 +94,11 @@ import {
 import { sendViewToStarred } from './pairing/send-to-starred.js';
 import { editorNodeViews } from './image-resize-nodeview.js';
 import { coordinatorBlocks, flashLockedLeases } from './ai/edit-coordinator.js';
-import { tagCollabTransaction } from './collab/collab-hooks.js';
+import {
+  tagCollabTransaction,
+  collabCopresenceFor,
+  onCollabCopresenceChange,
+} from './collab/collab-hooks.js';
 import { icon, setIcon } from './icons';
 
 type SlotId = 'slot1' | 'slot2' | 'slot3';
@@ -292,7 +299,7 @@ interface DocRecord {
    *  property of an individual open doc — the ribbon toggle flips
    *  this for the focused pane only, leaving other panes untouched. */
   readMode: boolean;
-  /** Per-pane body-text zoom (50–200%). Same per-doc story as `readMode`: the
+  /** Per-pane body-text zoom (50–300%). Same per-doc story as `readMode`: the
    *  zoom controls affect the FOCUSED pane only; other panes stay at theirs.
    *  Opens at `defaultZoomPct`, transient (resets on reload). */
   zoomPct: number;
@@ -463,6 +470,9 @@ class Slot {
   private bodyEl: HTMLElement;
   /** Footer word count. */
   private wcEl: HTMLElement;
+  /** Footer co-editing indicator — status text + presence dots for THIS slot's
+   *  visible doc's session. Hidden when that doc has no live session. */
+  private copresenceEl: HTMLElement;
   /** Nav section (in the multi-nav rail). Hidden when stack is empty. */
   readonly navSectionEl: HTMLElement;
   /** Nav body — DocRecord.navEl mounts here. */
@@ -605,6 +615,12 @@ class Slot {
     this.wcEl.className = 'pmd-pane-wc';
     this.wcEl.textContent = '—';
     footer.appendChild(this.wcEl);
+    // Per-slot co-editing indicator (this doc's session status + who's here).
+    // Empty/hidden until the slot's visible doc joins a session.
+    this.copresenceEl = document.createElement('span');
+    this.copresenceEl.className = 'pmd-pane-copresence';
+    this.copresenceEl.hidden = true;
+    footer.appendChild(this.copresenceEl);
     const openBtn = document.createElement('button');
     openBtn.type = 'button';
     openBtn.className = 'pmd-pane-open';
@@ -815,25 +831,38 @@ class Slot {
   /** Close the currently-visible doc. Reveals the next stack member
    *  (or empties the slot). Prompts for save / discard / cancel if
    *  the doc has unsaved changes; clean docs close immediately. */
-  async closeVisible(): Promise<boolean> {
+  async closeVisible(opts?: { modeSwitch?: boolean }): Promise<boolean> {
     const idx = this.visibleIndex;
     if (idx < 0) return false;
     const closing = this.stack[idx]!;
-    if (closing.dirty) {
-      // Focus this pane so the save commands (which route via
-      // `activeFile()`) target THIS doc, not whichever pane
-      // happened to be focused before the user clicked X.
-      this.shell.focusSlot(this);
+    // During a mode-switch reduce we suppress the session-aware close: the
+    // toggle is a full reload that persists every session (resumable, and the
+    // kept doc auto-resumes), so prompting per co-edited pane would be noise —
+    // but a DIRTY non-focused doc still gets its normal save prompt below.
+    const coedited = !opts?.modeSwitch && collabCopresenceFor(closing.uid) != null;
+    // Focus this pane so the confirm dialogs + save commands (which route via
+    // `activeFile()`) target THIS doc, not whichever pane happened to be focused
+    // when the user clicked ×.
+    if (coedited || closing.dirty) this.shell.focusSlot(this);
+    // Unsaved-file prompt (save / save-as / discard / cancel). Returns false to
+    // abort the close.
+    const runDirtyPrompt = async (): Promise<boolean> => {
       const choice = await confirmCloseUnsaved();
       if (choice === 'cancel') return false;
-      if (choice === 'save') {
-        const ok = await runSaveFlow();
-        if (!ok) return false;
-      } else if (choice === 'saveAs') {
-        const ok = await runSaveAsFlow();
-        if (!ok) return false;
-      }
-      // discard: fall through; existing journal-clear path runs.
+      if (choice === 'save') return runSaveFlow();
+      if (choice === 'saveAs') return runSaveAsFlow();
+      return true; // discard: fall through; existing journal-clear path runs.
+    };
+    if (coedited) {
+      // Session-aware close: keep it resumable, or end/leave. Naming the doc.
+      const co = await resolveCoEditedClose(closing.uid, closing.filename);
+      if (co === 'cancel') return false;
+      // 'keep' → the session record holds the content; close without a file
+      // prompt. 'run-normal' → the session was ended/left; still offer to save
+      // the local file if it's dirty.
+      if (co === 'run-normal' && closing.dirty && !(await runDirtyPrompt())) return false;
+    } else if (closing.dirty && !(await runDirtyPrompt())) {
+      return false;
     }
     this.detachVisible();
     if (closing.heavyUpdateTimer !== null) {
@@ -894,12 +923,12 @@ class Slot {
    *  the user cancels a prompt (leaving the remaining docs open), true
    *  when the slot is reduced to `keep` (or empty). Used by the web
    *  mode-switch to collapse three-pane down to the focused doc. */
-  async closeAllExcept(keep: DocRecord | null): Promise<boolean> {
+  async closeAllExcept(keep: DocRecord | null, opts?: { modeSwitch?: boolean }): Promise<boolean> {
     // Snapshot: closeVisible mutates the stack + visibleIndex as it goes.
     for (const rec of this.stack.filter((r) => r !== keep)) {
       if (!this.stack.includes(rec)) continue; // already closed (defensive)
       this.showRecord(rec); // make it visible so its save prompt is in context
-      if (!(await this.closeVisible())) return false; // user cancelled
+      if (!(await this.closeVisible(opts))) return false; // user cancelled
     }
     return true;
   }
@@ -932,6 +961,7 @@ class Slot {
     this.chipNameEl.textContent = rec.filename;
     this.refreshChip();
     this.refreshWordCount();
+    this.refreshCopresence();
     // Speech-chip class lives on the pane element and reflects
     // the currently-visible record vs the speech-doc registry;
     // swapping records via the stack switcher needs to refresh.
@@ -961,6 +991,44 @@ class Slot {
     const rec = this.visible;
     if (!rec) return;
     this.chipNameEl.textContent = rec.filename;
+  }
+
+  /** Paint this slot footer's co-editing indicator from its VISIBLE record's
+   *  session — status text + one presence dot per person — or hide it when that
+   *  doc has no live session. Focus-independent: a slot always shows its own
+   *  doc's state, so swapping the stack's visible tab to a non-session doc hides
+   *  it while another doc's session (in the same slot's stack) keeps syncing. */
+  refreshCopresence(): void {
+    const uid = this.visible?.uid ?? null;
+    const cp = uid ? collabCopresenceFor(uid) : null;
+    if (!cp) {
+      this.copresenceEl.hidden = true;
+      this.copresenceEl.replaceChildren();
+      return;
+    }
+    this.copresenceEl.hidden = false;
+    const text = cp.connected
+      ? cp.queued > 0
+        ? `Sending ${cp.queued}…`
+        : 'Synced'
+      : cp.queued > 0
+        ? `Offline · ${cp.queued}`
+        : 'Offline';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'pmd-pane-copresence-label';
+    labelEl.textContent = text;
+    // Reuse the status-bar chip's dot classes so per-slot and single-pane
+    // presence read identically.
+    const dots = document.createElement('span');
+    dots.className = 'pmd-collab-chip-dots';
+    for (const p of cp.peers) {
+      const dot = document.createElement('span');
+      dot.className = 'pmd-collab-presence-dot' + (p.self ? ' pmd-collab-presence-dot-self' : '');
+      dot.style.background = p.color;
+      dot.title = p.self ? `${p.name} (you)` : p.name;
+      dots.appendChild(dot);
+    }
+    this.copresenceEl.replaceChildren(labelEl, dots);
   }
 
   /** Recompute and display the visible doc's word count + read times
@@ -1091,7 +1159,10 @@ function flushHeavyUpdateNow(record: DocRecord): void {
     record.heavyUpdateTimer = null;
   }
   record.navPanel.update(record.view.state.doc);
-  record.navPanel.setCaretHeading(record.view.state.selection.from);
+  record.navPanel.setCaretHeading(
+    record.view.state.selection.from,
+    selfRefSelectionPos(record.view.state),
+  );
   record.owner.refreshWordCount();
 }
 
@@ -1187,6 +1258,13 @@ class MultiPaneShell {
       this.rowEl.appendChild(this.slots[id].paneEl);
       this.navRailEl.appendChild(this.slots[id].navSectionEl);
     }
+    // Repaint every slot footer's co-editing indicator whenever a session's
+    // status/presence changes or one starts/ends. The shell is a lifetime
+    // singleton (mountMultiPaneShell early-returns if built), so this
+    // subscription never needs tearing down.
+    onCollabCopresenceChange(() => {
+      for (const id of SLOT_IDS) this.slots[id].refreshCopresence();
+    });
     // Carry a persisted "nav hidden" preference into three-pane: start every
     // section closed so the rail — and the global toggle — reflect it. The
     // global toggle / per-slot toggles reopen them (reconcileNavRail syncs
@@ -1715,7 +1793,7 @@ class MultiPaneShell {
       }
     }
     for (const id of SLOT_IDS) {
-      if (!(await this.slots[id].closeAllExcept(keep))) return false;
+      if (!(await this.slots[id].closeAllExcept(keep, { modeSwitch: true }))) return false;
     }
     return true;
   }
@@ -1923,6 +2001,20 @@ class MultiPaneShell {
    *  syncer to summarize the whole multi-pane workspace at once. */
   getAllFilenames(): (string | null)[] {
     return SLOT_IDS.map((id) => this.slots[id].visible?.filename ?? null);
+  }
+
+  /** The filename of the open doc with `uid` — searched across every slot's
+   *  full stack (not just visible records), so a session owned by a background
+   *  (stacked, non-visible) tab still resolves its own name. Null if no open
+   *  doc has that uid. Lets collab publish/label a session with its OWNER doc's
+   *  name rather than the whole-window title (every open doc joined by " · "). */
+  filenameForUid(uid: string): string | null {
+    for (const id of SLOT_IDS) {
+      for (const rec of this.slots[id].stack) {
+        if (rec.uid === uid) return rec.filename;
+      }
+    }
+    return null;
   }
 
   /** Every open doc's file handle across all panes and their stacks — for the
@@ -2602,10 +2694,14 @@ function buildDocRecord(
   const navEl = document.createElement('div');
   navEl.className = 'pmd-pane-nav-host';
 
+  // Resolve this record's uid up front so the editor state can be built for it.
+  // A session's collab binding attaches ONLY to its owning uid, so a pane opened
+  // during someone else's session stays independent (no document fusion).
+  const uid = opts.uid ?? newDocUid();
   const state = EditorState.create({
     doc,
     schema,
-    plugins: buildEditorPlugins(),
+    plugins: buildEditorPlugins(uid),
   });
 
   // Per-pane EditorView. dispatchTransaction keeps the slot's word
@@ -2638,6 +2734,7 @@ function buildDocRecord(
         return;
       }
       const prevState = view.state;
+      const prevDiverged = transclusionDivergenceKey.getState(prevState)?.diverged;
       const next = view.state.apply(tx);
       view.updateState(next);
       // Re-arm the autosave + journal debounces on doc-changing
@@ -2688,7 +2785,10 @@ function buildDocRecord(
             // Re-apply against the rebuilt entries (fresh positions) so a
             // structural edit doesn't leave the wrong heading lit (parity with
             // single-doc, index.ts).
-            record.navPanel.setCaretHeading(view.state.selection.from);
+            record.navPanel.setCaretHeading(
+              view.state.selection.from,
+              selfRefSelectionPos(view.state),
+            );
           } catch (e) {
             console.error('[cardmirror] navPanel.update failed in multi-pane flush:', e);
           }
@@ -2718,12 +2818,30 @@ function buildDocRecord(
       if (getActiveView() === view) {
         setActiveView(view);
       }
+      // The divergence set updates via a meta transaction (no docChanged), so
+      // the docChanged-gated rebuild above misses it. Rebuild when the set's
+      // identity changes so the "source updated" rail appears/clears in this
+      // pane's outline — parity with single-doc (index.ts), which the shared
+      // NavigationPanel renders but only when told to re-run.
+      if (transclusionDivergenceKey.getState(next)?.diverged !== prevDiverged) {
+        try {
+          record.navPanel.update(next.doc);
+          record.navPanel.setCaretHeading(next.selection.from, selfRefSelectionPos(next));
+        } catch (e) {
+          console.error('[cardmirror] navPanel divergence rebuild failed:', e);
+        }
+      }
       // Caret-tracking for this pane's nav: highlight the heading whose section
       // contains the cursor (parity with single-doc, index.ts). Gated on the
       // caret position changing so it's cheap; per-pane, so each pane tracks its
-      // own cursor.
-      if (prevState.selection.from !== next.selection.from) {
-        record.navPanel.setCaretHeading(next.selection.from);
+      // own cursor. Also refire when the live-view node-selection changes even
+      // if `from` held steady, so the window's nav highlight tracks it.
+      const nextSelfRef = selfRefSelectionPos(next);
+      if (
+        prevState.selection.from !== next.selection.from ||
+        selfRefSelectionPos(prevState) !== nextSelfRef
+      ) {
+        record.navPanel.setCaretHeading(next.selection.from, nextSelfRef);
       }
     },
   });
@@ -2743,7 +2861,7 @@ function buildDocRecord(
   navPanel.attach(view);
   // Initial caret-heading highlight so a freshly-mounted pane reflects the
   // cursor before the first selection change (parity with index.ts).
-  navPanel.setCaretHeading(view.state.selection.from);
+  navPanel.setCaretHeading(view.state.selection.from, selfRefSelectionPos(view.state));
 
   const dragSurface = new EditorDragSurface();
   dragSurface.attach(view, editorEl);
@@ -2759,7 +2877,7 @@ function buildDocRecord(
   setViewDocPath(view, typeof opts.handle === 'string' ? opts.handle : null);
 
   const record: DocRecord = {
-    uid: opts.uid ?? newDocUid(),
+    uid,
     filename,
     handle: opts.handle,
     format: opts.format,
@@ -2861,6 +2979,7 @@ export function mountMultiPaneShell(): void {
     setFocusedFile: (f) => shell!.setFocusedFile(f),
     setFocusedDocId: (id) => shell!.setFocusedDocId(id),
     getAllFilenames: () => shell!.getAllFilenames(),
+    getFilenameForUid: (uid) => shell!.filenameForUid(uid),
     clearFocusedJournal: () => shell!.clearFocusedJournal(),
     onRecoveredDoc: (entry) => shell!.onRecoveredDoc(entry),
     journalAll: () => shell!.journalAll(),

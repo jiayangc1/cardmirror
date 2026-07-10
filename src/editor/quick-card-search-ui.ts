@@ -60,6 +60,7 @@ import {
   buildLiveZoneAttrs,
   buildZoneErrorMessage,
 } from './transclusion-actions.js';
+import { resolveHeadingIdAt } from './transclusion.js';
 import type { TransclusionAttrs } from './transclusion.js';
 import { AUTOFILL_IGNORE_ATTRS } from './autofill-ignore.js';
 import { insertSpeechSlice } from './speech-doc-send.js';
@@ -1725,8 +1726,10 @@ class QuickCardSearchUI {
     const docPath = this.docPath;
     const rePickTarget = this.rePickTarget;
     const headingNode = inFile.doc.nodeAt(result.fileRange.from);
-    const headingId =
-      headingNode && typeof headingNode.attrs['id'] === 'string' ? headingNode.attrs['id'] : '';
+    // A tag/analytic source's outline range starts at the enclosing card /
+    // analytic_unit, whose id lives on its heading child — resolveHeadingIdAt
+    // digs it out (nodeAt().attrs.id alone fails for single-card sources).
+    const headingId = resolveHeadingIdAt(inFile.doc, result.fileRange.from);
     const roots = (settings.get('fileSearchRoots') as string[] | undefined) ?? [];
     const outcome = buildLiveZoneAttrs(
       schema,

@@ -61,6 +61,39 @@ const headingAttrs = {
   ...spacingAttr,
 };
 
+/**
+ * Auto-numbering skeleton (display-only; see NUMBERING_PLAN.md). The number
+ * GLYPH ("1", "a") is NEVER stored — only the authorial role and restart flag,
+ * from which `computeNumbering` derives numbers positionally at render time.
+ *
+ *   numRole    'none' = skipped, transparent to both counters (the default);
+ *              'number' = a level-0 count; 'sub' = a level-1 letter, subordinate
+ *              to the current number.
+ *   numRestart false (the card default) = numbering flows through this unit;
+ *              true = the count restarts here.
+ *
+ * Lives on the card UNIT (`card` / `analytic_unit`). `block` carries only
+ * `numRestart`, but defaulting TRUE (each block starts its own count unless the
+ * author flips it to "continue").
+ */
+const numberingCardAttrs = {
+  numRole: {
+    default: 'none' as 'none' | 'number' | 'sub',
+    validate: (v: unknown) => v === 'none' || v === 'number' || v === 'sub',
+  },
+  numRestart: {
+    default: false as boolean,
+    validate: (v: unknown) => typeof v === 'boolean',
+  },
+};
+const blockAttrs = {
+  ...headingAttrs,
+  numRestart: {
+    default: true as boolean,
+    validate: (v: unknown) => typeof v === 'boolean',
+  },
+};
+
 /** Convert a paragraph node's `indent` (dxa) to an inline CSS
  *  declaration, or return empty when unindented. */
 function indentToStyle(indent: unknown): string {
@@ -96,7 +129,7 @@ function readIndentFromStyle(dom: HTMLElement): number {
  * (see its content expression).
  */
 const BLOCK_CONTENT =
-  '(paragraph | pocket | hat | block | card | analytic_unit | undertag | cite_paragraph | card_body | table | transclusion_ref)*';
+  '(paragraph | pocket | hat | block | card | analytic_unit | undertag | cite_paragraph | card_body | table | transclusion_ref | self_ref)*';
 
 export const nodes: { [name: string]: NodeSpec } = {
   /** Top-level container. Sequence of block-level content. */
@@ -373,6 +406,17 @@ export const nodes: { [name: string]: NodeSpec } = {
         default: '',
         validate: (v: unknown) => typeof v === 'string',
       },
+      /** Id-INDEPENDENT hash of the source section as last pulled. Unlike
+       *  `source_content_hash` (which includes the freshly-stamped child ids and
+       *  so only detects LOCAL edits), this is the source's content signature
+       *  ignoring heading ids — so a later read of the source can be compared to
+       *  it to tell whether the SOURCE has moved on ("diverged"), independent of
+       *  any local edits to the mirror. '' on zones created before this existed;
+       *  such zones fall back to the mirror's own shape when unedited. */
+      source_shape_hash: {
+        default: '',
+        validate: (v: unknown) => typeof v === 'string',
+      },
       /** Epoch ms of the last successful resolve (0 = never refreshed). */
       last_refreshed: {
         default: 0,
@@ -415,6 +459,61 @@ export const nodes: { [name: string]: NodeSpec } = {
         'data-last-refreshed': String(node.attrs['last_refreshed'] ?? 0),
         'data-source-label': String(node.attrs['source_label'] ?? ''),
         'data-source-abs': String(node.attrs['source_abs'] ?? ''),
+      },
+      0,
+    ],
+  },
+
+  /**
+   * Intra-document live window ("self-transclusion"). A by-REFERENCE, read-only
+   * projection of another section of THIS document: it stores only which section
+   * it mirrors (`source_heading_id`) — no content copy — and its NodeView renders
+   * that section's current content live (self-transclusion-nodeview.ts). `atom`:
+   * you edit at the source, never through the window (which is what makes it
+   * conflict-free — one editable copy, N live views). Flattens to plain cards on
+   * `.docx` export (Word has no live-window concept); round-trips by reference in
+   * `.cmir` (the source is in the same file, so the file stays self-contained).
+   */
+  self_ref: {
+    // A live view holds its mirrored section as REAL, read-only child content
+    // (not a leaf atom). That's what makes native selection just work — there's
+    // no atom boundary to get stuck on; a selection flows through it exactly like
+    // a linked copy (`transclusion_ref`). The children are DERIVED: a plugin keeps
+    // them equal to the projected source (id-less), edits inside are blocked by a
+    // filterTransaction, and the children are kept OUT of collab sync (a
+    // loro-prosemirror patch) so each peer re-derives them locally from the shared
+    // source — never a CRDT value, so no concurrent-re-projection conflict.
+    content: BLOCK_CONTENT,
+    isolating: true,
+    defining: true,
+    selectable: true,
+    attrs: {
+      /** Stable heading id of the mirrored section, in THIS document. */
+      source_heading_id: {
+        default: '',
+        validate: (v: unknown) => typeof v === 'string',
+      },
+      /** Human label for the window header, e.g. "↳ Impacts". */
+      source_label: {
+        default: '',
+        validate: (v: unknown) => typeof v === 'string',
+      },
+    },
+    parseDOM: [
+      {
+        tag: 'div.pmd-self-ref',
+        getAttrs: (dom: HTMLElement) => ({
+          source_heading_id: dom.getAttribute('data-source-heading-id') ?? '',
+          source_label: dom.getAttribute('data-source-label') ?? '',
+        }),
+      },
+    ],
+    toDOM: (node) => [
+      'div',
+      {
+        class: 'pmd-self-ref',
+        'data-source-heading-id': String(node.attrs['source_heading_id'] ?? ''),
+        'data-source-label': String(node.attrs['source_label'] ?? ''),
       },
       0,
     ],
@@ -464,11 +563,15 @@ export const nodes: { [name: string]: NodeSpec } = {
 
   block: {
     content: 'inline*',
-    attrs: headingAttrs,
+    attrs: blockAttrs,
     defining: true,
     parseDOM: [{
       tag: 'h3.pmd-block',
-      getAttrs: (dom: HTMLElement) => ({ indent: readIndentFromStyle(dom) }),
+      getAttrs: (dom: HTMLElement) => ({
+        indent: readIndentFromStyle(dom),
+        // Default is restart (true); only a "continue" block carries the attr.
+        numRestart: dom.getAttribute('data-num-restart') !== 'false',
+      }),
     }],
     toDOM: (node) => {
       const attrs: Record<string, string> = {
@@ -477,6 +580,8 @@ export const nodes: { [name: string]: NodeSpec } = {
       };
       const style = indentToStyle(node.attrs['indent']);
       if (style) attrs['style'] = style;
+      // Emit only the non-default: a block that CONTINUES the previous count.
+      if (node.attrs['numRestart'] === false) attrs['data-num-restart'] = 'false';
       return ['h3', attrs, 0];
     },
   },
@@ -514,8 +619,24 @@ export const nodes: { [name: string]: NodeSpec } = {
     content: 'tag (card_body | undertag | cite_paragraph | table)*',
     defining: true,
     isolating: true,
-    parseDOM: [{ tag: 'div.pmd-card' }],
-    toDOM: () => ['div', { class: 'pmd-card' }, 0],
+    attrs: numberingCardAttrs,
+    parseDOM: [{
+      tag: 'div.pmd-card',
+      getAttrs: (dom: HTMLElement) => {
+        const r = dom.getAttribute('data-num-role');
+        return {
+          numRole: r === 'number' || r === 'sub' ? r : 'none',
+          numRestart: dom.getAttribute('data-num-restart') === 'true',
+        };
+      },
+    }],
+    toDOM: (node) => {
+      const attrs: Record<string, string> = { class: 'pmd-card' };
+      const role = node.attrs['numRole'];
+      if (role && role !== 'none') attrs['data-num-role'] = String(role);
+      if (node.attrs['numRestart'] === true) attrs['data-num-restart'] = 'true';
+      return ['div', attrs, 0];
+    },
   },
 
   /** Card label. Heading-level outline-4 with stable id. Card-only. */
@@ -610,8 +731,24 @@ export const nodes: { [name: string]: NodeSpec } = {
     content: 'analytic (card_body | undertag | cite_paragraph | table)*',
     defining: true,
     isolating: true,
-    parseDOM: [{ tag: 'div.pmd-analytic-unit' }],
-    toDOM: () => ['div', { class: 'pmd-analytic-unit' }, 0],
+    attrs: numberingCardAttrs,
+    parseDOM: [{
+      tag: 'div.pmd-analytic-unit',
+      getAttrs: (dom: HTMLElement) => {
+        const r = dom.getAttribute('data-num-role');
+        return {
+          numRole: r === 'number' || r === 'sub' ? r : 'none',
+          numRestart: dom.getAttribute('data-num-restart') === 'true',
+        };
+      },
+    }],
+    toDOM: (node) => {
+      const attrs: Record<string, string> = { class: 'pmd-analytic-unit' };
+      const role = node.attrs['numRole'];
+      if (role && role !== 'none') attrs['data-num-role'] = String(role);
+      if (node.attrs['numRestart'] === true) attrs['data-num-restart'] = 'true';
+      return ['div', attrs, 0];
+    },
   },
 
   /** Undertag paragraph (linked to UndertagChar). */

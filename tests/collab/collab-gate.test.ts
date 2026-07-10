@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 /**
- * The categorical guarantee: co-editing is desktop-only. On a browser
- * host the gate is hard-closed BEFORE any flag is read, so neither the
- * build-time `VITE_COLLAB` nor the runtime `localStorage['pmd-collab']`
- * console flip can turn on a server-dependent capability in the web
- * edition. On a desktop host the existing dormant-by-default posture is
- * unchanged (flag required).
+ * Co-editing is desktop-only and now ON by default there. On a browser
+ * host the gate is categorically closed (the web edition has no
+ * server-dependent capabilities); on a desktop host it's open with no
+ * flag required — the old build-time `VITE_COLLAB` / runtime
+ * `localStorage['pmd-collab']` toggles are gone now that it ships.
  *
  * getHost() caches the resolved host at module scope, so each case
  * resets the module registry and re-imports the gate with the desired
@@ -23,32 +22,16 @@ async function loadGate(): Promise<() => boolean> {
 
 afterEach(() => {
   delete (window as unknown as WinStub).electronAPI;
-  localStorage.removeItem('pmd-collab');
-  vi.unstubAllEnvs();
 });
 
-describe('collabEnabled — categorical web disable', () => {
-  it('browser host + localStorage flip → still disabled', async () => {
+describe('collabEnabled — desktop-only, on by default', () => {
+  it('browser host → disabled (no server-dependent capability on web)', async () => {
     delete (window as unknown as WinStub).electronAPI; // browser host
-    localStorage.setItem('pmd-collab', '1');
     expect((await loadGate())()).toBe(false);
   });
 
-  it('browser host + VITE_COLLAB=1 → still disabled', async () => {
-    delete (window as unknown as WinStub).electronAPI;
-    vi.stubEnv('VITE_COLLAB', '1');
-    expect((await loadGate())()).toBe(false);
-  });
-
-  it('desktop host + localStorage flip → enabled', async () => {
+  it('desktop host → enabled by default (no flag needed)', async () => {
     (window as unknown as WinStub).electronAPI = {}; // Electron host
-    localStorage.setItem('pmd-collab', '1');
     expect((await loadGate())()).toBe(true);
-  });
-
-  it('desktop host + no flag → disabled (dormant by default)', async () => {
-    (window as unknown as WinStub).electronAPI = {};
-    localStorage.removeItem('pmd-collab');
-    expect((await loadGate())()).toBe(false);
   });
 });

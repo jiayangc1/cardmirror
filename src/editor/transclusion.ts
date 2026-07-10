@@ -19,6 +19,7 @@ import {
   computeHeadingRange,
   TYPE_LABEL,
 } from './headings.js';
+import { HEADING_TYPE_NAMES } from '../schema/ids.js';
 
 export const TRANSCLUSION_NODE = 'transclusion_ref';
 
@@ -38,6 +39,9 @@ export interface TransclusionAttrs {
   source_abs: string;
   /** Hash of the children as last pulled from source (edit detection). */
   source_content_hash: string;
+  /** Id-independent hash of the source section as last pulled (divergence
+   *  detection — has the SOURCE moved on, regardless of local edits). */
+  source_shape_hash: string;
   last_refreshed: number;
   source_label: string;
 }
@@ -55,6 +59,79 @@ export interface ExtractResult {
 
 export function isTransclusionNode(node: PMNode | null | undefined): boolean {
   return !!node && node.type.name === TRANSCLUSION_NODE;
+}
+
+/** Sentinel `source_ref` marking a linked copy whose source is a section of THIS
+ *  document (not a file). Resolution reads the live doc, not disk. A leading
+ *  space can't be a real path, so it's an unambiguous marker; it persists
+ *  verbatim (source_ref is a free string), so no schema change is needed. */
+export const SELF_SOURCE_REF = ' self';
+
+/** A linked copy whose source is in this document (vs another file). */
+export function isInDocCopy(node: PMNode | null | undefined): boolean {
+  return isTransclusionNode(node) && node!.attrs['source_ref'] === SELF_SOURCE_REF;
+}
+
+/**
+ * The stable heading id of a transclusion target at doc position `pos`.
+ *
+ * The node at `pos` is the heading's own id when it's a grouping heading
+ * (pocket/hat/block — the outline range starts at the heading node itself). But
+ * a `tag` / `analytic` target's outline range starts at the ENCLOSING card /
+ * analytic_unit (see `computeHeadingRange`), which carries no id of its own —
+ * the id lives on its heading child. So fall back to the first heading-typed
+ * descendant's id. Returns '' when nothing id-bearing is found.
+ */
+export function resolveHeadingIdAt(doc: PMNode, pos: number): string {
+  const node = doc.nodeAt(pos);
+  if (!node) return '';
+  const own = node.attrs['id'];
+  if (typeof own === 'string' && own) return own;
+  let found = '';
+  node.descendants((n) => {
+    if (found) return false;
+    const id = n.attrs['id'];
+    if (HEADING_TYPE_NAMES.has(n.type.name) && typeof id === 'string' && id) {
+      found = id;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+/** Grouping headings — the structural (sub-)section headers. A transcludable
+ *  target's CONTENT may not contain these (only cards/analytics), so a zone is
+ *  always a flat run of cards, never a whole section with sub-headings. */
+const GROUPING_HEADING_TYPES: ReadonlySet<string> = new Set(['pocket', 'hat', 'block']);
+
+/** Why a fragment can't become a live zone's content, or null if it can.
+ *  Two rules keep transclusion simple (see TRANSCLUSION_PLAN):
+ *   - `contains-zone`: the content itself holds a live zone — we don't nest
+ *     zones (in any context), so this is refused rather than flattened.
+ *   - `contains-subheading`: the content spans a grouping heading
+ *     (pocket/hat/block), i.e. a whole section — only a single card or a block's
+ *     cards (a flat card run) may be transcluded. */
+export type ZoneContentIssue = 'contains-zone' | 'contains-subheading';
+
+export function zoneContentIssue(content: Fragment): ZoneContentIssue | null {
+  let issue: ZoneContentIssue | null = null;
+  const walk = (frag: Fragment): void => {
+    frag.forEach((node) => {
+      if (issue) return;
+      if (node.type.name === TRANSCLUSION_NODE) {
+        issue = 'contains-zone';
+        return;
+      }
+      if (GROUPING_HEADING_TYPES.has(node.type.name)) {
+        issue = 'contains-subheading';
+        return;
+      }
+      if (node.content.size) walk(node.content);
+    });
+  };
+  walk(content);
+  return issue;
 }
 
 /**
@@ -133,6 +210,45 @@ export function isZoneEdited(node: PMNode): boolean {
   return contentHash(node.content) !== String(node.attrs['source_content_hash'] ?? '');
 }
 
+/** Recursively blank every `attrs.id` in a PM-JSON node — the id-independent
+ *  canonical form. Two sections with identical content but different heading ids
+ *  (as a source and its freshly-stamped mirror always are) reduce to the same
+ *  shape. */
+function stripIdsDeep(json: unknown): unknown {
+  if (Array.isArray(json)) return json.map(stripIdsDeep);
+  if (json && typeof json === 'object') {
+    const obj = json as { attrs?: Record<string, unknown>; content?: unknown };
+    const out: Record<string, unknown> = { ...obj };
+    if (obj.attrs && typeof obj.attrs === 'object' && 'id' in obj.attrs) {
+      out['attrs'] = { ...obj.attrs, id: '' };
+    }
+    if (Array.isArray(obj.content)) out['content'] = obj.content.map(stripIdsDeep);
+    return out;
+  }
+  return json;
+}
+
+/** Id-independent hash of a fragment — its content signature ignoring heading
+ *  ids. Stored as `source_shape_hash` at pull time and recomputed from a later
+ *  source read to detect that the SOURCE has diverged (see
+ *  transclusion-divergence.ts). Compare only shapes produced the same way
+ *  (flatten nested zones first — as `prepareZoneContent` does). */
+export function idIndependentHash(content: Fragment): string {
+  return hashFragmentJSON(content.size ? stripIdsDeep(content.toJSON()) : null);
+}
+
+/** The id-independent shape a source read should be compared against to decide
+ *  divergence: the stored `source_shape_hash` when present, else — for zones
+ *  predating that attr — the mirror's own shape, but only when the mirror is
+ *  UNedited (an unedited mirror equals its source-at-pull). Null when we can't
+ *  tell (an edited pre-attr zone), so the caller leaves it unflagged. */
+export function zoneReferenceShape(node: PMNode): string | null {
+  if (node.type.name !== TRANSCLUSION_NODE) return null;
+  const stored = String(node.attrs['source_shape_hash'] ?? '');
+  if (stored) return stored;
+  return isZoneEdited(node) ? null : idIndependentHash(node.content);
+}
+
 /**
  * Prepare an extracted section to become a zone's children: rewrite heading ids
  * to fresh ones (so two zones of the same source, or the source itself opened
@@ -141,7 +257,7 @@ export function isZoneEdited(node: PMNode): boolean {
 export function prepareZoneContent(
   content: Fragment,
   freshId: () => string,
-): { content: Fragment; hash: string } {
+): { content: Fragment; hash: string; shapeHash: string } {
   // A section pulled into a zone keeps only PLAIN content: any nested zones are
   // flattened to their snapshot. A zone is live only in the document it was
   // created in — nested inside another zone it becomes ordinary content (update
@@ -149,7 +265,10 @@ export function prepareZoneContent(
   // structurally zone-free, so a cycle can never form.
   const flattened = flattenZones(content);
   const rewritten = rewriteHeadingIdsInFragment(flattened, freshId);
-  return { content: rewritten, hash: contentHash(rewritten) };
+  // shapeHash is id-independent, so it's identical for `flattened` and the
+  // id-`rewritten` copy — recomputable from a later source read of the same
+  // section for divergence detection.
+  return { content: rewritten, hash: contentHash(rewritten), shapeHash: idIndependentHash(rewritten) };
 }
 
 /** Build a `transclusion_ref` node from attrs + child content. */
@@ -167,6 +286,7 @@ export function createTransclusionNode(
       source_heading_id: attrs.source_heading_id ?? '',
       source_abs: attrs.source_abs ?? '',
       source_content_hash: attrs.source_content_hash ?? '',
+      source_shape_hash: attrs.source_shape_hash ?? '',
       last_refreshed: attrs.last_refreshed ?? 0,
       source_label: attrs.source_label ?? '',
     },

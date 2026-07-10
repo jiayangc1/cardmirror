@@ -17,8 +17,11 @@ import {
   detachSlice,
   directZoneIdentities,
   zoneIdentity,
+  resolveHeadingIdAt,
+  zoneContentIssue,
   TRANSCLUSION_NODE,
 } from '../../src/editor/transclusion.js';
+import { collectHeadings, computeHeadingRange } from '../../src/editor/headings.js';
 
 function heading(type: string, text: string, id: string): PMNode {
   return schema.nodes[type]!.create({ id }, text ? schema.text(text) : undefined);
@@ -234,5 +237,66 @@ describe('cycle identity helpers', () => {
     expect(ids.has(zoneIdentity(z1))).toBe(true);
     expect(ids.has(zoneIdentity(z2))).toBe(true);
     expect(ids.size).toBe(2);
+  });
+});
+
+describe('resolveHeadingIdAt — heading id at an outline range start', () => {
+  it("returns a grouping heading's own id", () => {
+    const d = doc([heading('block', 'Section', 'blk-1'), card('T', 'tag-1')]);
+    const entry = collectHeadings(d).find((h) => h.id === 'blk-1')!;
+    const range = computeHeadingRange(d, entry)!;
+    expect(resolveHeadingIdAt(d, range.from)).toBe('blk-1');
+  });
+
+  it('digs the tag id out of a single-card (tag) source', () => {
+    // Reproduces the file-search outline: a tag entry's range starts at the
+    // ENCLOSING card, which has no id of its own — the "this is a test
+    // source.cmir" ("no stable id") bug.
+    const d = doc([card('mutual aid alt', 'tag-42', 'evidence')]);
+    const entry = collectHeadings(d).find((h) => h.id === 'tag-42')!;
+    const range = computeHeadingRange(d, entry)!;
+    expect(d.nodeAt(range.from)!.type.name).toBe('card'); // the naive id lookup lands here
+    expect(resolveHeadingIdAt(d, range.from)).toBe('tag-42'); // …the fix finds the tag id
+  });
+
+  it('returns empty when there is no id-bearing heading at the position', () => {
+    const d = doc([body('just a paragraph, no heading')]);
+    expect(resolveHeadingIdAt(d, 0)).toBe('');
+  });
+});
+
+describe('zoneContentIssue — flat-card + no-nesting eligibility', () => {
+  it('a flat run of cards (a block’s contents) is eligible', () => {
+    expect(zoneContentIssue(extractSection(fixture(), idB1)!.content)).toBeNull();
+  });
+
+  it('a single card is eligible', () => {
+    expect(zoneContentIssue(extractSection(fixture(), idT1)!.content)).toBeNull();
+  });
+
+  it('content spanning a grouping heading (a whole section) → contains-subheading', () => {
+    // A pocket's contents include block headings.
+    expect(zoneContentIssue(extractSection(fixture(), idP)!.content)).toBe('contains-subheading');
+  });
+
+  it('content that itself holds a live zone → contains-zone', () => {
+    const zone = createTransclusionNode(
+      schema,
+      { source_ref: 'S.cmir', source_heading_id: 'zh' },
+      Fragment.fromArray([card('Zoned', 'zc')]),
+    );
+    const frag = Fragment.fromArray([card('A', 'a'), zone]);
+    expect(zoneContentIssue(frag)).toBe('contains-zone');
+  });
+
+  it('a nested zone is caught even inside other content', () => {
+    const zone = createTransclusionNode(schema, { source_ref: 'S.cmir' }, Fragment.fromArray([card('Z', 'z')]));
+    // block content that ends with a zone
+    const frag = Fragment.fromArray([card('A', 'a'), card('B', 'b'), zone]);
+    expect(zoneContentIssue(frag)).toBe('contains-zone');
+  });
+
+  it('empty content is eligible (guarded separately as empty-section)', () => {
+    expect(zoneContentIssue(Fragment.empty)).toBeNull();
   });
 });

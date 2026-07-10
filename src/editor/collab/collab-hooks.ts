@@ -19,6 +19,11 @@
 import type { Command, Plugin, Transaction } from 'prosemirror-state';
 
 export interface CollabPluginSource {
+  /** The `DocRecord.uid` of the ONE document this session owns — the registry
+   *  key. Only that document's view receives the binding plugins; every other
+   *  pane stays independent (the multi-pane fusion guard), and a window can hold
+   *  one session per open doc. */
+  ownerUid: string | null;
   /** Binding plugins for the active session (sync, undo, cursors). */
   plugins(): Plugin[];
   /** True while the session owns undo — `history()` is excluded and
@@ -29,7 +34,9 @@ export interface CollabPluginSource {
 }
 
 let tagger: ((tr: Transaction) => void) | null = null;
-let pluginSource: CollabPluginSource | null = null;
+// One live session per OWNING doc uid. A multi-pane window can therefore hold
+// several independent sessions; each doc's view only ever sees its own.
+const pluginSources = new Map<string, CollabPluginSource>();
 
 export function setCollabTransactionTagger(fn: ((tr: Transaction) => void) | null): void {
   tagger = fn;
@@ -40,12 +47,37 @@ export function tagCollabTransaction(tr: Transaction): void {
   tagger?.(tr);
 }
 
-export function setCollabPluginSource(src: CollabPluginSource | null): void {
-  pluginSource = src;
+/** Register a live session's binding plugins, keyed by the doc it owns. */
+export function registerCollabPluginSource(src: CollabPluginSource): void {
+  if (src.ownerUid == null) return; // unownable session can't be scoped
+  pluginSources.set(src.ownerUid, src);
 }
 
-export function collabPluginSource(): CollabPluginSource | null {
-  return pluginSource;
+/** Drop the session owned by `ownerUid` (on end/leave). */
+export function unregisterCollabPluginSource(ownerUid: string | null): void {
+  if (ownerUid != null) pluginSources.delete(ownerUid);
+}
+
+/** The plugin source owned by `uid`, or null — for undo/redo routing and the
+ *  per-view `ownsUndo` decision. */
+export function collabPluginSourceFor(uid: string | null | undefined): CollabPluginSource | null {
+  return uid != null ? pluginSources.get(uid) ?? null : null;
+}
+
+/** True if ANY session is live in this window (dormant-fast-path check). */
+export function anyCollabSessionActive(): boolean {
+  return pluginSources.size > 0;
+}
+
+/**
+ * A session's binding plugins for the view identified by `targetUid`, or `[]`.
+ * THE multi-pane fusion guard: a session's plugins attach ONLY to its own owning
+ * doc's view. Every other pane — and the null/omitted uid — gets nothing, so
+ * opening a second document while a session is live can never bind that pane to
+ * a session's shared LoroDoc and overwrite it.
+ */
+export function collabPluginsFor(targetUid: string | null | undefined): Plugin[] {
+  return collabPluginSourceFor(targetUid)?.plugins() ?? [];
 }
 
 /** Invite-join seam: the Receive pill (always-loaded pairing UI) hands a
@@ -82,4 +114,98 @@ export function setCollabInviter(fn: ((target: CollabInviteTarget) => void) | nu
 
 export function collabInviter(): ((target: CollabInviteTarget) => void) | null {
   return inviter;
+}
+
+/** Live copresence for one open doc's session — connection status + who's here —
+ *  read by the multi-pane shell to paint each slot's footer with ITS visible
+ *  doc's session state. Provided by the lazily-loaded collab-ui once it's up;
+ *  null before then (footers stay blank). Kept here (the zero-dependency seam)
+ *  so the always-loaded shell never imports the heavy collab module. */
+export interface CollabCopresence {
+  /** This peer's role in the session — drives the close dialog's End-vs-Leave
+   *  wording (a host ends for everyone; a participant leaves). */
+  role: 'host' | 'participant';
+  connected: boolean;
+  queued: number;
+  peers: { name: string; color: string; self: boolean }[];
+}
+
+let copresenceProvider: ((uid: string) => CollabCopresence | null) | null = null;
+
+export function setCollabCopresenceProvider(
+  fn: ((uid: string) => CollabCopresence | null) | null,
+): void {
+  copresenceProvider = fn;
+}
+
+/** Copresence for the doc `uid`, or null when it has no live session (or collab
+ *  isn't loaded). */
+export function collabCopresenceFor(uid: string | null | undefined): CollabCopresence | null {
+  return uid != null && copresenceProvider ? copresenceProvider(uid) : null;
+}
+
+const copresenceListeners = new Set<() => void>();
+
+/** Subscribe to copresence changes (a session starting/ending, a status update,
+ *  or a presence tick). Returns an unsubscribe. The shell repaints every slot
+ *  footer on each fire. */
+export function onCollabCopresenceChange(fn: () => void): () => void {
+  copresenceListeners.add(fn);
+  return () => {
+    copresenceListeners.delete(fn);
+  };
+}
+
+/** Fire the copresence listeners — called by collab-ui whenever a session's
+ *  status/presence changes or a session starts/ends. No-op with no listeners. */
+export function notifyCollabCopresenceChange(): void {
+  for (const fn of copresenceListeners) fn();
+}
+
+/** Close-time session actions, provided by collab-ui. When a co-edited doc
+ *  closes, it either KEEPS its session resumable (persist the CRDT — including
+ *  unsynced edits — drop the live binding, disconnect; the user rejoins from the
+ *  home-screen Sessions list and their changes sync then) or ENDS/LEAVES it
+ *  (host ends for everyone / guest leaves, clearing the resumable record). The
+ *  always-loaded close paths (multi-pane shell + single-doc) call these; both
+ *  no-op when collab isn't loaded — a doc with no session never reaches them. */
+let closeActions: {
+  keepResumable: (uid: string) => Promise<void>;
+  endOrLeave: (uid: string) => Promise<void>;
+} | null = null;
+
+export function setCollabCloseActions(
+  a: {
+    keepResumable: (uid: string) => Promise<void>;
+    endOrLeave: (uid: string) => Promise<void>;
+  } | null,
+): void {
+  closeActions = a;
+}
+
+/** Close `uid`'s doc but keep its session resumable (persist + disconnect). */
+export function collabCloseKeepResumable(uid: string): Promise<void> {
+  return closeActions?.keepResumable(uid) ?? Promise.resolve();
+}
+
+/** End (host) or leave (guest) `uid`'s session, clearing the resumable record. */
+export function collabEndOrLeaveSession(uid: string): Promise<void> {
+  return closeActions?.endOrLeave(uid) ?? Promise.resolve();
+}
+
+/** Mode-switch hand-off: the single↔three-pane toggle is a full page reload, so
+ *  a live session is torn down by it. Before reloading, capture each live
+ *  session's {uid, roomId} (and flush its record so unsynced edits persist); the
+ *  post-reload flow auto-resumes each into the doc that reopens under that uid.
+ *  Provided by collab-ui; resolves [] when collab isn't loaded (no sessions). */
+let handoffProvider: (() => Promise<{ uid: string; roomId: string }[]>) | null = null;
+
+export function setCollabHandoffProvider(
+  fn: (() => Promise<{ uid: string; roomId: string }[]>) | null,
+): void {
+  handoffProvider = fn;
+}
+
+export function collabCaptureSessionHandoff(): Promise<{ uid: string; roomId: string }[]> {
+  return handoffProvider?.() ?? Promise.resolve([]);
 }

@@ -34,6 +34,10 @@ import {
   type RibbonCustomButton,
   MAX_RIBBON_CUSTOM_BUTTONS,
   condenseWarningCloseFor,
+  NUMBERING_SEPARATORS,
+  type NumberingSeparator,
+  ZOOM_MIN_PCT,
+  ZOOM_MAX_PCT,
 } from './settings.js';
 import { CATEGORY_TABS, visibleCategoryTabs, type SettingsTarget } from './settings-categories.js';
 import { generateGroupId, normalizePairingCode } from './pairing/pairing-ids.js';
@@ -692,6 +696,16 @@ class SettingsModal {
       label.appendChild(buildFormattingPanelModeEditor());
     } else if (meta.kind === 'ribbonTooltipMode') {
       label.appendChild(buildRibbonTooltipModeEditor());
+    } else if (meta.kind === 'cardNumberFormat') {
+      label.appendChild(buildCardNumberFormatEditor());
+    } else if (meta.kind === 'cardNumberSubFormat') {
+      label.appendChild(buildCardNumberSubFormatEditor());
+    } else if (meta.kind === 'cardNumberIndent') {
+      label.appendChild(buildCardNumberIndentEditor());
+    } else if (meta.kind === 'cardNumberSubIndent') {
+      label.appendChild(buildCardNumberSubIndentEditor());
+    } else if (meta.kind === 'cardNumberColor') {
+      label.appendChild(buildCardNumberColorEditor());
     } else if (meta.kind === 'multiDocLayoutMode') {
       row.appendChild(text);
       row.appendChild(buildMultiDocLayoutModeEditor());
@@ -1253,13 +1267,19 @@ function buildColorsEditor(): HTMLElement {
     analytic: 'Analytic',
     undertag: 'Undertag',
     readingMarker: 'Reading marker',
+    zoneDiverged: 'Linked-copy source-updated badge',
   };
 
   function setColor(key: keyof DisplayColors, value: string): void {
     settings.set('displayColors', { ...settings.get('displayColors'), [key]: value });
   }
 
-  for (const key of DISPLAY_COLOR_KEYS) {
+  // The linked-copy source-updated badge is adjusted ONLY under Accessibility →
+  // Color overrides (its `pmd-color-zone-diverged` token is still linked to this
+  // `zoneDiverged` value), so it's omitted from the Style-colors editor here.
+  const EDITOR_KEYS = DISPLAY_COLOR_KEYS.filter((k) => k !== 'zoneDiverged');
+
+  for (const key of EDITOR_KEYS) {
     // A plain <div> wrapper, not <label> — a <label> would forward
     // clicks on the reset button to the color input and pop the picker.
     const row = document.createElement('div');
@@ -1295,7 +1315,7 @@ function buildColorsEditor(): HTMLElement {
   // edits from the linked Accessibility panel, another tab, or reset).
   function refresh(): void {
     const c = settings.get('displayColors');
-    for (const key of DISPLAY_COLOR_KEYS) {
+    for (const key of EDITOR_KEYS) {
       const inp = inputs[key];
       if (inp && inp.value !== c[key]) inp.value = c[key];
       const rst = resets[key];
@@ -2803,6 +2823,152 @@ function buildPairingReceiveFlashEditor(): HTMLElement {
   return wrap;
 }
 
+/** The trailing glyph each separator renders — mirrors `FORMAT_SEP` in the
+ *  numbering plugin, so the dropdown labels read exactly as the numbers will. */
+const NUMBERING_SEP_GLYPH: Record<NumberingSeparator, string> = {
+  period: '.',
+  paren: ')',
+  dash: ' -',
+  colon: ':',
+  emdash: '—',
+  endash: '–',
+  doublehyphen: '--',
+  triplehyphen: '---',
+};
+
+/** A separator picker for one numbering level. `sample` is the leading glyph the
+ *  options preview against ("1" for numbers, "a" for substructure). */
+function buildSeparatorSelect(
+  key: 'cardNumberingFormat' | 'cardNumberingSubFormat',
+  sample: string,
+): HTMLElement {
+  const select = document.createElement('select');
+  select.className = 'pmd-formatting-panel-mode-select';
+  for (const sep of NUMBERING_SEPARATORS) {
+    const opt = document.createElement('option');
+    opt.value = sep;
+    opt.textContent = `${sample}${NUMBERING_SEP_GLYPH[sep]}`;
+    if (sep === settings.get(key)) opt.selected = true;
+    select.appendChild(opt);
+  }
+  select.addEventListener('change', () => {
+    settings.set(key as 'cardNumberingFormat', select.value as never);
+  });
+  return select;
+}
+
+function buildCardNumberFormatEditor(): HTMLElement {
+  return buildSeparatorSelect('cardNumberingFormat', '1');
+}
+
+function buildCardNumberSubFormatEditor(): HTMLElement {
+  return buildSeparatorSelect('cardNumberingSubFormat', 'a');
+}
+
+function buildIndentSelect(
+  key: 'cardNumberingIndent' | 'cardNumberingSubIndent',
+): HTMLElement {
+  const select = document.createElement('select');
+  select.className = 'pmd-formatting-panel-mode-select';
+  const options: { value: 'off' | 'tag' | 'card'; label: string }[] = [
+    { value: 'off', label: 'No indent' },
+    { value: 'tag', label: 'Indent the tag' },
+    { value: 'card', label: 'Indent the whole card' },
+  ];
+  for (const o of options) {
+    const opt = document.createElement('option');
+    opt.value = o.value;
+    opt.textContent = o.label;
+    if (o.value === settings.get(key)) opt.selected = true;
+    select.appendChild(opt);
+  }
+  select.addEventListener('change', () => {
+    settings.set(key as 'cardNumberingIndent', select.value as never);
+  });
+  return select;
+}
+
+function buildCardNumberIndentEditor(): HTMLElement {
+  return buildIndentSelect('cardNumberingIndent');
+}
+
+function buildCardNumberSubIndentEditor(): HTMLElement {
+  return buildIndentSelect('cardNumberingSubIndent');
+}
+
+/** Compact color control for the numbering glyphs. Reads/writes
+ *  customColorOverrides['pmd-c-card-number'] — the SAME value as the "Card
+ *  numbering" swatch under Accessibility → Color overrides — so the two stay
+ *  linked. Solid color only (no alpha); numbering glyphs are never translucent. */
+function buildCardNumberColorEditor(): HTMLElement {
+  const TOKEN = 'pmd-c-card-number';
+  const wrap = document.createElement('div');
+  wrap.className = 'pmd-inline-color-control';
+
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.setAttribute('aria-label', 'Numbering color');
+
+  const reset = document.createElement('button');
+  reset.type = 'button';
+  reset.className = 'pmd-color-override-reset';
+  setIcon(reset, 'reset');
+  reset.title = 'Reset to default';
+
+  // Off-screen probe resolves any CSS color (hex / rgb / var) to rgb — the
+  // color input needs #rrggbb regardless of how the value is stored.
+  const probe = document.createElement('span');
+  probe.style.cssText =
+    'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none';
+  document.body.appendChild(probe);
+
+  const toHex = (css: string): string => {
+    probe.style.color = '';
+    probe.style.color = css || 'var(--pmd-c-card-number)';
+    const m = getComputedStyle(probe).color.match(/\d+/g);
+    if (!m || m.length < 3) return '#666666';
+    const h = (n: string): string =>
+      Math.max(0, Math.min(255, parseInt(n, 10))).toString(16).padStart(2, '0');
+    return `#${h(m[0]!)}${h(m[1]!)}${h(m[2]!)}`;
+  };
+  const isOverridden = (): boolean =>
+    Object.prototype.hasOwnProperty.call(settings.get('customColorOverrides'), TOKEN);
+  const effective = (): string => {
+    const ov = settings.get('customColorOverrides');
+    return isOverridden()
+      ? ov[TOKEN]!
+      : getComputedStyle(document.documentElement).getPropertyValue('--' + TOKEN).trim();
+  };
+
+  function refresh(): void {
+    input.value = toHex(effective());
+    reset.disabled = !isOverridden();
+  }
+  input.addEventListener('input', () => {
+    settings.set('customColorOverrides', {
+      ...settings.get('customColorOverrides'),
+      [TOKEN]: input.value,
+    });
+  });
+  reset.addEventListener('click', () => {
+    const cur = settings.get('customColorOverrides');
+    if (!Object.prototype.hasOwnProperty.call(cur, TOKEN)) return;
+    const next = { ...cur };
+    delete next[TOKEN];
+    settings.set('customColorOverrides', next);
+  });
+
+  wrap.appendChild(input);
+  wrap.appendChild(reset);
+  refresh();
+  const unsub = settings.subscribe(refresh);
+  registerRowCleanup(wrap, () => {
+    unsub();
+    probe.remove();
+  });
+  return wrap;
+}
+
 function buildRibbonTooltipModeEditor(): HTMLElement {
   const select = document.createElement('select');
   select.className = 'pmd-formatting-panel-mode-select';
@@ -2945,19 +3111,19 @@ function buildCustomDashEditor(): HTMLElement {
   return row;
 }
 
-/** Clamped 50–200% / step-10 number input for the default document zoom. */
+/** Clamped 50–300% / step-10 number input for the default document zoom. */
 function buildDefaultZoomEditor(): HTMLElement {
   const input = document.createElement('input');
   input.type = 'number';
   input.className = 'pmd-line-height-input';
-  input.min = '50';
-  input.max = '200';
+  input.min = String(ZOOM_MIN_PCT);
+  input.max = String(ZOOM_MAX_PCT);
   input.step = '10';
   input.value = String(settings.get('defaultZoomPct'));
   input.addEventListener('change', () => {
     const raw = Math.round(parseFloat(input.value) / 10) * 10;
     const v = Number.isFinite(raw)
-      ? Math.max(50, Math.min(200, raw))
+      ? Math.max(ZOOM_MIN_PCT, Math.min(ZOOM_MAX_PCT, raw))
       : settings.get('defaultZoomPct');
     settings.set('defaultZoomPct', v);
     input.value = String(v);

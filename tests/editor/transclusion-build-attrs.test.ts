@@ -78,7 +78,7 @@ describe('buildLiveZoneAttrs — rejections', () => {
     expect(r.reason).toBe('no-portable-ref');
   });
   it('flattens a nested zone in the section to plain content (no cycle)', () => {
-    // The source section contains a nested zone. Building must flatten it to its
+    // The source section contains a nested zone. Building flattens it to its
     // snapshot — the built content is zone-free, so a cycle can never form.
     const chosen = chooseSourceRef(DOCPATH, SRCPATH, [ROOT])!;
     const nested = createTransclusionNode(

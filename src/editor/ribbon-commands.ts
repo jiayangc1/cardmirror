@@ -57,10 +57,12 @@ import { showToast } from './toast.js';
 import { TYPE_TO_LEVEL, TYPE_LABEL } from './headings.js';
 import { selectedTransclusion, enclosingZonePos, isTransclusionNode } from './transclusion.js';
 import { refreshZoneAtPos, refreshAllZones, detachZoneAtPos } from './transclusion-actions.js';
+import { checkLiveZoneSources } from './transclusion-divergence-plugin.js';
 import { refreshFailMessage } from './transclusion-resolve.js';
 import { getElectronHost, getHost } from './host/index.js';
 import { classifyChar, isWordChar } from './word-break.js';
 import { moveContainerUp, moveContainerDown } from './move-container.js';
+import { toggleNumberRole, toggleSubRole, toggleNumRestart } from './numbering-commands.js';
 import { settings } from './settings.js';
 import { matchAcronymPattern } from './acronym-patterns.js';
 import {
@@ -432,7 +434,7 @@ function blockedByZoneLevel(
   if (level == null) return false;
   if (level > minZoneHeadingLevel($from.node(base))) return false; // lower rank — allowed
   flashZoneRail(view, $from.before(base));
-  showToast(`A ${TYPE_LABEL[newType] ?? 'heading'} would outrank this live zone’s section — use a lower-level heading here.`);
+  showToast(`A ${TYPE_LABEL[newType] ?? 'heading'} would outrank this linked copy’s section — use a lower-level heading here.`);
   return true;
 }
 
@@ -4643,8 +4645,11 @@ export type RibbonCommandId =
   | 'sendToSpeechAtEnd'
   | 'sendToDropzone'
   | 'insertLiveZone'
+  | 'insertSelfLiveZone'
+  | 'insertInDocCopy'
   | 'refreshLiveZone'
   | 'refreshAllLiveZones'
+  | 'checkLiveZoneSources'
   | 'detachLiveZone'
   | 'sendToStarred'
   | 'insertReceivedAtCursor'
@@ -4655,6 +4660,10 @@ export type RibbonCommandId =
   // ignored. No default bindings — wire up via Settings → Keyboard shortcuts.
   | 'selectCurrentHeading'
   | 'deleteCurrentHeading'
+  // Auto-numbering skeleton authoring (NUMBERING_PLAN.md §4).
+  | 'toggleNumberRole'
+  | 'toggleSubRole'
+  | 'toggleNumRestart'
   | 'copyCurrentHeading'
   // Quick Cards (see reference-docs/SPEC-quick-cards.md). Add saves the
   // current selection as a named, tagged snippet (no default binding);
@@ -4850,14 +4859,20 @@ export const RIBBON_COMMAND_IDS: RibbonCommandId[] = [
   'sendToSpeechAtEnd',
   'sendToDropzone',
   'insertLiveZone',
+  'insertSelfLiveZone',
+  'insertInDocCopy',
   'refreshLiveZone',
   'refreshAllLiveZones',
+  'checkLiveZoneSources',
   'detachLiveZone',
   'sendToStarred',
   'insertReceivedAtCursor',
   'insertReceivedAtEnd',
   'selectCurrentHeading',
   'deleteCurrentHeading',
+  'toggleNumberRole',
+  'toggleSubRole',
+  'toggleNumRestart',
   'copyCurrentHeading',
   'addQuickCard',
   'manageQuickCards',
@@ -5016,15 +5031,21 @@ export const RIBBON_COMMAND_LABELS: Record<RibbonCommandId, string> = {
   sendToSpeechAtCursor: 'Send to Speech (At Cursor)',
   sendToSpeechAtEnd: 'Send to Speech (At End)',
   sendToDropzone: 'Send to Dropzone',
-  insertLiveZone: 'Insert Live Zone',
-  refreshLiveZone: 'Refresh Live Zone',
-  refreshAllLiveZones: 'Refresh All Live Zones',
-  detachLiveZone: 'Detach Live Zone',
+  insertLiveZone: 'Insert Linked Copy from a File',
+  insertSelfLiveZone: 'Insert Live View',
+  insertInDocCopy: 'Insert Linked Copy from This Document',
+  refreshLiveZone: 'Refresh Linked Copy',
+  refreshAllLiveZones: 'Refresh All Linked Copies',
+  checkLiveZoneSources: 'Check Linked Copy Sources for Updates',
+  detachLiveZone: 'Unlink Copy',
   sendToStarred: 'Send to Starred Recipient',
   insertReceivedAtCursor: 'Insert Received Card (At Cursor)',
   insertReceivedAtEnd: 'Insert Received Card (At End)',
   selectCurrentHeading: 'Select Current Heading',
   deleteCurrentHeading: 'Delete Current Heading',
+  toggleNumberRole: 'Number: Toggle Number Role',
+  toggleSubRole: 'Number: Toggle Substructure Role',
+  toggleNumRestart: 'Number: Toggle Start-Over-Here',
   copyCurrentHeading: 'Copy Current Heading',
   addQuickCard: 'Add Quick Card',
   manageQuickCards: 'Manage Quick Cards',
@@ -5147,14 +5168,45 @@ export const RIBBON_COMMAND_ALIASES: Partial<Record<RibbonCommandId, readonly st
   cycleTheme: ['dark mode', 'light mode', 'toggle theme', 'switch theme', 'appearance'],
   cycleTimerPreset: ['switch timer preset', 'toggle timer preset', 'next timer preset', 'change timer preset', 'timer profile', 'timer preset'],
   insertFootnote: ['footnote', 'endnote', 'add footnote', 'new footnote', 'note'],
-  insertLiveZone: ['transclude', 'transclusion', 'live zone', 'living zone', 'link section'],
-  refreshLiveZone: ['refresh transclusion', 'update live zone', 'sync live zone'],
+  insertLiveZone: [
+    'linked copy from a file',
+    'transclude',
+    'transclusion',
+    'embed from file',
+    'live zone',
+    'pull card',
+    'link section',
+  ],
+  insertSelfLiveZone: [
+    'live view',
+    'live window',
+    'embed section',
+    'mirror section',
+    'view a section',
+    'transclude section',
+    'ted nelson',
+  ],
+  insertInDocCopy: [
+    'linked copy from this document',
+    'copy a section',
+    'embed copy',
+    'linked copy this doc',
+    'transclude copy',
+    'duplicate section linked',
+  ],
+  refreshLiveZone: ['refresh transclusion', 'update copy', 'sync copy', 'pull source'],
   refreshAllLiveZones: [
     'refresh all transclusions',
-    'update all live zones',
-    'sync all live zones',
+    'update all copies',
     'refresh whole document',
-    'refresh every live zone',
+    'refresh every copy',
+  ],
+  checkLiveZoneSources: [
+    'check linked copies',
+    'check for source updates',
+    'check copy sources',
+    'have copy sources changed',
+    'linked copy updates',
   ],
   detachLiveZone: ['detach transclusion', 'unlink live zone', 'break live zone link'],
   timerToggleVisible: ['show timer', 'hide timer', 'toggle timer', 'timer panel'],
@@ -5167,6 +5219,9 @@ export const RIBBON_COMMAND_ALIASES: Partial<Record<RibbonCommandId, readonly st
   timerReset: ['reset timer', 'reset prep'],
   flipQuoteDirection: ['flip quotes', 'curly quotes', 'reverse quote direction', 'smart quote direction', 'fix apostrophe', 'quote direction'],
   deleteCurrentHeading: ['delete card', 'delete heading', 'delete current card'], // "remove …" via the delete/remove synonym group
+  toggleNumberRole: ['number', 'numbering', 'numbered card', 'auto number', 'list number'],
+  toggleSubRole: ['substructure', 'sub number', 'sub letter', 'numbering', 'sublist', 'letter'],
+  toggleNumRestart: ['restart numbering', 'start over', 'renumber', 'continue numbering', 'number restart'],
   saveSendDoc: ['send doc', 'export send doc', 'send version'],
   saveMarkedCards: ['marked cards', 'extract marked cards', 'export marked cards', 'save marked'],
   startFlowHost: ['warm flow', 'prewarm flow', 'flow connection', 'connect to flow', 'speed up flow'],
@@ -5298,8 +5353,11 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   saveMarkedCards: 'Mod-Alt-m',
   toggleAutosave: '',
   insertLiveZone: '',
+  insertSelfLiveZone: '',
+  insertInDocCopy: '',
   refreshLiveZone: '',
   refreshAllLiveZones: '',
+  checkLiveZoneSources: '',
   detachLiveZone: '',
   // Verbatim's "Send to speech" — bare backtick (next to 1 on US
   // layouts) for at-cursor, Alt-backtick for at-end-of-doc. Same
@@ -5315,6 +5373,9 @@ export const DEFAULT_RIBBON_KEYS: Record<RibbonCommandId, string | string[]> = {
   insertReceivedAtEnd: 'Mod-Alt-p',
   selectCurrentHeading: 'Alt-a',
   deleteCurrentHeading: '',
+  toggleNumberRole: 'Mod-Alt-1',
+  toggleSubRole: 'Mod-Alt-2',
+  toggleNumRestart: 'Mod-Alt-3',
   copyCurrentHeading: '',
   addQuickCard: '',
   manageQuickCards: '',
@@ -5520,6 +5581,12 @@ export interface RibbonContext {
   sendToDropzone: () => void;
   /** Open the picker to insert a live zone (transclusion). Desktop-only UI. */
   insertLiveZone: () => void;
+  /** Open the picker to insert a Live View — a read-only window onto another
+   *  section of THIS document. */
+  insertSelfLiveZone: () => void;
+  /** Open the picker to insert a Linked Copy — an editable copy of another
+   *  section of THIS document. */
+  insertInDocCopy: () => void;
   /** Send the cursor's card (or selection) to the starred recipient/group. */
   sendToStarred: () => void;
   /** Insert the most-recently-received card (from the receive pill) into the
@@ -5561,7 +5628,7 @@ export interface RibbonContext {
   zoomOut: () => void;
   zoomReset: () => void;
   /** Chrome scale — page-zoom analog of the editor zoom above.
-   *  Bumps the persisted `chromeScalePct` setting (50–200, step
+   *  Bumps the persisted `chromeScalePct` setting (50–300, step
    *  10); on Electron this propagates to Chromium's
    *  `webFrame.setZoomFactor` so the whole page (chrome + doc)
    *  reflows at the new factor. No-op on the web edition. */
@@ -5664,6 +5731,8 @@ const DEFAULT_RIBBON_CONTEXT: RibbonContext = {
   sendToSpeechAtCursor: () => {},
   sendToDropzone: () => {},
   insertLiveZone: () => {},
+  insertSelfLiveZone: () => {},
+  insertInDocCopy: () => {},
   sendToStarred: () => {},
   insertReceivedAtCursor: () => {},
   insertReceivedAtEnd: () => {},
@@ -5739,6 +5808,9 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
     case 'setBlock': return setHeading('block');
     case 'setTag': return setTag();
     case 'setAnalytic': return setAnalytic();
+    case 'toggleNumberRole': return toggleNumberRole;
+    case 'toggleSubRole': return toggleSubRole;
+    case 'toggleNumRestart': return toggleNumRestart;
     case 'setUndertag': return setUndertag();
     case 'moveContainerUp': return moveContainerUp();
     case 'moveContainerDown': return moveContainerDown();
@@ -6118,6 +6190,20 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
         ctx.insertLiveZone();
         return true;
       };
+    case 'insertSelfLiveZone':
+      // Opens the in-document heading picker; inserts a Live View (self_ref).
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.insertSelfLiveZone();
+        return true;
+      };
+    case 'insertInDocCopy':
+      // Opens the in-document heading picker; inserts an editable Linked Copy.
+      return (_state, dispatch) => {
+        if (!dispatch) return true;
+        ctx.insertInDocCopy();
+        return true;
+      };
     case 'refreshLiveZone':
       // Refresh the live zone the cursor is IN (or the one selected as a node) —
       // the same action as its ⟳ menu item: re-read the source, re-extract the
@@ -6147,8 +6233,34 @@ function commandFor(id: RibbonCommandId, ctx: RibbonContext): Command {
             if (!s.confirmed || s.total === 0) return;
             const msg =
               s.failed === 0
-                ? `Refreshed ${s.refreshed} live zone${s.refreshed === 1 ? '' : 's'}.`
-                : `Refreshed ${s.refreshed} of ${s.total} live zones — ${s.failed} could not be reached.`;
+                ? `Refreshed ${s.refreshed} linked ${s.refreshed === 1 ? 'copy' : 'copies'}.`
+                : `Refreshed ${s.refreshed} of ${s.total} linked copies — ${s.failed} could not be reached.`;
+            showToast(msg);
+          });
+        }
+        return true;
+      };
+    case 'checkLiveZoneSources':
+      // Read every cross-file live zone's SOURCE and flag which have changed
+      // (updates the badges) — but pull nothing. Refresh is the separate,
+      // content-replacing action. Desktop-only (it reads the source files).
+      return (state, dispatch, view) => {
+        if (!docHasZone(state.doc)) return false;
+        if (!dispatch) return true;
+        if (view) {
+          void checkLiveZoneSources(view).then((s) => {
+            const n = (x: number, w: string): string => `${x} ${w}${x === 1 ? '' : 's'}`;
+            const unreachable = s.total - s.checked;
+            const copies = (x: number): string => `${x} linked ${x === 1 ? 'copy' : 'copies'}`;
+            const msg = !s.desktop
+              ? 'Linked copies check for source updates on the desktop app.'
+              : s.total === 0
+                ? 'No linked copies in this document.'
+                : s.diverged > 0
+                  ? `${copies(s.diverged)} ${s.diverged === 1 ? 'has a' : 'have'} changed source${s.diverged === 1 ? '' : 's'} — Refresh to pull the updates.`
+                  : unreachable > 0
+                    ? `Linked copies are up to date (${n(unreachable, 'source')} couldn't be reached).`
+                    : `All ${copies(s.total)} are up to date with their sources.`;
             showToast(msg);
           });
         }

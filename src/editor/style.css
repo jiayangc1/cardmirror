@@ -601,6 +601,10 @@ button {
   --pmd-c-text-muted: #666;            /* dimmer secondary */
   --pmd-c-text-faint: #888;            /* faint annotations */
   --pmd-c-text-on-accent: #fff;        /* text on a filled accent surface */
+  /* Card numbering glyphs. Defaults to muted text (theme-aware via the var),
+     but is its OWN token so it's user-overridable — see CUSTOMIZABLE_COLOR_TOKENS
+     ('pmd-c-card-number') and the Card numbering settings color control. */
+  --pmd-c-card-number: var(--pmd-c-text-muted);
 
   /* Hover / active. Two flavors: "surface" variants tint a panel
      bg toward the hovered/active region; "button" variants are
@@ -770,6 +774,13 @@ button {
      applies in both light and dark, and red is readable on dark paper. Display-only
      — the stored mark stays FF0000, so export + detection are unaffected. */
   --pmd-color-reading-marker: var(--pmd-user-color-readingMarker, #ff0000);
+  /* Live-zone "source updated" (diverged) badge + nav rail. Backed by
+     displayColors (Appearance -> Style colors, linked to Accessibility);
+     theme-invariant so the one chosen hue reads on both light and dark chrome.
+     Default a muted red — deliberately soft so the nav divergence rail pairs
+     with, rather than overpowers, the teal transclusion rail, and stays clear of
+     the AI purple used elsewhere. */
+  --pmd-color-zone-diverged: var(--pmd-user-color-zoneDiverged, #c0504d);
   --pmd-c-spellcheck: red;             /* misspelling squiggle */
   --pmd-c-live-indicator: #00ff66;     /* benchmark live dot */
   --pmd-c-bench-chip-bg: rgba(20, 22, 26, 0.92); /* diagnostics chip: fixed dark */
@@ -1681,6 +1692,41 @@ body:not(.pmd-inplace-save) #autosave-btn { display: none; }
   display: none;
 }
 
+/* Numbering cluster — 2×2: number-role / sub-role on top, restart / show-hide
+   below. Mirrors the doc-ops panel's height + left separator, with a second
+   column (like the comments 2-col variant). */
+.ribbon-numbering-panel {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: 1.45rem 1.45rem;
+  align-content: center;
+  gap: 2px 3px;
+  padding-left: 0.5rem;
+  margin-left: 0.25rem;
+  border-left: 1px solid var(--pmd-c-border-soft);
+}
+/* The number / substructure faces re-render to the configured format (e.g.
+   "1—", "a)", "1---"), so let them grow to their glyph instead of the fixed
+   doc-ops width; `auto` columns then keep each column aligned to its widest
+   button so nothing clips. Two classes deep so these win over the shared
+   `#ribbon .ribbon-doc-ops-btn` rule (same 1-id-1-class specificity) regardless
+   of source order — otherwise its fixed width / 0.85rem font clobber ours. The
+   glyph text matches the structural-style buttons' 0.78rem, not the icon-sized
+   doc-ops font. */
+#ribbon .ribbon-numbering-panel .ribbon-numbering-btn {
+  width: auto;
+  min-width: 1.5rem;
+  padding: 0 0.25rem;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Setting-driven hide (default on). `!important` so it wins over the shrink
+   waterfall, which toggles inline `display` on the same panel. */
+html.pmd-numbering-hidden #numbering-panel {
+  display: none !important;
+}
+
 /* Editable font-size control inside the color panel — sits in the
    4th cell of the 2×2 grid alongside the three color controls.
    Numeric input on the left, dropdown arrow on the right (split-
@@ -2247,6 +2293,74 @@ code {
   margin: var(--pmd-para-tag-before, 0.75rem) 0 var(--pmd-para-tag-after, 0.25rem) 0;
 }
 
+/* Auto-numbering glyph (NUMBERING_PLAN.md §6) — PROTOTYPE. A read-only widget
+   the numbering plugin injects at the start of a numbered card's tag; the number
+   itself is computed, never stored. Sub-level (letter) reads slightly quieter and
+   indented so the two levels are visually distinct. */
+.pmd-card-number {
+  display: inline-block;
+  margin-right: 0.4em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--pmd-c-card-number);
+  user-select: none;
+}
+.pmd-card-number-sub {
+  /* No left margin: indentation is governed solely by the (per-level) indent
+     settings, exactly like the number glyph. A baked-in offset here indented
+     just the tag's first line even with indent off — inconsistent with the
+     number toggle. Weight + opacity still distinguish a substructure letter. */
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* Compact color control used in the Card numbering settings section. Shares the
+   customColorOverrides['pmd-c-card-number'] value with Accessibility → Color
+   overrides, so the two swatches stay linked. (Reset reuses
+   .pmd-color-override-reset.) */
+.pmd-inline-color-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.pmd-inline-color-control input[type='color'] {
+  width: 2rem;
+  height: 1.4rem;
+  padding: 0;
+  border: 1px solid var(--pmd-c-border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+/* Restart / continue indicators (NUMBERING_PLAN.md §6). Node-decoration classes
+   the numbering plugin puts on the NON-default units only: a block the count
+   flows INTO (continue) and a card that starts the count over. Subtle, right-
+   edge, non-interactive — meaning also carried by the glyph, not color alone. */
+.pmd-num-flow-in,
+.pmd-num-restart {
+  position: relative;
+}
+.pmd-num-flow-in::after,
+.pmd-num-restart::after {
+  position: absolute;
+  right: 0.15em;
+  top: 0;
+  font-size: 0.8em;
+  color: var(--pmd-c-text-muted);
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+}
+/* Down-arrow: numbering "flows down" into this continuing block. */
+.pmd-num-flow-in::after {
+  content: '↓';
+}
+/* Restart glyph: the count starts over at this card. */
+.pmd-num-restart::after {
+  content: '↺';
+}
+
 /* Analytic = same outline level as Tag, dark blue. The id-scoped
    selector is needed because `#editor p { margin: 0 }` has higher
    specificity than a bare `.pmd-analytic` rule and would otherwise
@@ -2406,6 +2520,27 @@ code {
 .pmd-transclusion[data-status='unreachable'] > .pmd-transclusion-glyph-btn {
   color: var(--pmd-c-warn, #b26a00);
 }
+/* Diverged (the SOURCE moved on since last pull) — an ADDITIVE badge, orthogonal
+   to the edited tint. Unlike the hover-only edited state, this surfaces the glyph
+   at rest (with a coloured dot) so a stale zone is noticeable without hovering;
+   the dot's shape + hue keep it colourblind-distinguishable from the amber edit
+   tint. The fix is the menu's Refresh. */
+.pmd-transclusion.pmd-zone-diverged > .pmd-transclusion-glyph-btn {
+  opacity: 1;
+}
+.pmd-transclusion.pmd-zone-diverged > .pmd-transclusion-glyph-btn::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pmd-color-zone-diverged, #c0504d);
+  border: 1px solid var(--pmd-c-bg);
+  box-sizing: border-box;
+  pointer-events: none;
+}
 /* The transcluded cards render inline; suppress their own hover rail so it
    doesn't stack with the zone rail. */
 .pmd-transclusion-body .pmd-card:hover,
@@ -2432,6 +2567,87 @@ code {
     animation: none;
   }
 }
+
+/* Intra-document live window (`self_ref`). A by-reference, read-only projection
+   of another section of this doc. Its rail sits at the SAME placement + width
+   as the inter-doc transclusion rail (left:0, width:2px), but reads as DOTTED
+   — a "this is a view, not your copy" cue. Unlike the inter-doc rail (invisible
+   at rest), the dotted rail is always visible, faded at rest; on hover it
+   saturates to the full transclusion green. It REPLACES the grey card-hover rail
+   (suppressed below), so there's one rail, not two. */
+.pmd-self-ref {
+  position: relative;
+  margin: 0.15em 0;
+  /* Deliberately SELECTABLE (no user-select:none here): a text selection must be
+     able to span a live view — click-above → shift-click-below has to include the
+     view so select→send-to-speech carries it (the send path flattens it to cards).
+     Only the glyph menu is made unselectable (below), so opening it on an already-
+     selected view doesn't paint ::selection over the menu rows. */
+}
+.pmd-self-ref::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 15px;
+  bottom: 0;
+  width: 2px;
+  /* Dotted rail in the transclusion green; opacity carries the rest→hover fade. */
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--pmd-c-transclusion) 0 4px,
+    transparent 4px 7px
+  );
+  opacity: 0.4;
+  transition: opacity 90ms ease;
+  pointer-events: none;
+}
+.pmd-self-ref:hover::before,
+.pmd-self-ref.ProseMirror-selectednode::before,
+.pmd-self-ref.pmd-transclusion-menu-open::before {
+  opacity: 1; /* fully saturated — the dots reach --pmd-c-transclusion */
+}
+.pmd-self-ref-glyph {
+  opacity: 0;
+}
+.pmd-self-ref:hover > .pmd-self-ref-glyph,
+.pmd-self-ref.ProseMirror-selectednode > .pmd-self-ref-glyph,
+.pmd-self-ref.pmd-transclusion-menu-open > .pmd-self-ref-glyph,
+.pmd-self-ref-glyph:focus-visible {
+  opacity: 1;
+}
+.pmd-self-ref.ProseMirror-selectednode {
+  outline: 2px solid var(--pmd-c-transclusion);
+  outline-offset: 2px;
+}
+.pmd-self-ref-body {
+  padding-left: 2px;
+  /* The mirrored cards are REAL editor content — selectable and interactive like
+     any other content (a selection flows through the view natively). Read-only is
+     enforced by the content plugin's filterTransaction, not by CSS. */
+}
+/* The projected cards render real card DOM; suppress their own grey hover rail
+   so the window's dotted green rail is the only one (mirrors .pmd-transclusion-
+   body). This is the "replace the grey line" the design calls for. */
+.pmd-self-ref-body .pmd-card:hover,
+.pmd-self-ref-body .pmd-analytic-unit:hover {
+  border-left-color: transparent;
+}
+.pmd-self-ref-note {
+  font-size: 0.85em;
+  opacity: 0.7;
+  font-style: italic;
+  padding: 0.2em 0;
+}
+.pmd-self-ref-missing::before {
+  background: var(--pmd-c-warn, #b26a00);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pmd-self-ref::before,
+  .pmd-self-ref-glyph {
+    transition: none;
+  }
+}
+
 /* Menu — opens from the glyph; carries the source detail that used to sit inline
    (file, section, sync date, edited) plus the actions. */
 .pmd-transclusion-menu {
@@ -2439,6 +2655,11 @@ code {
   top: 1.1em;
   left: 0;
   z-index: 20;
+  /* Never part of a text selection — a node-selected transclusion sets a native
+     DOM range across its element, which would otherwise paint ::selection over
+     these menu rows. */
+  user-select: none;
+  -webkit-user-select: none;
   background: var(--pmd-c-bg);
   border: 1px solid var(--pmd-c-border-soft);
   border-radius: 6px;
@@ -4365,6 +4586,33 @@ body.pmd-nav-resize-active {
   border-top-right-radius: 2px;
 }
 .pmd-nav-item-zone-end::before {
+  bottom: 3px;
+  border-bottom-left-radius: 2px;
+  border-bottom-right-radius: 2px;
+}
+/* "Source updated" rail on a diverged live zone — a second rail in the
+   configurable divergence colour running flush to the RIGHT of the green
+   transclusion rail (which sits at left:3px, width:3px → occupies 3–6px), so the
+   two read as a paired gutter. Spans the whole run like the green rail, with
+   matching rounded start/end caps. Echoes the editor glyph badge. */
+.pmd-nav-diverged-rail {
+  position: absolute;
+  left: 6px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--pmd-color-zone-diverged, #c0504d);
+  /* Softened to sit at a similar visual weight to the teal transclusion rail
+     beside it (which is opacity 0.5), so the pair reads balanced. */
+  opacity: 0.6;
+  pointer-events: none;
+}
+.pmd-nav-item-diverged-start .pmd-nav-diverged-rail {
+  top: 3px;
+  border-top-left-radius: 2px;
+  border-top-right-radius: 2px;
+}
+.pmd-nav-item-diverged-end .pmd-nav-diverged-rail {
   bottom: 3px;
   border-bottom-left-radius: 2px;
   border-bottom-right-radius: 2px;
@@ -10118,6 +10366,14 @@ body.pmd-multi-nav-empty.pmd-multi-doc #status-bar {
   background: var(--pmd-c-hover-strong);
   border-radius: 3px;
 }
+/* On an unfocused speech-doc pane the chip is beige (--pmd-c-speech-bg), so the
+   generic grey pressed-box above clashes with the banner tint. Use the beige
+   border tone instead, so the pressed outline toggle reads as part of the
+   speech coloring rather than a stray grey block. */
+.pmd-pane-speech:not(.pmd-pane-focused) .pmd-pane-chip-expand[aria-pressed="true"],
+.pmd-pane-speech:not(.pmd-pane-focused) .pmd-pane-chip-nav[aria-pressed="true"] {
+  background: var(--pmd-c-speech-border);
+}
 .pmd-pane-chip-close {
   flex: 0 0 auto;
   width: 18px;
@@ -10275,6 +10531,23 @@ body.pmd-multi-nav-empty.pmd-multi-doc #status-bar {
   font-size: 0.72rem;
   color: var(--pmd-c-text);
   cursor: pointer;
+}
+/* Per-slot co-editing indicator in the pane footer — status text + presence
+   dots for the slot's visible doc's session. Sits between the word count and
+   the Open-file button; `hidden` when that doc has no live session. The collab
+   accent (same hue as the lease/cursor treatment) marks it as "another machine
+   is here". */
+.pmd-pane-copresence {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--pmd-c-accent);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+.pmd-pane-copresence-label {
+  font-weight: 600;
 }
 
 

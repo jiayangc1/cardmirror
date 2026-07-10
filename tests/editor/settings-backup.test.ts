@@ -203,10 +203,10 @@ describe('document-text color migration', () => {
 });
 
 describe('defaultZoomPct (the open-at body-zoom default)', () => {
-  it('clamps to 50–200% and rounds to the nearest 10', () => {
+  it('clamps to 50–300% and rounds to the nearest 10', () => {
     const over = new SettingsStore();
     over.replaceAll({ defaultZoomPct: 500 } as never);
-    expect(over.get('defaultZoomPct')).toBe(200);
+    expect(over.get('defaultZoomPct')).toBe(300);
 
     const under = new SettingsStore();
     under.replaceAll({ defaultZoomPct: 17 } as never);
