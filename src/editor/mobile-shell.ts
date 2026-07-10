@@ -19,7 +19,7 @@
  */
 
 import { TextSelection } from 'prosemirror-state';
-import { settings } from './settings.js';
+import { settings, ZOOM_MIN_PCT, ZOOM_MAX_PCT } from './settings.js';
 import { getActiveView, getNavPanel, runRibbon, getLiveZoomPct, setLiveZoomPct } from './index.js';
 import { readModeAwareUndo, readModeAwareRedo } from './read-mode-plugin.js';
 import { mobileDensity } from './mobile-layout.js';
@@ -39,8 +39,8 @@ import {
 import { preciseScrollIntoView } from './precise-scroll.js';
 import { showToast } from './toast.js';
 
-const ZOOM_MIN = 50;
-const ZOOM_MAX = 200;
+const ZOOM_MIN = ZOOM_MIN_PCT;
+const ZOOM_MAX = ZOOM_MAX_PCT;
 
 let mounted = false;
 let drawerApi: { open: () => void; close: () => void } | null = null;

@@ -118,6 +118,10 @@ import {
   type DisplayTypography,
   type DisplayColors,
   type FormattingPanelMode,
+  ZOOM_MIN_PCT,
+  ZOOM_MAX_PCT,
+  CHROME_SCALE_MIN_PCT,
+  CHROME_SCALE_MAX_PCT,
 } from './settings.js';
 import { openSaveAs } from './save-as-ui.js';
 import { highlightColorLabel, shadingColorLabel } from './color-palette.js';
@@ -2527,7 +2531,7 @@ let multiDocZoomResetHook: (() => void) | null = null;
 let zoomStateForActive: () => number = () => liveZoomPct;
 
 export function clampZoom(pct: number): number {
-  return Math.max(50, Math.min(200, Math.round(pct / 10) * 10));
+  return Math.max(ZOOM_MIN_PCT, Math.min(ZOOM_MAX_PCT, Math.round(pct / 10) * 10));
 }
 
 /** Single-pane: set the window's live body zoom (transient). */
@@ -2542,9 +2546,9 @@ export function getLiveZoomPct(): number {
 }
 
 /** Set the window's live body zoom without the desktop step-10 rounding (the
- *  mobile zoom slider/pinch use step 5). Clamped to 50–200. */
+ *  mobile zoom slider/pinch use step 5). Clamped to the body-zoom bounds. */
 export function setLiveZoomPct(pct: number): void {
-  liveZoomPct = Math.max(50, Math.min(200, Math.round(pct)));
+  liveZoomPct = Math.max(ZOOM_MIN_PCT, Math.min(ZOOM_MAX_PCT, Math.round(pct)));
   applyZoom(liveZoomPct);
 }
 
@@ -2682,7 +2686,10 @@ function zoomActiveReset(): void {
  *  Ctrl-+ does (chrome + doc reflow uniformly). No-op on the web
  *  edition; the user has the browser's own zoom for that. */
 function setChromeScale(pct: number): void {
-  const clamped = Math.max(50, Math.min(200, Math.round(pct / 10) * 10));
+  const clamped = Math.max(
+    CHROME_SCALE_MIN_PCT,
+    Math.min(CHROME_SCALE_MAX_PCT, Math.round(pct / 10) * 10),
+  );
   settings.set('chromeScalePct', clamped);
 }
 

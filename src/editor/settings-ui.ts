@@ -36,6 +36,8 @@ import {
   condenseWarningCloseFor,
   NUMBERING_SEPARATORS,
   type NumberingSeparator,
+  ZOOM_MIN_PCT,
+  ZOOM_MAX_PCT,
 } from './settings.js';
 import { CATEGORY_TABS, visibleCategoryTabs, type SettingsTarget } from './settings-categories.js';
 import { generateGroupId, normalizePairingCode } from './pairing/pairing-ids.js';
@@ -3109,19 +3111,19 @@ function buildCustomDashEditor(): HTMLElement {
   return row;
 }
 
-/** Clamped 50–200% / step-10 number input for the default document zoom. */
+/** Clamped 50–300% / step-10 number input for the default document zoom. */
 function buildDefaultZoomEditor(): HTMLElement {
   const input = document.createElement('input');
   input.type = 'number';
   input.className = 'pmd-line-height-input';
-  input.min = '50';
-  input.max = '200';
+  input.min = String(ZOOM_MIN_PCT);
+  input.max = String(ZOOM_MAX_PCT);
   input.step = '10';
   input.value = String(settings.get('defaultZoomPct'));
   input.addEventListener('change', () => {
     const raw = Math.round(parseFloat(input.value) / 10) * 10;
     const v = Number.isFinite(raw)
-      ? Math.max(50, Math.min(200, raw))
+      ? Math.max(ZOOM_MIN_PCT, Math.min(ZOOM_MAX_PCT, raw))
       : settings.get('defaultZoomPct');
     settings.set('defaultZoomPct', v);
     input.value = String(v);

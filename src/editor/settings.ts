@@ -14,6 +14,18 @@ import type { RibbonCommandId } from './ribbon-commands.js';
 import type { IconName } from './icons.js';
 import { getHost } from './host/index.js';
 
+/** Body-text zoom bounds (percent). The live per-window / per-pane zoom AND the
+ *  default-open zoom setting all clamp to these — one source of truth so
+ *  single-doc and multi-pane can't drift. */
+export const ZOOM_MIN_PCT = 50;
+export const ZOOM_MAX_PCT = 300;
+
+/** Chrome (whole-page) scale bounds (percent). A separate axis from body zoom —
+ *  wired to Chromium's `webFrame.setZoomFactor` — kept as its own constant so
+ *  the two can be tuned independently (both currently 50–300). */
+export const CHROME_SCALE_MIN_PCT = 50;
+export const CHROME_SCALE_MAX_PCT = 300;
+
 /** Dynamic description for the `multiDocWorkspace` (three-pane
  *  workspace) toggle. The OFF state behaves differently on Electron
  *  vs the web edition, so we surface that difference at the point
@@ -694,13 +706,13 @@ export interface Settings {
    *  in a round. Bounded per-card; display-only (a decoration, never a doc
    *  edit). See `mark-unread-plugin.ts`. */
   markUnreadAfterMarker: boolean;
-  /** The body-text zoom (50–200%, step 10) any editor OPENS at. The live
+  /** The body-text zoom (50–300%, step 10) any editor OPENS at. The live
    *  per-editor zoom is NOT a setting — it's transient per window / per pane and
    *  resets to this default on reload, so different documents can sit at
    *  different zooms. Only this default persists and syncs. */
   defaultZoomPct: number;
   /** Chrome (page) zoom for the whole window, as a percentage
-   *  (50–200, step 10). Wired to Chromium's `webFrame.setZoom-
+   *  (50–300, step 10). Wired to Chromium's `webFrame.setZoom-
    *  Factor` on Electron, which reflows the page exactly the
    *  way the browser's built-in Ctrl-+ chord does — chrome AND
    *  doc content both scale uniformly. Stacks multiplicatively
@@ -2018,7 +2030,7 @@ export const SETTING_METADATA: SettingMeta[] = [
     key: 'defaultZoomPct',
     label: 'Default document zoom',
     description:
-      'The body-text zoom level every document opens at (50–200%). Zooming an open document (the zoom buttons, Ctrl-= / Ctrl--, or pinch) only affects that window or pane and resets to this default on reload — so different documents can sit at different zooms. Chrome scale is separate and stays linked across windows.',
+      'The body-text zoom level every document opens at (50–300%). Zooming an open document (the zoom buttons, Ctrl-= / Ctrl--, or pinch) only affects that window or pane and resets to this default on reload — so different documents can sit at different zooms. Chrome scale is separate and stays linked across windows.',
     kind: 'defaultZoomPct',
     category: 'accessibility',
     aliases: ['zoom', 'default zoom', 'text size', 'document zoom'],
@@ -3591,8 +3603,8 @@ function sanitize(s: Settings): Settings {
     markUnreadAfterMarker: !!s.markUnreadAfterMarker,
     // A legacy persisted `zoomPct` is deliberately ignored — live body
     // zoom is transient; documents open at this default.
-    defaultZoomPct: clamp(Math.round(s.defaultZoomPct / 10) * 10, 50, 200),
-    chromeScalePct: clamp(Math.round(s.chromeScalePct / 10) * 10, 50, 200),
+    defaultZoomPct: clamp(Math.round(s.defaultZoomPct / 10) * 10, ZOOM_MIN_PCT, ZOOM_MAX_PCT),
+    chromeScalePct: clamp(Math.round(s.chromeScalePct / 10) * 10, CHROME_SCALE_MIN_PCT, CHROME_SCALE_MAX_PCT),
     gestureZoom: !!s.gestureZoom,
     readers: sanitizeReaders(s.readers),
     liveSelectionWordCount: s.liveSelectionWordCount === true,

@@ -5628,7 +5628,7 @@ export interface RibbonContext {
   zoomOut: () => void;
   zoomReset: () => void;
   /** Chrome scale — page-zoom analog of the editor zoom above.
-   *  Bumps the persisted `chromeScalePct` setting (50–200, step
+   *  Bumps the persisted `chromeScalePct` setting (50–300, step
    *  10); on Electron this propagates to Chromium's
    *  `webFrame.setZoomFactor` so the whole page (chrome + doc)
    *  reflows at the new factor. No-op on the web edition. */

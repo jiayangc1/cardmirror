@@ -299,7 +299,7 @@ interface DocRecord {
    *  property of an individual open doc — the ribbon toggle flips
    *  this for the focused pane only, leaving other panes untouched. */
   readMode: boolean;
-  /** Per-pane body-text zoom (50–200%). Same per-doc story as `readMode`: the
+  /** Per-pane body-text zoom (50–300%). Same per-doc story as `readMode`: the
    *  zoom controls affect the FOCUSED pane only; other panes stay at theirs.
    *  Opens at `defaultZoomPct`, transient (resets on reload). */
   zoomPct: number;
