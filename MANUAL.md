@@ -1314,11 +1314,28 @@ default** and require a key.
 
 ### Setup
 
-1. Get an API key from
-   [console.anthropic.com](https://console.anthropic.com/) (a small
-   amount of credit; there's no free API tier).
-2. Open **Settings → Comments & AI**, turn **AI features** on, and paste
-   your key into the **Anthropic API key** field.
+You need an Anthropic API key — a personal access code that lets
+CardMirror talk to Claude on your behalf. It's separate from a Claude.ai
+chat account, and there's no free API tier, so expect to put in a small
+amount of credit. If you've never made one, here's the whole process:
+
+1. Go to [console.anthropic.com](https://console.anthropic.com/) and
+   **sign up** (or sign in — a Claude.ai login works, but the console
+   account and its billing are separate from any chat subscription).
+2. Add credit: find **Billing** (or **Plans & billing**) in the console
+   and buy the minimum credit — a few dollars goes a very long way; a
+   typical CardMirror AI action costs a fraction of a cent, so $5 can
+   last a season. Without credit, requests are refused.
+3. Open the **API keys** page, click **Create key**, give it any name
+   (e.g. "CardMirror"), and **copy it immediately** — the full key
+   (it starts with `sk-ant-`) is shown only once. If you lose it, just
+   delete that key and create a new one.
+4. In CardMirror, open **Settings → Comments & AI**, turn **AI
+   features** on, and paste the key into the **Anthropic API key**
+   field.
+
+Treat the key like a password: anyone who has it can spend your
+credit. Don't share it, don't paste it into documents you send.
 
 Your key is stored locally and sent directly to Anthropic when you
 trigger a feature — it doesn't pass through any third-party server. With
