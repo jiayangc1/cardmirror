@@ -757,9 +757,10 @@ class SettingsModal {
       row.appendChild(btn);
       return row;
     } else if (meta.kind === 'number') {
-      row.appendChild(text);
-      row.appendChild(buildNumberEditor(meta.key as keyof Settings, meta.min));
-      return row;
+      // Inline: the numeric input sits on the right of the label, like
+      // toggles / text inputs. Falls through to `row.appendChild(label)`
+      // so the description stays width-limited inside the flex row.
+      label.appendChild(buildNumberEditor(meta.key as keyof Settings, meta.min));
     } else if (meta.kind === 'defaultZoomPct') {
       row.appendChild(text);
       row.appendChild(buildDefaultZoomEditor());
