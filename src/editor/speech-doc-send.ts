@@ -291,8 +291,18 @@ export function insertSpeechSlice(
           slice.content,
         );
       } else {
-        // A range selection inserts at its start (existing behavior).
-        liveFrom = liveTo = liveState.selection.from;
+        // A range selection snaps exactly like a non-blank caret: to the
+        // nearest valid drop target for this content. Raw-inserting at
+        // selection.from put the card MID-TEXT inside whatever the range
+        // touched, and replaceRange resolved that by splitting the host
+        // card — every split half must lead with a `tag` (schema), so
+        // ProseMirror synthesized empty ones: the field report's "2-3 blank
+        // tag lines after the card" (2026-07-11).
+        liveFrom = liveTo = nearestValidInsertPos(
+          liveState.doc,
+          liveState.selection.from,
+          slice.content,
+        );
       }
     }
     // A speech doc is a compiled artifact — flatten any live zone to plain

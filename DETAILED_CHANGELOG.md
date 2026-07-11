@@ -113,6 +113,20 @@ single-pane module state that is stale garbage in the workspace.
   RouteChoice and the select-speech-doc modal) restores it on close, so
   in-DOM overlays no longer drop the caret to `<body>` either. Zero native
   alert/confirm/prompt calls remain under src/.
+- **Send-to-speech: range selections snap like carets**
+  (`speech-doc-send.ts`, regression matrix in
+  `tests/editor/speech-send-insert.test.ts`). insertSpeechSlice's
+  range-selection branch raw-inserted at `selection.from` — mid-text inside
+  whatever the leftover range touched — and `replaceRange` resolved that by
+  splitting the host card. The schema requires every card to lead with a
+  `tag`, so ProseMirror synthesized empty ones for each split half: the
+  field report's "single card F7'd puts 2-3 blank F7 lines after the card"
+  (2026-07-11). The branch now routes through `nearestValidInsertPos` like
+  the non-blank-caret case directly above it. Family audit: the receive-pill
+  insert (`inbox-insert.ts`) and the dropzone (`dropzone-ui.ts`) already
+  snapped via `nearestValidInsertPos`; the search palette reuses
+  insertSpeechSlice, so tilde / send-to-end / palette / cross-window /
+  cross-tab sends are all covered by the one fix.
 - **Dialog follow-ups from the sweep's field test** (`style.css`,
   `text-prompt.ts` call sites). (1) `.pmd-route-overlay` gets its own
   z-index (1400, scoped so the other overlay families keep their stacking):

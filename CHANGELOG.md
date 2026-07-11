@@ -166,6 +166,14 @@ remains **experimental** — keep your own saved copies.)
 - The Sessions list now says "saved …" instead of "last synced …" — the
   timestamp was always the local save time, which advances even offline.
 
+- **Sending a card no longer leaves blank tag lines behind.** If the speech
+  document happened to have a leftover text selection, a card sent with the
+  tilde key (or the dropzone / palette) was inserted mid-text, splitting the
+  card it landed in — and every split half grew an empty tag line to satisfy
+  the card structure ("2-3 blank tag lines after the card"). Sends into a
+  selection now snap to the nearest clean boundary, exactly like sends at a
+  cursor already did.
+
 - **Fixed the "can select but can't type" bug — for good.** Several flows
   (send-to-speech with no speech doc set, Verbatim Flow overwrite prompts,
   voice-model dialogs, various error notices) used the system's native
