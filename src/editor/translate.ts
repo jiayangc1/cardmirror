@@ -125,6 +125,7 @@ export const TRANSLATION_MARKER_NAMES: readonly string[] = [
   'OPUS 4.8',
   'SONNET 4.6',
   'HAIKU 4.5',
+  'OPENROUTER',
 ];
 
 /** Build the "[TRANSLATION BY X]" marker using the same delimiter the
@@ -147,11 +148,12 @@ export async function translateText(text: string): Promise<TranslateOutcome> {
 
   if (provider === 'anthropic') {
     const reply = await translateAnthropic(text, target);
+    const openrouter = settings.get('aiProvider') === 'openrouter';
     return {
       text: reply.text,
       truncated: reply.truncated,
-      provider: 'Anthropic',
-      markerName: modelMarkerName(resolveAiModel()),
+      provider: openrouter ? 'OpenRouter' : 'Anthropic',
+      markerName: openrouter ? 'OPENROUTER' : modelMarkerName(resolveAiModel()),
     };
   }
   if (provider === 'google') {

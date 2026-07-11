@@ -4,6 +4,8 @@ import {
   DEFAULT_MODEL,
   activeApiKey,
   aiConfigured,
+  callLlm,
+  LlmError,
 } from '../../src/editor/ai/llm.js';
 import { settings } from '../../src/editor/settings.js';
 
@@ -178,5 +180,27 @@ describe('aiConfigured', () => {
     settings.set('anthropicApiKey', 'sk-ant-test-key-123');
     settings.set('openrouterApiKey', ''); // inactive provider's key
     expect(aiConfigured()).toBe(true);
+  });
+});
+
+describe('callLlm (OpenRouter empty-model guard)', () => {
+  afterEach(() => {
+    settings.set('aiProvider', 'anthropic');
+    settings.set('openrouterApiKey', '');
+    settings.set('openrouterModel', '');
+    settings.set('aiFeaturesEnabled', false);
+  });
+
+  it('callLlm rejects with a model-kind LlmError when OpenRouter has no model set', async () => {
+    settings.set('aiFeaturesEnabled', true);
+    settings.set('aiProvider', 'openrouter');
+    settings.set('openrouterApiKey', 'sk-test');
+    settings.set('openrouterModel', '');
+    await expect(
+      callLlm({ apiKey: 'sk-test', messages: [{ role: 'user', content: 'hi' }] }),
+    ).rejects.toThrow(LlmError);
+    await expect(
+      callLlm({ apiKey: 'sk-test', messages: [{ role: 'user', content: 'hi' }] }),
+    ).rejects.toMatchObject({ kind: 'model' });
   });
 });
