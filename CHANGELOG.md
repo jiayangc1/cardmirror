@@ -202,6 +202,11 @@ remains **experimental** — keep your own saved copies.)
   to list the headings. It is now a collapsible outline with a filter box and
   keyboard navigation.
 
+- **Live views show up in read mode again.** They had been disappearing
+  entirely when read mode was on. A live view now reads exactly like the cards
+  it mirrors — headings, cites, and highlighted text — with its dotted rail
+  still visible so you can tell mirrored content from its source.
+
 ## 0.1.0-beta.11 — 2026-07-10
 
 > **Renamed — please read if you used "live zones."** The beta.10 "live zones"

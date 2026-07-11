@@ -324,6 +324,19 @@ single-pane module state that is stale garbage in the workspace.
   line (cursor ON a heading can no longer pick that section — an immediate
   cycle), and a section whose only content is dead windows is pickable
   (renders an empty window; cycles are still caught at render).
+- **Live views visible in read mode again** (`style.css` only). Read mode
+  hides all top-level doc children (`.pmd-read-mode .ProseMirror > * {
+  display: none }`) and re-shows a whitelist (pocket/hat/block/card/
+  analytic_unit/`.pmd-transclusion`). Before the transclusion
+  re-architecture (286372f) intra-doc live content was a `transclusion_ref`
+  (`.pmd-transclusion`) and rode the zone whitelist; the re-architecture
+  introduced `self_ref` / `.pmd-self-ref` without teaching the read-mode
+  CSS about it, so top-level live views vanished wholesale. Fix mirrors the
+  zone rules: re-show `.pmd-self-ref` + its body (rail kept, like the
+  zone's), hide the missing-source note (the glyph is already hidden via
+  its shared `pmd-transclusion-glyph-btn` class). The mirrored children are
+  real editor content, so the depth-independent card rules and the
+  keep/hide text decorations apply inside with no plugin change.
 
 ## 0.1.0-beta.11 — 2026-07-10
 

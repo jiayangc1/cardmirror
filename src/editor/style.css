@@ -5017,6 +5017,20 @@ html.pmd-nav-flat .pmd-nav-type-analytic:hover .pmd-nav-label {
   display: none;
 }
 
+/* Live view (self_ref): same treatment as the zone above. Re-show the window +
+   its body so the mirrored cards get the normal read-mode card rules (its rail
+   stays, like the zone's); hide its chrome — the glyph is already hidden by the
+   pmd-transclusion-glyph-btn rule, the missing-source note here. */
+.pmd-read-mode .ProseMirror > .pmd-self-ref {
+  display: block;
+}
+.pmd-read-mode .pmd-self-ref > .pmd-self-ref-body {
+  display: block;
+}
+.pmd-read-mode .pmd-self-ref-note {
+  display: none;
+}
+
 /* Inside a card: keep tag, cite_paragraph, in-card analytic, and the
    condensed-flow body. Hide undertags. */
 .pmd-read-mode .pmd-card > * { display: none; }
