@@ -65,7 +65,7 @@ describe('ended-room join strictness (410)', () => {
     // already-ended session — the UI mounted a blank doc, toasted "Joined
     // the session", and persisted a phantom resumable record.
     const { session: host, shareCode } = await CollabSession.host({
-      pmDoc: simpleDoc(),
+      pmDoc: simpleDoc('a session that will end before the join'),
       client,
       ...FAST,
     });
