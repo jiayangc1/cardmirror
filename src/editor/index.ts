@@ -5735,6 +5735,19 @@ function mountFreshBlankDoc(): void {
  *  open) this is a no-op — the OS close button / quit path owns
  *  actually closing the window. */
 async function handleCloseDocToHome(): Promise<void> {
+  try {
+    await handleCloseDocToHomeInner();
+  } catch (err) {
+    // Fail safe: a crash mid-flow reads as "didn't close" with a reason —
+    // not a Home click that silently does nothing. The doc stays open.
+    console.error('Close-to-home crashed:', err);
+    void alertDialog(
+      `Couldn't close this document: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+}
+
+async function handleCloseDocToHomeInner(): Promise<void> {
   if (homeScreen.isVisible()) return;
   const finish = (): void => {
     mountFreshBlankDoc();

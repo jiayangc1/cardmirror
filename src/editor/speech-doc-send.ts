@@ -251,82 +251,92 @@ export function insertSpeechSlice(
   // stray blank line above it.
 
   setTimeout(() => {
-    // The speech doc can be closed in the 0 ms defer window; dispatching
-    // into a destroyed view throws. ProseMirror nulls `docView` on
-    // destroy — bail if that happened.
-    if ((speechView as unknown as { docView: unknown }).docView == null) return;
-    const liveState = speechView.state;
-    let liveFrom: number;
-    let liveTo: number;
-    if (atEnd) {
-      const lastChild = liveState.doc.lastChild;
-      if (lastChild && lastChild.isTextblock && lastChild.content.size === 0) {
-        liveTo = liveState.doc.content.size;
-        liveFrom = liveTo - lastChild.nodeSize;
+    try {
+      // The speech doc can be closed in the 0 ms defer window; dispatching
+      // into a destroyed view throws. ProseMirror nulls `docView` on
+      // destroy — bail if that happened.
+      if ((speechView as unknown as { docView: unknown }).docView == null) return;
+      const liveState = speechView.state;
+      let liveFrom: number;
+      let liveTo: number;
+      if (atEnd) {
+        const lastChild = liveState.doc.lastChild;
+        if (lastChild && lastChild.isTextblock && lastChild.content.size === 0) {
+          liveTo = liveState.doc.content.size;
+          liveFrom = liveTo - lastChild.nodeSize;
+        } else {
+          liveFrom = liveState.doc.content.size;
+          liveTo = liveFrom;
+        }
       } else {
-        liveFrom = liveState.doc.content.size;
-        liveTo = liveFrom;
+        const $from = liveState.selection.$from;
+        const isEmpty = liveState.selection.empty;
+        const inBlank =
+          isEmpty &&
+          $from.depth >= 1 &&
+          $from.parent.isTextblock &&
+          $from.parent.content.size === 0;
+        if (inBlank) {
+          // Fill the empty placeholder line rather than insert beside it (which
+          // would leave a stray blank line above the sent card).
+          liveFrom = $from.before($from.depth);
+          liveTo = $from.after($from.depth);
+        } else if (isEmpty) {
+          // Snap to the nearest valid drop target for THIS content — a whole card
+          // to a doc-level gap, card content inside the enclosing card — so it
+          // lands as a clean sibling instead of splitting the cursor's card,
+          // exactly where a drag-and-drop would drop it.
+          liveFrom = liveTo = nearestValidInsertPos(
+            liveState.doc,
+            liveState.selection.from,
+            slice.content,
+          );
+        } else {
+          // A range selection snaps exactly like a non-blank caret: to the
+          // nearest valid drop target for this content. Raw-inserting at
+          // selection.from put the card MID-TEXT inside whatever the range
+          // touched, and replaceRange resolved that by splitting the host
+          // card — every split half must lead with a `tag` (schema), so
+          // ProseMirror synthesized empty ones: the field report's "2-3 blank
+          // tag lines after the card" (2026-07-11).
+          liveFrom = liveTo = nearestValidInsertPos(
+            liveState.doc,
+            liveState.selection.from,
+            slice.content,
+          );
+        }
       }
-    } else {
-      const $from = liveState.selection.$from;
-      const isEmpty = liveState.selection.empty;
-      const inBlank =
-        isEmpty &&
-        $from.depth >= 1 &&
-        $from.parent.isTextblock &&
-        $from.parent.content.size === 0;
-      if (inBlank) {
-        // Fill the empty placeholder line rather than insert beside it (which
-        // would leave a stray blank line above the sent card).
-        liveFrom = $from.before($from.depth);
-        liveTo = $from.after($from.depth);
-      } else if (isEmpty) {
-        // Snap to the nearest valid drop target for THIS content — a whole card
-        // to a doc-level gap, card content inside the enclosing card — so it
-        // lands as a clean sibling instead of splitting the cursor's card,
-        // exactly where a drag-and-drop would drop it.
-        liveFrom = liveTo = nearestValidInsertPos(
-          liveState.doc,
-          liveState.selection.from,
-          slice.content,
-        );
-      } else {
-        // A range selection snaps exactly like a non-blank caret: to the
-        // nearest valid drop target for this content. Raw-inserting at
-        // selection.from put the card MID-TEXT inside whatever the range
-        // touched, and replaceRange resolved that by splitting the host
-        // card — every split half must lead with a `tag` (schema), so
-        // ProseMirror synthesized empty ones: the field report's "2-3 blank
-        // tag lines after the card" (2026-07-11).
-        liveFrom = liveTo = nearestValidInsertPos(
-          liveState.doc,
-          liveState.selection.from,
-          slice.content,
-        );
-      }
-    }
-    // A speech doc is a compiled artifact — flatten any live zone to plain
-    // content rather than carry a link into it.
-    const rewritten = rewriteHeadingIds(flattenZonesInSlice(slice));
-    let tr = liveState.tr;
-    tr.replaceRange(liveFrom, liveTo, rewritten);
-    const sliceEndPos = tr.mapping.map(liveTo);
-    const trailer = schema.nodes['paragraph']!.create();
-    tr.insert(sliceEndPos, trailer);
-    tr.setSelection(TextSelection.create(tr.doc, sliceEndPos + 1));
-    tr = closeHistory(tr);
-    tr.setMeta('addToHistory', true);
+      // A speech doc is a compiled artifact — flatten any live zone to plain
+      // content rather than carry a link into it.
+      const rewritten = rewriteHeadingIds(flattenZonesInSlice(slice));
+      let tr = liveState.tr;
+      tr.replaceRange(liveFrom, liveTo, rewritten);
+      const sliceEndPos = tr.mapping.map(liveTo);
+      const trailer = schema.nodes['paragraph']!.create();
+      tr.insert(sliceEndPos, trailer);
+      tr.setSelection(TextSelection.create(tr.doc, sliceEndPos + 1));
+      tr = closeHistory(tr);
+      tr.setMeta('addToHistory', true);
 
-    speechView.dispatch(tr.scrollIntoView());
-    speechView.focus();
-    // Fire destination-side hook (e.g., nav-panel collapse refresh)
-    // BEFORE the sender's afterInsert so the dest's nav is in its
-    // final state when the sender (in same-window cases) does any
-    // focus-followup work.
-    const resolver = getSpeechDocResolver();
-    const destUid = resolver.uidForView(speechView);
-    if (destUid) resolver.notifySliceLanded(destUid);
-    afterInsert?.(speechView);
+      speechView.dispatch(tr.scrollIntoView());
+      speechView.focus();
+      // Fire destination-side hook (e.g., nav-panel collapse refresh)
+      // BEFORE the sender's afterInsert so the dest's nav is in its
+      // final state when the sender (in same-window cases) does any
+      // focus-followup work.
+      const resolver = getSpeechDocResolver();
+      const destUid = resolver.uidForView(speechView);
+      if (destUid) resolver.notifySliceLanded(destUid);
+      afterInsert?.(speechView);
+    } catch (err) {
+      // The insert runs in a 0 ms defer — no caller try/catch can reach a
+      // throw here, and on a cross-window send the sender was already told
+      // "delivered". A failed insert mid-round must be LOUD, not a lost card.
+      console.error('Speech insert failed:', err);
+      void alertDialog(
+        `Couldn't insert the card into the speech document: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   }, 0);
 }
 

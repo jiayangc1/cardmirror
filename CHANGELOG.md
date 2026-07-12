@@ -34,6 +34,14 @@ see `DETAILED_CHANGELOG.md`.
   readable draft even if one journal is unreadable, telling you about any
   document it couldn't restore instead of skipping it silently.
 
+- **Sending a card can no longer fail silently, and closing a document
+  always responds.** If inserting a sent card into the speech document fails
+  for any reason, both you and the error now get a clear message instead of
+  the card quietly never arriving (the send flow used to report "delivered"
+  even if the far end choked). And an unexpected error while closing a
+  document — the Home button, or a pane's ✕ in three-pane — now shows why and
+  leaves the document safely open, instead of a click that does nothing.
+
 - **Autosave failures are no longer silent.** When an autosave can't write
   (stale path, permissions, full disk), CardMirror now shows a toast the
   first time it happens, and the autosave button turns red with a solid

@@ -847,6 +847,21 @@ class Slot {
    *  (or empties the slot). Prompts for save / discard / cancel if
    *  the doc has unsaved changes; clean docs close immediately. */
   async closeVisible(opts?: { modeSwitch?: boolean }): Promise<boolean> {
+    try {
+      return await this.closeVisibleInner(opts);
+    } catch (err) {
+      // Fail safe: a crash mid-close must read as "didn't close" (false)
+      // with a visible reason — not a silently dead ✕ click. Same
+      // never-reject contract as the hardened save flows.
+      console.error('Pane close crashed:', err);
+      void alertDialog(
+        `Couldn't close this document: ${err instanceof Error ? err.message : err}`,
+      );
+      return false;
+    }
+  }
+
+  private async closeVisibleInner(opts?: { modeSwitch?: boolean }): Promise<boolean> {
     const idx = this.visibleIndex;
     if (idx < 0) return false;
     const closing = this.stack[idx]!;

@@ -7,6 +7,27 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Fail-safe hardening round 3: speech insert, close-to-home, pane close**
+  (`speech-doc-send.ts`, `index.ts`, `multi-pane-shell.ts`). Swept the
+  remaining high-sensitivity entry points for the invisible-exception class.
+  (1) `insertSpeechSlice` runs its ENTIRE insert in a 0 ms `setTimeout` —
+  no caller try/catch can reach a throw there, and on a cross-window send
+  the sender is told "delivered" before the receiving window inserts: a
+  mid-round throw = card silently lost. The deferred body is now wrapped —
+  failure alerts in the receiving window ("Couldn't insert the card into
+  the speech document: …"). Covers every caller at the chokepoint: tilde
+  send, palette insert, dropzone pull, and both cross-window transports.
+  (2) `handleCloseDocToHome` (Home button) and (3) multi-pane
+  `closeVisible` (pane ✕, stack closes, quit sweep) get the same
+  never-reject wrapper as the save flows: crash → alert + "didn't close"
+  (false), doc stays open. AUDITED-CLEAN, no change needed: mode-switch
+  window coordination on both platforms (web `handlePleaseClose` catches
+  journaling failures + initiator has REPORT_CAP_MS; Electron main
+  destroys hung windows after a 10 s timeout and the renderer handler
+  try/catches journaling and closes regardless), and the send-side
+  transports (deserialize failures caught; web acks gate a 600 ms
+  "isn't open in any tab" alert).
+
 - **Fail-safe hardening: close/quit, mode switch, startup recovery**
   (`index.ts`). Follow-up to the error-surfacing pass — these three flows
   needed to fail SAFE, not just loud, because their half-completed state is
