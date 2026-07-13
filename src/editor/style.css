@@ -4766,13 +4766,19 @@ body.pmd-nav-resize-active {
   border-bottom-right-radius: 2px;
 }
 
-/* Drop indicator: a thin gap between nav entries when a drag is
-   active. The hovered slot is highlighted. */
+/* Drop indicator: a ZERO-HEIGHT anchor between nav entries while a
+   drag is active. Takes no layout space, so opening drop slots never
+   spreads the outline or shifts the items below it (the old 4px
+   spacers accumulated down long outlines and visibly displaced the
+   bottom). The hovered slot paints a thin bar via ::before, OVERLAID
+   on the boundary between the two neighboring items. */
 .pmd-nav-drop-indicator {
-  height: 4px;
+  height: 0;
   margin: 0;
   pointer-events: none;
   position: relative;
+  /* Paint the active bar above the (static) nav items' backgrounds. */
+  z-index: 1;
 }
 
 .pmd-nav-drop-indicator-active::before {
@@ -4780,7 +4786,8 @@ body.pmd-nav-resize-active {
   position: absolute;
   left: 4px;
   right: 4px;
-  top: 1px;
+  /* Center the 2px bar on the item boundary the anchor sits at. */
+  top: -1px;
   height: 2px;
   background: var(--pmd-c-drop);
   border-radius: 1px;

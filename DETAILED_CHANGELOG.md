@@ -63,6 +63,19 @@ in each release, see `CHANGELOG.md`.
   behavior on a stale-path save). Electron-only — the web
   `showSaveFilePicker` has no equivalent for a gone file.
 
+- **Nav-pane drop indicators are overlays, not spacers** (`nav-panel.ts`,
+  `style.css`). Drop slots used to render as 4px in-flow spacer divs
+  between entries, which accumulated down the outline — on a long doc
+  the bottom entries visibly jumped at drag start, and an entire
+  transform-compensation mechanism existed just to hold the dragged
+  item still under the cursor (counting indicators above it and
+  `translateY`-ing it back). Indicators are now zero-height anchors:
+  no layout space, no shift, and the hovered slot's bar paints via
+  `::before` centered on the item boundary (`top: -1px`, z-indexed
+  above the item backgrounds). The compensation machinery and its
+  drag-end cleanup are deleted; slot hit-testing is untouched (it was
+  already geometric — nearest boundary within a 24px band).
+
 - **Edits made while a save is writing no longer marked clean** (new
   `src/editor/save-clean-token.ts`; `index.ts`, `multi-pane-shell.ts`;
   tests in `tests/editor/save-clean-token.test.ts`). Every save is

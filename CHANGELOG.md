@@ -30,6 +30,13 @@ see `DETAILED_CHANGELOG.md`.
     half-written file, and rapid overlapping saves of the same file
     can no longer collide.
 
+- **Dragging in the navigation pane no longer shifts the outline.**
+  Drop targets used to open up as small gaps that pushed every entry
+  below them further down — noticeably so near the bottom of a long
+  outline. The blue drop bar now appears directly on the boundary
+  between entries instead, and the outline stays perfectly still while
+  you drag.
+
 ### Fixed
 
 - Keystrokes typed in the moment a save was still writing to disk are no
