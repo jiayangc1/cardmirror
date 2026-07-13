@@ -6555,6 +6555,38 @@ body.pmd-steady-cursor .pmd-italic-caret,
   color: var(--pmd-c-text-muted);
 }
 
+/* Linked: the confirmation reads as an affirmative state, not muted
+   helper text, and leads with a green check. */
+.pmd-pairing-account-status-connected {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  color: var(--pmd-c-text);
+  font-weight: 600;
+}
+
+.pmd-pairing-account-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: var(--pmd-c-success);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.pmd-pairing-account-lapsed {
+  flex-basis: 100%;
+  font-weight: 400;
+  color: var(--pmd-c-warning);
+}
+
 .pmd-pairing-account-link {
   font-size: 0.82rem;
 }

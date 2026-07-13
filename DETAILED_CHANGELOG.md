@@ -56,6 +56,11 @@ in each release, see `CHANGELOG.md`.
   failures leave it), reports it through `accountStatus()`/entitlement
   broadcasts, and the settings row appends an inactive-membership notice
   (previously the `lapsed` broadcast existed but nothing displayed it).
+  The connected state was also cleaned up: `renderStatus` hides the
+  connect-page link, the code box, and the Connect button once linked
+  (dead weight in that state) and shows just a green-check "Connected as
+  <email>" confirmation plus Disconnect; the disconnected state restores
+  them, and a lapse notice wraps below either way.
 
 - **LLM client hardening** (`llm.ts`; 24 tests in
   `tests/editor/llm-errors.test.ts`). Both providers now share a failure

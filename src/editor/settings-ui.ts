@@ -2101,6 +2101,7 @@ function buildPairingAccountEditor(row: HTMLElement): HTMLElement {
   disconnectBtn.type = 'button';
   disconnectBtn.className = 'pmd-settings-btn';
   disconnectBtn.textContent = 'Disconnect';
+  disconnectBtn.hidden = true; // shown only in the connected state
   controls.appendChild(disconnectBtn);
   wrap.appendChild(controls);
 
@@ -2114,22 +2115,43 @@ function buildPairingAccountEditor(row: HTMLElement): HTMLElement {
     email?: string;
     lapsed?: boolean;
   }): void {
-    // The link is durable — the short-lived credential behind it rotates
-    // itself, so no expiry date here: it reads like a disconnection
-    // deadline when it's an implementation detail.
-    if (st.connected) {
-      const who = st.email ? ` as ${st.email}` : '';
-      status.textContent = `Connected${who} — stays linked; the app re-authorizes itself automatically.`;
-      disconnectBtn.hidden = false;
+    // Connected: this machine is already linked, so the connect-page
+    // link, the code box, and Connect are all dead weight — hide them
+    // and show a confirmation + Disconnect only. Disconnected: the
+    // reverse. (The link is durable and self-renewing, so no expiry
+    // date — it reads like a deadline when it's an implementation
+    // detail.)
+    const connected = st.connected;
+    linkRow.hidden = connected;
+    input.hidden = connected;
+    connectBtn.hidden = connected;
+    disconnectBtn.hidden = !connected;
+    status.classList.toggle('pmd-pairing-account-status-connected', connected);
+
+    status.replaceChildren();
+    if (connected) {
+      const check = document.createElement('span');
+      check.className = 'pmd-pairing-account-check';
+      check.setAttribute('aria-hidden', 'true');
+      check.textContent = '✓';
+      status.appendChild(check);
+      status.appendChild(
+        document.createTextNode(st.email ? `Connected as ${st.email}` : 'Connected'),
+      );
     } else {
-      status.textContent =
-        'Not linked — and nothing requires it during the beta; every feature works without an account.';
-      disconnectBtn.hidden = true;
+      status.appendChild(
+        document.createTextNode(
+          'Not linked — and nothing requires it during the beta; every feature works without an account.',
+        ),
+      );
     }
     if (st.lapsed) {
-      status.textContent +=
-        ' ⚠ Debate Decoded reports this membership inactive, so the link will pause soon. ' +
+      const warn = document.createElement('div');
+      warn.className = 'pmd-pairing-account-lapsed';
+      warn.textContent =
+        '⚠ Debate Decoded reports this membership inactive, so the link will pause soon. ' +
         '(Features are unaffected during the beta.)';
+      status.appendChild(warn);
     }
   }
 
