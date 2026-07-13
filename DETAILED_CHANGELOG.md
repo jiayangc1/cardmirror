@@ -5,7 +5,7 @@ behavior, rationale, and (where useful) the implementation context
 behind a change. For a shorter, jargon-free summary of what's new
 in each release, see `CHANGELOG.md`.
 
-## Unreleased
+## 0.1.0-beta.13 — 2026-07-12
 
 - **Global error surface: benign ResizeObserver noise filtered**
   (`error-surface.ts`). Chromium dispatches "ResizeObserver loop
