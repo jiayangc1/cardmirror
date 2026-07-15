@@ -3,7 +3,7 @@
  * styles (F8–F11), gap fixing, keymap/alias registry, paste helpers.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { EditorState, TextSelection } from 'prosemirror-state';
 import type { Command } from 'prosemirror-state';
 import { Fragment, Slice } from 'prosemirror-model';
@@ -38,7 +38,7 @@ import {
   getRibbonCommand,
   type RibbonContext,
 } from '../../src/editor/ribbon-commands.js';
-import { SETTING_METADATA } from '../../src/editor/settings.js';
+import { SETTING_METADATA, settings } from '../../src/editor/settings.js';
 import {
   buildPlainTextSlice,
   normalizeClipboardTextForPaste,
@@ -1241,6 +1241,13 @@ function setCursorIn(doc: ReturnType<typeof makeDoc>, find: (n: import('prosemir
 }
 
 describe('copyPreviousCite', () => {
+  // These tests pin the SOURCE-GROUP semantics (which cites a source
+  // contributes), so they run in copy-the-whole-group mode; the
+  // default nearest-only narrowing has its own suite in
+  // copy-last-cite-bug.test.ts.
+  beforeEach(() => settings.set('copyPreviousCiteNearestOnly', false));
+  afterEach(() => settings.set('copyPreviousCiteNearestOnly', true));
+
   it('no-op when there is no previous cite anywhere', () => {
     const doc = makeDoc([cardWithChildren(tag('T'), cardBody('b'))]);
     const state = setCursorIn(doc, (n) => n.type.name === 'tag');
