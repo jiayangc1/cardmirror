@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { EditorState } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import { schema, newHeadingId } from '../../src/schema/index.js';
-import { NavigationPanel } from '../../src/editor/nav-panel.js';
+import { NavigationPanel, installNavResizeHandle } from '../../src/editor/nav-panel.js';
 import { settings } from '../../src/editor/settings.js';
 
 const navWidthVar = (): string =>
@@ -45,6 +45,18 @@ describe('nav width is per-window', () => {
     panel.destroy();
     view.destroy();
     settings.set('navWidth', 300);
+  });
+
+  it('double-clicking the resize handle resets to the factory default and persists it', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const handle = installNavResizeHandle(host);
+    document.documentElement.style.setProperty('--nav-width', '512px');
+    settings.set('navWidth', 512);
+    handle.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(navWidthVar()).toBe('300px'); // applied locally…
+    expect(settings.get('navWidth')).toBe(300); // …and persisted as the default
+    host.remove();
   });
 
   it('late panel construction does not re-pull the setting (multi-pane leak guard)', () => {

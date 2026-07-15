@@ -14,7 +14,7 @@ import type { EditorView } from 'prosemirror-view';
 import { type Node as PMNode, DOMSerializer } from 'prosemirror-model';
 import { NodeSelection, TextSelection } from 'prosemirror-state';
 import { type Mappable } from 'prosemirror-transform';
-import { settings } from './settings.js';
+import { settings, SETTINGS_DEFAULTS } from './settings.js';
 import { registerOpenContextMenu, clearOpenContextMenu } from './context-menu-registry.js';
 import { dragController, type DragItem, type DragSurface } from './drag-controller.js';
 import { isTransclusionNode, zoneIdentity } from './transclusion.js';
@@ -123,7 +123,18 @@ export function installNavResizeHandle(host: HTMLElement): HTMLElement {
   handle.className = 'pmd-nav-resize-handle';
   handle.setAttribute('aria-label', 'Resize outline panel');
   handle.setAttribute('role', 'separator');
+  handle.title = 'Drag to resize — double-click to reset';
   host.appendChild(handle);
+
+  // Double-click snaps back to the factory default width. Persisted
+  // like a drag: any manual width change is also the default for
+  // future windows (one rule, no special cases). The two click/
+  // release pairs that precede dblclick each run the drag-end persist
+  // with an unchanged width — harmless no-ops.
+  handle.addEventListener('dblclick', () => {
+    applyNavWidthCss(SETTINGS_DEFAULTS.navWidth);
+    settings.set('navWidth', SETTINGS_DEFAULTS.navWidth);
+  });
 
   let dragging = false;
   let startX = 0;

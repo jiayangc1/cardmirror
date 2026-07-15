@@ -17,6 +17,9 @@ in each release, see `CHANGELOG.md`.
   another window persisted since); drags apply locally and persist the
   value only as the default for future windows. The single-doc panel
   and multi-pane rail still share `--nav-width` within a window.
+  Double-clicking the handle resets to the factory default
+  (`SETTINGS_DEFAULTS.navWidth`), persisted like a drag — one rule:
+  any manual width change is also the default for future windows.
 
 - **Restart toggle is scope-aware** (`numbering-commands.ts`,
   `nav-panel.ts`; tests in `numbering-commands.test.ts` +
