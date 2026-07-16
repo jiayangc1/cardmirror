@@ -85,13 +85,19 @@ interface SelectionAnchor {
    *  anchor unit is never shrunk below its initial extent. */
   fixed: boolean;
   /** Head-trim tracking for dynamic (single-click) anchors: the
-   *  current advancing run's furthest active position + the previous
-   *  active position, per selection side. Reversing INSIDE the unit
-   *  containing `max` → character-precise head; retreating past that
-   *  unit resumes word snapping; advancing after a retreat RESTARTS
-   *  the run at the turn point (the old max is deliberately
-   *  forgotten). Reset on side flips and on re-entering W0. */
-  run?: { side: 1 | -1; max: number; prev: number } | null;
+   *  current advancing run's furthest active position, the previous
+   *  active position, and whether the head is in trim (character-
+   *  precise) mode — per selection side. Trim mode is entered only on
+   *  OBSERVED BACKWARD MOVEMENT inside the unit containing `max`
+   *  (position-vs-max alone can't distinguish "nudged back to the
+   *  max" from "stationary pointer re-reporting the max", which
+   *  caused snap↔precise flicker); it persists through fine-tuning in
+   *  both directions inside that unit, and exits when the pointer
+   *  goes strictly beyond `max` or retreats past the unit. Advancing
+   *  after a retreat RESTARTS the run at the turn point (the old max
+   *  is deliberately forgotten). Reset on side flips and on
+   *  re-entering W0. */
+  run?: { side: 1 | -1; max: number; prev: number; trimming: boolean } | null;
   /** Freshness counter. Bumped on every selection this plugin
    *  dispatches; set to -1 by the `apply` hook when an external
    *  transaction moves the selection, so `effectiveAnchor` re-derives
@@ -537,24 +543,38 @@ export function extendActiveEndTo(
   // Head-trim state machine (see the `run` field's doc comment).
   if (!anchor.run || anchor.run.side !== side) {
     // Fresh run (first move onto this side): snap.
-    anchor.run = { side, max: activePos, prev: activePos };
+    anchor.run = { side, max: activePos, prev: activePos, trimming: false };
     wordSnap();
     return;
   }
   const run = anchor.run;
-  // STRICTLY beyond: returning to exactly the furthest point counts as
-  // fine-tuning (stays precise below), not advancing.
+  if (activePos === run.prev) {
+    // Stationary pointer re-reporting the same position: strictly a
+    // no-op. Re-deriving state from an unchanged position is what
+    // caused the snap↔precise flicker.
+    return;
+  }
   const beyondMax = side === 1 ? activePos > run.max : activePos < run.max;
   if (beyondMax) {
+    // Strictly past the run's furthest point → advancing: snap.
     run.max = activePos;
+    run.trimming = false;
     wordSnap();
   } else {
     const maxUnit = bareUnitAtDocPos(view, run.max) ?? { from: run.max, to: run.max };
     const insideMaxUnit = activePos >= maxUnit.from && activePos <= maxUnit.to;
     if (insideMaxUnit) {
-      // Reversed within the furthest word of this run → character-
-      // precise head; the anchor side keeps the FULL W0 edge.
-      dispatchSelection(view, side === 1 ? W0.from : W0.to, activePos, anchor);
+      // Inside the furthest word, at-or-behind the max. Enter trim
+      // mode only on an OBSERVED backward step; once trimming, both
+      // directions inside this word (including back to exactly the
+      // max) stay character-precise.
+      const movedBack = side === 1 ? activePos < run.prev : activePos > run.prev;
+      if (run.trimming || movedBack) {
+        run.trimming = true;
+        dispatchSelection(view, side === 1 ? W0.from : W0.to, activePos, anchor);
+      } else {
+        wordSnap();
+      }
     } else {
       // Retreated past the furthest word → snapped shrinking. The
       // moment the pointer advances again, the run RESTARTS here —
@@ -562,6 +582,7 @@ export function extendActiveEndTo(
       // precise wherever the user actually stops.
       const advancing = side === 1 ? activePos > run.prev : activePos < run.prev;
       if (advancing) run.max = activePos;
+      run.trimming = false;
       wordSnap();
     }
   }

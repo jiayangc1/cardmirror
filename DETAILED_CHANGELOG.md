@@ -17,8 +17,13 @@ in each release, see `CHANGELOG.md`.
   Retreating past that word resumes word-snapped shrinking; advancing
   after a retreat RESTARTS the run at the turn point, so the old max is
   forgotten and precision follows wherever the user actually stops
-  (the confirmed refinement). Returning to exactly the run max counts
-  as fine-tuning (stays precise) — only strictly-beyond advances snap.
+  (the confirmed refinement). Trim mode is an EXPLICIT state bit entered only on an observed
+  backward step — position-vs-max alone can't distinguish "nudged back
+  to the max" from "stationary pointer re-reporting the max", which
+  flickered snap↔precise mid-drag (first field test); stationary
+  re-reports are no-ops, and once trimming, both directions inside the
+  furthest word (including exactly the max) stay precise until the
+  pointer goes strictly beyond it.
   Runs reset on side flips and on re-entering W0; double/triple-click
   fixed granularities are untouched. `extendActiveEndTo` +
   `createPointAnchor` are exported so the tests drive the state machine

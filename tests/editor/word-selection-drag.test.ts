@@ -120,6 +120,46 @@ describe('head-trim during single-click word-snapped drags', () => {
     view.destroy();
   });
 
+  it('flicker regression: stationary pointer re-reports do NOT un-snap', () => {
+    const view = makeView();
+    const p = (o: number): number => bodyPos(view, o);
+    const anchor = createPointAnchor(view, p(2));
+    extendActiveEndTo(view, anchor, p(15)); // advancing mid-charlie → snap
+    expect(sel(view)).toEqual([p(ALPHA.from), p(CHARLIE.to)]);
+    // The browser re-reports the same position (no movement) — this
+    // used to flip to character precision and oscillate.
+    extendActiveEndTo(view, anchor, p(15));
+    extendActiveEndTo(view, anchor, p(15));
+    expect(sel(view)).toEqual([p(ALPHA.from), p(CHARLIE.to)]); // still snapped
+    view.destroy();
+  });
+
+  it('flicker regression: forward jitter while advancing stays snapped', () => {
+    const view = makeView();
+    const p = (o: number): number => bodyPos(view, o);
+    const anchor = createPointAnchor(view, p(2));
+    extendActiveEndTo(view, anchor, p(13));
+    extendActiveEndTo(view, anchor, p(14));
+    extendActiveEndTo(view, anchor, p(14));
+    extendActiveEndTo(view, anchor, p(15)); // strictly-forward sequence with repeats
+    expect(sel(view)).toEqual([p(ALPHA.from), p(CHARLIE.to)]); // snapped throughout
+    view.destroy();
+  });
+
+  it('trim mode requires an observed backward step, then persists both directions', () => {
+    const view = makeView();
+    const p = (o: number): number => bodyPos(view, o);
+    const anchor = createPointAnchor(view, p(2));
+    extendActiveEndTo(view, anchor, p(16)); // snap
+    extendActiveEndTo(view, anchor, p(14)); // observed backward → trim
+    expect(sel(view)).toEqual([p(ALPHA.from), p(14)]);
+    extendActiveEndTo(view, anchor, p(16)); // forward to exactly the max: fine-tuning
+    expect(sel(view)).toEqual([p(ALPHA.from), p(16)]); // still precise
+    extendActiveEndTo(view, anchor, p(17)); // strictly beyond → snapping resumes
+    expect(sel(view)).toEqual([p(ALPHA.from), p(CHARLIE.to)]);
+    view.destroy();
+  });
+
   it('re-entering W0 still resets to exact point selection (existing rule intact)', () => {
     const view = makeView();
     const p = (o: number): number => bodyPos(view, o);
