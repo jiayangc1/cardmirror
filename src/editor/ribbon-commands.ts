@@ -791,7 +791,10 @@ function cardToAnalyticUnitNode(card: PMNode): PMNode {
     if (index === 0) return;
     rest.push(toAnalyticUnitChild(child));
   });
-  return schema.nodes['analytic_unit']!.create(null, [analyticNode, ...rest]);
+  // Carry the numbering skeleton (numRole/numRestart) across the swap —
+  // card and analytic_unit share the same attr set, and a tag↔analytic
+  // restyle must not silently strip a card's number (field bug 2026-07-15).
+  return schema.nodes['analytic_unit']!.create(card.attrs, [analyticNode, ...rest]);
 }
 
 function convertCardToAnalyticUnit(
@@ -4225,7 +4228,8 @@ function analyticUnitToCardNode(unit: PMNode): PMNode {
     if (index === 0) return;
     rest.push(child);
   });
-  return schema.nodes['card']!.create(null, [tagNode, ...rest]);
+  // Same attr carry-through as cardToAnalyticUnitNode (numbering survives).
+  return schema.nodes['card']!.create(unit.attrs, [tagNode, ...rest]);
 }
 
 function convertAnalyticUnitToCard(

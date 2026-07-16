@@ -7,6 +7,14 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Numbering survives tag↔analytic swaps** (`ribbon-commands.ts`;
+  tests in `ribbon-commands.test.ts`). `cardToAnalyticUnitNode` /
+  `analyticUnitToCardNode` created the converted node with null attrs,
+  resetting `numRole`/`numRestart` to defaults. Both node types share
+  `numberingCardAttrs`, so the source node's attrs now pass straight
+  through — covering the single-card converts AND the selection-
+  spanning restyle path, which routes through the same two functions.
+
 - **Maximum text width (accessibility)** (`maxTextWidthPx` in
   `settings.ts`, 0 = off/default, clamp 400–3000px; `index.ts`,
   `settings-ui.ts`, `style.css`). Caps + centers the ProseMirror

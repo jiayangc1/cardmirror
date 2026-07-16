@@ -119,6 +119,10 @@ see `DETAILED_CHANGELOG.md`.
 
 ### Fixed
 
+- Turning a numbered tag into an analytic (or an analytic back into a
+  tag) no longer clears the card's numbering or restart flag — the
+  number carries across the swap.
+
 - Keystrokes typed in the moment a save was still writing to disk are no
   longer marked as saved — the document correctly stays "unsaved" until
   they actually reach the file, so closing right after a save can't skip

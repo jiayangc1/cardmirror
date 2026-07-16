@@ -4759,3 +4759,39 @@ describe('deleteCurrentHeading command', () => {
     expect(calls).toBe(1);
   });
 });
+
+describe('tag ↔ analytic swaps preserve the numbering skeleton', () => {
+  it('card → analytic_unit keeps numRole and numRestart', () => {
+    const card = schema.nodes['card']!.createChecked(
+      { numRole: 'number', numRestart: true },
+      [
+        schema.nodes['tag']!.create({ id: newHeadingId() }, schema.text('T')),
+        schema.nodes['card_body']!.create(null, schema.text('body')),
+      ],
+    );
+    const doc = makeDoc([card]);
+    const state = setCursorIn(doc, (n) => n.type.name === 'tag');
+    const next = apply(state, setAnalytic());
+    const unit = next!.doc.child(0);
+    expect(unit.type.name).toBe('analytic_unit');
+    expect(unit.attrs['numRole']).toBe('number');
+    expect(unit.attrs['numRestart']).toBe(true);
+  });
+
+  it('analytic_unit → card keeps numRole and numRestart', () => {
+    const unit = schema.nodes['analytic_unit']!.createChecked(
+      { numRole: 'sub', numRestart: true },
+      [
+        schema.nodes['analytic']!.create({ id: newHeadingId() }, schema.text('A')),
+        schema.nodes['card_body']!.create(null, schema.text('body')),
+      ],
+    );
+    const doc = makeDoc([unit]);
+    const state = setCursorIn(doc, (n) => n.type.name === 'analytic');
+    const next = apply(state, setTag());
+    const card = next!.doc.child(0);
+    expect(card.type.name).toBe('card');
+    expect(card.attrs['numRole']).toBe('sub');
+    expect(card.attrs['numRestart']).toBe(true);
+  });
+});
