@@ -7,6 +7,23 @@ in each release, see `CHANGELOG.md`.
 
 ## Unreleased
 
+- **Head-trim in dynamic drag selection** (`word-selection-plugin.ts`;
+  tests in `tests/editor/word-selection-drag.test.ts`). Single-click
+  drags tracked one escape hatch from word granularity: re-entering W0
+  (the origin word). The head now gets the symmetric one — a per-run
+  state machine (`anchor.run`: side + furthest position + previous
+  position) drops the head to character precision when the pointer
+  reverses inside the furthest word of the CURRENT advancing run.
+  Retreating past that word resumes word-snapped shrinking; advancing
+  after a retreat RESTARTS the run at the turn point, so the old max is
+  forgotten and precision follows wherever the user actually stops
+  (the confirmed refinement). Returning to exactly the run max counts
+  as fine-tuning (stays precise) — only strictly-beyond advances snap.
+  Runs reset on side flips and on re-entering W0; double/triple-click
+  fixed granularities are untouched. `extendActiveEndTo` +
+  `createPointAnchor` are exported so the tests drive the state machine
+  with synthetic position sequences.
+
 - **XML-illegal characters stripped at export** (`ooxml/xml.ts`; tests
   in `tests/export/xml-illegal-chars.test.ts`). Field report (J.Li,
   Baylor): a shared .docx wouldn't open — `word/document.xml` carried a
